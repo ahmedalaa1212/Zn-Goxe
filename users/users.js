@@ -5,7 +5,7 @@
 
 let uDataList = []; // البيانات الكاملة القادمة من السيرفر
 
-// 1. جلب البيانات من السيرفر
+// 1. جلب البيانات الحية المباشرة من السيرفر
 async function uFetch() {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
@@ -13,7 +13,9 @@ async function uFetch() {
     container.innerHTML = '<div class="u-loading">⏳ جاري جلب جميع البيانات الحية من الفايربيس...</div>';
 
     try {
-        let res = await fetch('/api/users?t=' + new Date().getTime());
+        let res = await fetch('/api/users?t=' + new Date().getTime(), {
+            cache: 'no-store'
+        });
         
         if (!res.ok) {
             throw new Error(`خطأ في السيرفر برقم: ${res.status}`);
@@ -34,12 +36,23 @@ async function uFetch() {
     }
 }
 
-// 2. تحديث شريط الإحصائيات التحليلي السريع
+// 2. تحديث شريط الإحصائيات التحليلي السريع بالبيانات الفعلية
 function uUpdateQuickStats(list) {
     let total = list.length;
     let active = list.filter(u => u.bot_active === true || u.bot_active === 'true').length;
-    let totalRefs = list.reduce((acc, u) => acc + (Number(u.invited_friends_count) || 0), 0);
-    let totalAds = list.reduce((acc, u) => acc + (Number(u.ads_watched) || 0), 0);
+    
+    // جمع الإحالات والإعلانات بدقة متناهية
+    let totalRefs = list.reduce((acc, u) => {
+        let count = Number(u.invited_friends_count);
+        if (isNaN(count)) count = 0;
+        return acc + count;
+    }, 0);
+
+    let totalAds = list.reduce((acc, u) => {
+        let count = Number(u.ads_watched);
+        if (isNaN(count)) count = 0;
+        return acc + count;
+    }, 0);
 
     const elTotal = document.getElementById('statTotalUsers');
     const elActive = document.getElementById('statActiveUsers');
@@ -52,21 +65,28 @@ function uUpdateQuickStats(list) {
     if (elAds) elAds.innerText = totalAds.toLocaleString('ar-EG');
 }
 
-// 3. دالة تحويل التاريخ لغرض التصفية الفعالة
+// 3. دالة تحويل وتحليل التاريخ لغرض التصفية الزمانية الدقيقة
 function parseUserDate(dateStr) {
     if (!dateStr) return null;
-    let d = new Date(dateStr);
+    
+    // دعم كائنات التواريخ والأرقام الزمنية
+    if (typeof dateStr === 'number') return new Date(dateStr);
+    
+    let str = String(dateStr).trim();
+    if (!str) return null;
+
+    let d = new Date(str);
     if (!isNaN(d.getTime())) return d;
 
-    // معالجة النصوص البرمجية أو الصياغات غير القياسية
-    let cleaned = String(dateStr).replace('Sept', 'Sep');
+    // معالجة النصوص البرمجية أو الصياغات غير القياسية (مثل Sept أو صيغ التايم ستامب)
+    let cleaned = str.replace('Sept', 'Sep').replace(' ', 'T');
     d = new Date(cleaned);
     return !isNaN(d.getTime()) ? d : null;
 }
 
-// 4. تطبيق جميع الفلاتر والفرز
+// 4. تطبيق جميع الفلاتر والفرز بالتفصيل
 function uApplyFilters() {
-    if (!uDataList || uDataList.length === 0) return;
+    if (!uDataList) return;
 
     let sortBy = document.getElementById('uSortBy')?.value || 'invited_friends_count';
     let limitVal = document.getElementById('uLimit')?.value || '5';
@@ -103,29 +123,32 @@ function uApplyFilters() {
     if (dateFromStr) {
         let fromDate = new Date(dateFromStr + 'T00:00:00');
         filtered = filtered.filter(u => {
-            let uDate = parseUserDate(u.joined_at || u.joinDate);
-            return uDate ? uDate >= fromDate : true;
+            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at);
+            return uDate ? uDate >= fromDate : false;
         });
     }
     if (dateToStr) {
         let toDate = new Date(dateToStr + 'T23:59:59');
         filtered = filtered.filter(u => {
-            let uDate = parseUserDate(u.joined_at || u.joinDate);
-            return uDate ? uDate <= toDate : true;
+            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at);
+            return uDate ? uDate <= toDate : false;
         });
     }
 
-    // د) ترتيب القائمة تنازلياً حسب المعيار المختار
+    // د) ترتيب القائمة تنازلياً حسب المعيار المختار مع معالجة الأرقام والمصفوفات
     filtered.sort((a, b) => {
         let valA = a[sortBy];
         let valB = b[sortBy];
 
-        // معالجة القوائم مثل المهام المكتملة
+        // في حالة وجود مصفوفات مثل المهام أو قوائم الإحالة
         if (Array.isArray(valA)) valA = valA.length;
         if (Array.isArray(valB)) valB = valB.length;
 
-        let numA = Number(valA) || 0;
-        let numB = Number(valB) || 0;
+        let numA = parseFloat(valA);
+        let numB = parseFloat(valB);
+
+        if (isNaN(numA)) numA = 0;
+        if (isNaN(numB)) numB = 0;
 
         return numB - numA;
     });
@@ -143,7 +166,6 @@ function uApplyFilters() {
 
 // 5. الاختصارات السريعة للتاريخ
 function uSetQuickDate(preset, btnEl) {
-    // تحديث الشكل النشط للأزرار
     document.querySelectorAll('.u-btn-preset').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
 
@@ -211,7 +233,7 @@ function fmtVal(val) {
 // 8. عنوان وصياغة معيار الفرز المختار
 function getCriteriaTitle(sortBy) {
     const titles = {
-        'invited_friends_count': 'عدد الإحالات',
+        'invited_friends_count': 'عدد الإحالات الحقيقي',
         'ads_watched': 'مشاهدة الإعلانات الإجمالية',
         'daily_streak': 'ستريك التسجيل اليومي',
         'daily_boost_rate': 'مكافأة/معدل التسريع',
@@ -237,7 +259,6 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
         return;
     }
 
-    // شريط العنوان العلوي للنتائج
     const countHeader = document.createElement('div');
     countHeader.className = 'u-count-tag';
     
@@ -255,7 +276,6 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
         let card = document.createElement('div');
         card.className = 'u-single-card';
 
-        // حساب القيمة البارزة المعروضة في الشارة
         let mainVal = u[sortBy];
         if (Array.isArray(mainVal)) mainVal = mainVal.length;
         if (mainVal === undefined || mainVal === null) mainVal = 0;
@@ -264,13 +284,12 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
             ? `${criteriaName}: ${mainVal}` 
             : `🏆 المركز #${index + 1} (${criteriaName}: ${mainVal})`;
 
-        // قائمة حقول البيانات الشاملة للمستخدم (سؤال / جواب)
         const fields = [
             { label: "🆔 ID المستخدم (Telegram ID):", value: u.tg_id || u.document_id },
             { label: "👤 اسم المستخدم (First Name):", value: u.first_name || "مستخدم" },
             { label: "📅 تاريخ الانضمام (Joined Date):", value: u.joined_at || u.joinDate },
-            { label: "👥 عدد الإحالات (Invited Friends):", value: u.invited_friends_count },
-            { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by },
+            { label: "👥 عدد الإحالات الحقيقي (Invited Friends):", value: u.invited_friends_count },
+            { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by || u.ref_by },
             { label: "💰 الرصيد الرئيسي (Balance):", value: u.balance },
             { label: "🪙 رصيد ZNX:", value: u.znx_balance },
             { label: "💵 رصيد الدولار (USD):", value: u.usd_balance ? `$${u.usd_balance}` : null },
@@ -303,7 +322,6 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
             { label: "✅ المهام المكتملة (Completed Tasks):", value: u.completed_tasks }
         ];
 
-        // بناء صفوف الجدول الموحد
         let rowsHtml = fields.map(f => {
             let valFormatted = f.isRawHTML ? (f.value || fmtVal(f.value)) : fmtVal(f.value);
             return `
