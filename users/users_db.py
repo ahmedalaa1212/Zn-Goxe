@@ -4,16 +4,16 @@ from firebase_admin import firestore
 import database
 
 def _serialize_firestore_val(val):
-    """دالة تحويل شاملة لمنع خطأ JSON crash مع تواريخ وكائنات الفايربيس"""
+    """دالة تحويل شاملة لمنع خطأ JSON crash مع تواريخ وكائنات الفايربيس وتحويلها إلى صياغة ISO قياسية"""
     if val is None:
         return ""
     if hasattr(val, 'isoformat'):
         return val.isoformat()
     elif isinstance(val, datetime):
-        return val.strftime('%Y-%m-%d %H:%M:%S')
+        return val.strftime('%Y-%m-%dT%H:%M:%S')
     elif hasattr(val, 'to_datetime'): # كائنات الفايربيس DatetimeWithNanoseconds
         try:
-            return val.to_datetime().strftime('%Y-%m-%d %H:%M:%S')
+            return val.to_datetime().strftime('%Y-%m-%dT%H:%M:%S')
         except Exception:
             return str(val)
     elif isinstance(val, dict):
@@ -34,6 +34,7 @@ def get_all_users_admin(limit=5000):
         docs = users_ref.stream()
 
         users_map = {}
+        doc_id_to_tg_id = {}
         referrals_by_inviter = {}
 
         # 1. تجميع البيانات وتجهيز المعرفات والتواريخ
@@ -50,6 +51,10 @@ def get_all_users_admin(limit=5000):
             user_data["tg_id"] = tg_id
             user_data["first_name"] = str(d.get("first_name") or d.get("name") or "مستخدم")
             
+            # ربط المعرفات لضمان اكتشاف الإحالات سواء استخدم الداعي document_id أو tg_id
+            doc_id_to_tg_id[doc_id] = tg_id
+            doc_id_to_tg_id[tg_id] = tg_id
+
             # توحيد تاريخ الانضمام من كافة المسميات المحتملة
             joined_at = (
                 d.get("joined_at") or 
@@ -89,16 +94,19 @@ def get_all_users_admin(limit=5000):
 
             users_map[tg_id] = user_data
 
-            # ربط الإحالة بالداعي إذا كان معرّف الداعي موجوداً
-            if referred_by and referred_by != "None":
-                if referred_by not in referrals_by_inviter:
-                    referrals_by_inviter[referred_by] = []
-                referrals_by_inviter[referred_by].append({
+        # 2. بناء قائمة الإحالات لكل داعي بكل دقة
+        for tg_id, u_data in users_map.items():
+            ref_by_raw = u_data.get("referred_by", "")
+            if ref_by_raw and ref_by_raw != "None":
+                inviter_tg_id = doc_id_to_tg_id.get(ref_by_raw, ref_by_raw)
+                if inviter_tg_id not in referrals_by_inviter:
+                    referrals_by_inviter[inviter_tg_id] = []
+                referrals_by_inviter[inviter_tg_id].append({
                     "tg_id": tg_id,
-                    "joined_at": user_data["joined_at"]
+                    "joined_at": u_data["joined_at"]
                 })
 
-        # 2. حساب وتحديث الإحالات الحقيقية لكل داعي
+        # 3. اعتماد وتحديث الإحالات المباشرة
         users_list = []
         for tg_id, u_data in users_map.items():
             refs_details = referrals_by_inviter.get(tg_id, [])
@@ -106,8 +114,6 @@ def get_all_users_admin(limit=5000):
             
             # إرفاق تفاصيل الإحالات المباشرة لاستخدامها في الفلترة الزمنية
             u_data["referrals_list"] = refs_details
-            
-            # اعتماد الأرقام الحقيقية المكتشفة في الوقت الفعلي
             u_data["invited_friends_count"] = max(u_data["invited_friends_count"], actual_count)
             
             users_list.append(u_data)
