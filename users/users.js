@@ -1,5 +1,5 @@
 // =========================================
-// ملف إدارة وعرض بيانات المستخدمين المحدث الشامل
+// ملف إدارة وعرض بيانات المستخدمين المحدث الشامل مع المدى الزمني الدقيق
 // users/users.js
 // =========================================
 
@@ -52,7 +52,7 @@ function uUpdateQuickStats(list) {
     if (elAds) elAds.innerText = totalAds.toLocaleString('ar-EG');
 }
 
-// 3. دالة تحويل وتحليل التاريخ لغرض التصفية الفعالة بكل الصيغ
+// 3. دالة تحليل التاريخ بجميع الصيغ وتحويله لمللي ثانية
 function parseUserDate(dateStr) {
     if (!dateStr) return null;
 
@@ -63,20 +63,61 @@ function parseUserDate(dateStr) {
         return !isNaN(d.getTime()) ? d : null;
     }
 
+    if (typeof dateStr === 'object') {
+        if (dateStr._seconds || dateStr.seconds) {
+            let secs = dateStr._seconds || dateStr.seconds;
+            let d = new Date(secs * 1000);
+            return !isNaN(d.getTime()) ? d : null;
+        }
+    }
+
     let str = String(dateStr).trim();
     if (!str) return null;
 
     let d = new Date(str);
     if (!isNaN(d.getTime())) return d;
 
-    let ISOstr = str.replace(' ', 'T').replace('Sept', 'Sep');
-    d = new Date(ISOstr);
+    let formatted = str.replace(' ', 'T').replace('Sept', 'Sep');
+    d = new Date(formatted);
     if (!isNaN(d.getTime())) return d;
 
     return null;
 }
 
-// 4. تطبيق جميع الفلاتر والفرز بالتفصيل الحقيقي
+// 4. دالة تنسيق التاريخ الكامل مع حساب المدى الزمني التفصيلي (أيام، ساعات، دقائق، ثواني)
+function formatDurationAgo(dateStr) {
+    let d = parseUserDate(dateStr);
+    if (!d) return '<span class="u-null">تاريخ غير محدد</span>';
+
+    let now = new Date();
+    let diffMs = now.getTime() - d.getTime();
+    if (diffMs < 0) diffMs = 0;
+
+    let totalSeconds = Math.floor(diffMs / 1000);
+    let days = Math.floor(totalSeconds / (24 * 3600));
+    let hours = Math.floor((totalSeconds % (24 * 3600)) / 3600);
+    let minutes = Math.floor((totalSeconds % 3600) / 60);
+    let seconds = totalSeconds % 60;
+
+    let YYYY = d.getFullYear();
+    let MM = String(d.getMonth() + 1).padStart(2, '0');
+    let DD = String(d.getDate()).padStart(2, '0');
+    let hh = String(d.getHours()).padStart(2, '0');
+    let mm = String(d.getMinutes()).padStart(2, '0');
+    let ss = String(d.getSeconds()).padStart(2, '0');
+
+    let fullFormatted = `${YYYY}-${MM}-${DD} ${hh}:${mm}:${ss}`;
+
+    let parts = [];
+    if (days > 0) parts.push(`${days} يوم`);
+    if (hours > 0) parts.push(`${hours} ساعة`);
+    if (minutes > 0) parts.push(`${minutes} دقيقة`);
+    parts.push(`${seconds} ثانية`);
+
+    return `<span class="u-date-val">${fullFormatted}</span> <br><small class="u-time-ago">(منذ ${parts.join(' و ')})</small>`;
+}
+
+// 5. تطبيق الفلاتر والتصفية الزمنية الدقيقة
 function uApplyFilters() {
     if (!uDataList || uDataList.length === 0) return;
 
@@ -111,7 +152,7 @@ function uApplyFilters() {
         filtered = filtered.filter(u => u.wallet_address && String(u.wallet_address).trim() !== '');
     }
 
-    // ج) تجهيز نطاق التاريخ بالمللي ثانية لضمان الدقة
+    // ج) تجهيز نطاق التاريخ بالمللي ثانية لضمان الدقة الكاملة
     let hasDateFilter = Boolean(dateFromStr || dateToStr);
     let fromTime = null;
     let toTime = null;
@@ -125,7 +166,7 @@ function uApplyFilters() {
         toTime = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
     }
 
-    // د) حساب إحالات كل مستخدم المقبولة ضمن نطاق التاريخ المحدد
+    // د) حساب إحالات كل مستخدم المقبولة ضمن نطاق التاريخ المحدد بالدقيقة والثانية
     filtered.forEach(u => {
         if (Array.isArray(u.referrals_list) && u.referrals_list.length > 0) {
             let refsInPeriod = u.referrals_list.filter(ref => {
@@ -155,7 +196,7 @@ function uApplyFilters() {
         });
     }
 
-    // و) ترتيب القائمة تنازلياً حسب المعيار المختار من القائمة
+    // و) ترتيب القائمة تنازلياً حسب المعيار المختار
     filtered.sort((a, b) => {
         let valA, valB;
 
@@ -187,7 +228,7 @@ function uApplyFilters() {
     uRender(displayList, filtered.length, sortBy, limitVal, searchTerm !== '', hasDateFilter);
 }
 
-// 5. الاختصارات السريعة للتاريخ
+// 6. الاختصارات السريعة للتاريخ
 function uSetQuickDate(preset, btnEl) {
     document.querySelectorAll('.u-btn-preset').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
@@ -222,7 +263,7 @@ function uSetQuickDate(preset, btnEl) {
     uApplyFilters();
 }
 
-// 6. إعادة ضبط جميع الفلاتر
+// 7. إعادة ضبط جميع الفلاتر
 function uResetFilters() {
     let sortSelect = document.getElementById('uSortBy');
     let limitSelect = document.getElementById('uLimit');
@@ -245,7 +286,7 @@ function uResetFilters() {
     uApplyFilters();
 }
 
-// 7. تنسيق القيم والخصائص
+// 8. تنسيق القيم والخصائص
 function fmtVal(val) {
     if (val === undefined || val === null || val === '') return '<span class="u-null">غير محدد</span>';
     if (typeof val === 'boolean') return val ? '<span class="u-true">نعم (True)</span>' : '<span class="u-false">لا (False)</span>';
@@ -253,7 +294,7 @@ function fmtVal(val) {
     return val;
 }
 
-// 8. عنوان وصياغة معيار الفرز المختار المطابق تماماً للنافذة
+// 9. عنوان وصياغة معيار الفرز المختار المطابق تماماً للنافذة
 function getCriteriaTitle(sortBy) {
     const titles = {
         'invited_friends_count': 'أفضل الإحالات (Invited Friends)',
@@ -271,7 +312,7 @@ function getCriteriaTitle(sortBy) {
     return titles[sortBy] || 'المعيار المختار';
 }
 
-// 9. عرض الكروت والجداول الموحدة للمستخدمين
+// 10. عرض الكروت والجداول الموحدة للمستخدمين مع تفاصيل الوقت والدقائق والثواني
 function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasDateFilter) {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
@@ -319,7 +360,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
         const fields = [
             { label: "🆔 ID المستخدم (Telegram ID):", value: u.tg_id || u.document_id },
             { label: "👤 اسم المستخدم (First Name):", value: u.first_name || "مستخدم" },
-            { label: "📅 تاريخ الانضمام (Joined Date):", value: u.joined_at },
+            { label: "📅 تاريخ ووقت الانضمام بالكامل:", value: formatDurationAgo(u.joined_at), isRawHTML: true },
             { label: "👥 عدد الإحالات الحقيقي (Invited Friends):", value: refDisplayVal },
             { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by },
             { label: "💰 الرصيد الرئيسي (Balance):", value: u.balance },
@@ -334,7 +375,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
             { label: "🏆 إجمالي الفوز بالألعاب (Total Wins):", value: u.total_wins },
             { label: "✅ المهام المكتملة (Completed Tasks):", value: u.completed_tasks },
             { label: "🌐 عنوان المحفظة (Wallet):", value: u.wallet_address ? `<span class="u-wallet-val">${u.wallet_address}</span>` : null, isRawHTML: true },
-            { label: "🕒 آخر نشاط (Last Active):", value: u.last_active },
+            { label: "🕒 تاريخ ووقت آخر نشاط:", value: formatDurationAgo(u.last_active), isRawHTML: true },
             { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active },
             { label: "🚫 حالة الحظر (Banned):", value: u.banned }
         ];
@@ -359,7 +400,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
                 <thead>
                     <tr>
                         <th>الخاصية / البيان</th>
-                        <th>القيمة المسجلة</th>
+                        <th>القيمة المسجلة والتوقيت</th>
                     </tr>
                 </thead>
                 <tbody>
