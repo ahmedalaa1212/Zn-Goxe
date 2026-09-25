@@ -1,22 +1,34 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from firebase_admin import firestore
 import database
 
 def _serialize_firestore_val(val):
-    """دالة تحويل شاملة لمنع خطأ JSON crash مع تواريخ وكائنات الفايربيس وتحويلها إلى صياغة ISO قياسية"""
+    """تحويل شامل لكل أنواع القيم والتواريخ لمنع خطأ JSON وضمان الاحتفاظ بالدقة الكاملة (الثواني والأجزاء)"""
     if val is None:
         return ""
     if hasattr(val, 'isoformat'):
         return val.isoformat()
     elif isinstance(val, datetime):
-        return val.strftime('%Y-%m-%dT%H:%M:%S')
+        if val.tzinfo is None:
+            val = val.replace(tzinfo=timezone.utc)
+        return val.isoformat()
     elif hasattr(val, 'to_datetime'): # كائنات الفايربيس DatetimeWithNanoseconds
         try:
-            return val.to_datetime().strftime('%Y-%m-%dT%H:%M:%S')
+            dt = val.to_datetime()
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.isoformat()
         except Exception:
             return str(val)
     elif isinstance(val, dict):
+        if "_seconds" in val or "seconds" in val:
+            secs = val.get("_seconds") if "_seconds" in val else val.get("seconds")
+            try:
+                dt = datetime.fromtimestamp(secs, tz=timezone.utc)
+                return dt.isoformat()
+            except Exception:
+                pass
         return {str(k): _serialize_firestore_val(v) for k, v in val.items()}
     elif isinstance(val, list):
         return [_serialize_firestore_val(v) for v in val]
@@ -29,7 +41,7 @@ def _serialize_firestore_val(val):
 def get_all_users_admin(limit=5000):
     """
     جلب كافة بيانات المستخدمين والقيام بتدقيق وحساب حقيقي ديناميكي مستخدم بمستخدم (User-by-User Audit)
-    لكافة الإحصائيات (الإحالات، الإعلانات، المهام، الألعاب، الأرصدة، وغيرها) لضمان أرقام حقيقية 100%
+    مع مراعاة الدقة الكاملة في التواريخ والأوقات بالثواني والدقائق والأيام لكل خيار
     """
     try:
         db = database.get_db()
@@ -50,7 +62,7 @@ def get_all_users_admin(limit=5000):
             
             user_data = {"document_id": doc_id}
             
-            # حفظ كافة الحقول الخام
+            # حفظ كافة الحقول الخام بعد التحويل القياسي
             for k, v in d.items():
                 user_data[k] = _serialize_firestore_val(v)
 
@@ -64,7 +76,7 @@ def get_all_users_admin(limit=5000):
             doc_id_to_tg_id[tg_id] = tg_id
 
             # توحيد واستخراج تاريخ الانضمام وتاريخ آخر نشاط بدقة عالية للتصفية الزمنية
-            joined_at = (
+            joined_at_raw = (
                 d.get("joined_at") or 
                 d.get("joinDate") or 
                 d.get("created_at") or 
@@ -73,19 +85,20 @@ def get_all_users_admin(limit=5000):
                 d.get("timestamp") or 
                 ""
             )
-            user_data["joined_at"] = _serialize_firestore_val(joined_at)
+            user_data["joined_at"] = _serialize_firestore_val(joined_at_raw)
 
-            last_active = (
+            last_active_raw = (
                 d.get("last_active_at") or 
                 d.get("last_active") or 
                 d.get("lastActive") or 
-                user_data["joined_at"]
+                d.get("last_claim_time") or 
+                joined_at_raw
             )
-            user_data["last_active"] = _serialize_firestore_val(last_active)
+            user_data["last_active"] = _serialize_firestore_val(last_active_raw)
 
             # === حساب وتحليل الأرقام والإحصائيات مباشرة لكل مستخدم ===
             
-            # أ) الإحالات المخزنة (جمع كافة الحقول المترادفة مثل invited_friends_count + referrals_count)
+            # أ) الإحالات المخزنة
             raw_invited = 0
             try:
                 raw_invited = int(d.get("invited_friends_count") or d.get("invitedFriendsCount") or 0)
@@ -140,12 +153,10 @@ def get_all_users_admin(limit=5000):
             except (ValueError, TypeError):
                 user_data["mined_points"] = 0.0
 
-            # ز) المهام المكتملة (تحليل ديناميكي للمصفوفات أو الأعداد)
+            # ز) المهام المكتملة
             completed_tasks_raw = d.get("completed_tasks") or d.get("completedTasks") or d.get("tasks")
             tasks_count = 0
-            if isinstance(completed_tasks_raw, list):
-                tasks_count = len(completed_tasks_raw)
-            elif isinstance(completed_tasks_raw, dict):
+            if isinstance(completed_tasks_raw, (list, dict)):
                 tasks_count = len(completed_tasks_raw)
             else:
                 try:
@@ -166,13 +177,12 @@ def get_all_users_admin(limit=5000):
             except (ValueError, TypeError):
                 user_data["total_wins"] = 0
 
-            # استخراج المعرف الداعي لهذا المستخدم (referred_by)
             referred_by = str(d.get("referred_by") or d.get("referredBy") or "").strip()
             user_data["referred_by"] = referred_by if referred_by not in ["None", "null", ""] else ""
 
             users_map[tg_id] = user_data
 
-        # 2. الفحص العكسي الشامل لتتبع روابط الإحالة عبر كل مستخدم مستخدم
+        # 2. تتبع روابط الإحالة عبر كل مستخدم مع الاحتفاظ بتاريخ انضمام الصديق بدقة كاملة
         for tg_id, u_data in users_map.items():
             ref_by_raw = u_data.get("referred_by", "")
             if ref_by_raw:
@@ -186,16 +196,13 @@ def get_all_users_admin(limit=5000):
                     "joined_at": u_data.get("joined_at", "")
                 })
 
-        # 3. توحيد النتائج واعتماد الرقم الأدق والأنسب بين القيم المكتشفة
+        # 3. توحيد النتائج واعتماد الرقم الأدق والأنسب
         users_list = []
         for tg_id, u_data in users_map.items():
             actual_refs = referrals_by_inviter.get(tg_id, [])
             actual_ref_count = len(actual_refs)
             
-            # تضمين قائمة الإحالات المكتشفة مع تواريخ انضمام كل صديق لغرض الفلترة الزمنية
             u_data["referrals_list"] = actual_refs
-            
-            # اعتماد النتيجة الكبرى بين التفتيش المباشر والحقول المجمعة
             u_data["invited_friends_count"] = max(u_data.get("stored_refs_sum", 0), actual_ref_count)
             
             users_list.append(u_data)
