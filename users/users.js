@@ -1,5 +1,5 @@
 // =========================================
-// ملف إدارة وعرض بيانات المستخدمين Muted & Filtered
+// ملف إدارة وعرض بيانات المستخدمين المحدث الشامل
 // users/users.js
 // =========================================
 
@@ -10,10 +10,10 @@ async function uFetch() {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
 
-    container.innerHTML = '<div class="u-loading">⏳ جاري جلب جميع البيانات الحية من الفايربيس...</div>';
+    container.innerHTML = '<div class="u-loading">⏳ جاري فحص كافة بيانات المستخدمين حيوياً من الفايربيس...</div>';
 
     try {
-        let res = await fetch('/api/users?t=' + new Date().getTime());
+        let res = await fetch('/api/users?limit=5000&t=' + new Date().getTime());
         
         if (!res.ok) {
             throw new Error(`خطأ في السيرفر برقم: ${res.status}`);
@@ -56,7 +56,6 @@ function uUpdateQuickStats(list) {
 function parseUserDate(dateStr) {
     if (!dateStr) return null;
 
-    // إذا كانت القيمة بالفعل رقم timestamp (مثل epoch)
     if (typeof dateStr === 'number') {
         let num = dateStr;
         if (num < 10000000000) num *= 1000;
@@ -67,11 +66,9 @@ function parseUserDate(dateStr) {
     let str = String(dateStr).trim();
     if (!str) return null;
 
-    // محاولة تحويل مباشر
     let d = new Date(str);
     if (!isNaN(d.getTime())) return d;
 
-    // معالجة المسافات والصيغ الخاصة (ISO with space or Sept)
     let ISOstr = str.replace(' ', 'T').replace('Sept', 'Sep');
     d = new Date(ISOstr);
     if (!isNaN(d.getTime())) return d;
@@ -92,7 +89,7 @@ function uApplyFilters() {
 
     let filtered = [...uDataList];
 
-    // أ) تصفية حسب نص البحث (ID, Name, Wallet, Device ID)
+    // أ) تصفية حسب نص البحث
     if (searchTerm) {
         filtered = filtered.filter(u => 
             String(u.tg_id || '').toLowerCase().includes(searchTerm) || 
@@ -142,15 +139,14 @@ function uApplyFilters() {
             });
             u._period_refs = refsInPeriod.length;
         } else {
-            // إذا لم تكن هناك قائمة إحالات مفصلة
             u._period_refs = hasDateFilter ? 0 : (Number(u.invited_friends_count) || 0);
         }
     });
 
-    // هـ) إذا تم تحديد تاريخ ومعيار العرض ليس الإحالات -> يتم فلترة تاريخ انضمام الحساب نفسه
+    // هـ) التصفية حسب نطاق التاريخ لجميع الخيارات الأخرى
     if (hasDateFilter && sortBy !== 'invited_friends_count') {
         filtered = filtered.filter(u => {
-            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at || u.last_active_at);
+            let uDate = parseUserDate(u.joined_at || u.last_active || u.created_at);
             if (!uDate) return false;
             let t = uDate.getTime();
             if (fromTime !== null && t < fromTime) return false;
@@ -159,7 +155,7 @@ function uApplyFilters() {
         });
     }
 
-    // و) ترتيب القائمة تنازلياً حسب المعيار المختار
+    // و) ترتيب القائمة تنازلياً حسب المعيار المختار من القائمة
     filtered.sort((a, b) => {
         let valA, valB;
 
@@ -257,20 +253,20 @@ function fmtVal(val) {
     return val;
 }
 
-// 8. عنوان وصياغة معيار الفرز المختار
+// 8. عنوان وصياغة معيار الفرز المختار المطابق تماماً للنافذة
 function getCriteriaTitle(sortBy) {
     const titles = {
-        'invited_friends_count': 'إحالات الفترة / الإجمالي',
-        'ads_watched': 'مشاهدة الإعلانات الإجمالية',
-        'daily_streak': 'ستريك التسجيل اليومي',
-        'daily_boost_rate': 'مكافأة/معدل التسريع',
-        'balance': 'الرصيد الرئيسي',
-        'mined_points': 'النقاط المعدنة',
-        'usd_balance': 'رصيد الدولار USD',
-        'znx_balance': 'رصيد ZNX',
-        'completed_tasks': 'المهام المكتملة',
-        'interactions': 'عدد التفاعلات',
-        'total_wins': 'إجمالي الفوز بالألعاب'
+        'invited_friends_count': 'أفضل الإحالات (Invited Friends)',
+        'ads_watched': 'أفضل مشاهدة إعلانات إجمالية (Ads Watched)',
+        'daily_streak': 'أفضل التسجيل والستريك اليومي (Daily Streak)',
+        'daily_boost_rate': 'أفضل مكافأة/معدل التسريع (Boost Rate)',
+        'balance': 'أعلى رصيد رئيسي (Balance)',
+        'mined_points': 'أعلى نقاط معدنة Mined (Points)',
+        'usd_balance': 'أعلى رصيد دولار USD (Balance)',
+        'znx_balance': 'أعلى رصيد ZNX',
+        'completed_tasks': 'الأكثر إكمالاً للمهام (Tasks)',
+        'interactions': 'الأكثر تفاعلاً مع البوت (Interactions)',
+        'total_wins': 'الأكثر فوزاً بالألعاب Total (Wins)'
     };
     return titles[sortBy] || 'المعيار المختار';
 }
@@ -305,7 +301,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
 
         let mainVal = u[sortBy];
         if (sortBy === 'invited_friends_count' && hasDateFilter && u._period_refs !== undefined) {
-            mainVal = `${u._period_refs} (إحالات الفترة) | ${u.invited_friends_count} (الإجمالي)`;
+            mainVal = `${u._period_refs} (إحالات الفترة) | ${u.invited_friends_count} (الإجمالي الحقيقي)`;
         } else {
             if (Array.isArray(mainVal)) mainVal = mainVal.length;
             if (mainVal === undefined || mainVal === null) mainVal = 0;
@@ -323,8 +319,8 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
         const fields = [
             { label: "🆔 ID المستخدم (Telegram ID):", value: u.tg_id || u.document_id },
             { label: "👤 اسم المستخدم (First Name):", value: u.first_name || "مستخدم" },
-            { label: "📅 تاريخ الانضمام (Joined Date):", value: u.joined_at || u.joinDate },
-            { label: "👥 عدد الإحالات (Invited Friends):", value: refDisplayVal },
+            { label: "📅 تاريخ الانضمام (Joined Date):", value: u.joined_at },
+            { label: "👥 عدد الإحالات الحقيقي (Invited Friends):", value: refDisplayVal },
             { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by },
             { label: "💰 الرصيد الرئيسي (Balance):", value: u.balance },
             { label: "🪙 رصيد ZNX:", value: u.znx_balance },
@@ -332,30 +328,15 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
             { label: "📢 رصيد الإعلانات (Ad Balance):", value: u.ad_balance },
             { label: "📺 الإعلانات المشاهدة (Ads Watched):", value: u.ads_watched },
             { label: "🔥 الستريك اليومي (Daily Streak):", value: u.daily_streak },
-            { label: "📆 اليوم الحالي (Daily Day):", value: u.daily_day },
             { label: "🚀 معدل البوست اليومي (Daily Boost):", value: u.daily_boost_rate },
             { label: "⛏️ النقاط المعدنة (Mined Points):", value: u.mined_points },
-            { label: "🎁 الأرباح غير المطالب بها (Unclaimed):", value: u.unclaimed },
-            { label: "⚡ معدل التعدين / ساعة (Hourly Rate):", value: u.hourly_rate },
-            { label: "📦 مستوى المخزن (Storage Level):", value: u.storage_level },
-            { label: "➕ المخزن الإضافي (Extra Storage):", value: u.extra_storage },
-            { label: "🔋 السعة القصوى (Max Cap):", value: u.max_cap },
-            { label: "⚡ الطاقة الحالية (Energy):", value: u.energy },
-            { label: "⌛ أرباح إحالة معلقة:", value: u.pending_ref_earnings },
-            { label: "💎 إجمالي أرباح الإحالات:", value: u.total_ref_earnings },
-            { label: "🌐 عنوان المحفظة (Wallet):", value: u.wallet_address ? `<span class="u-wallet-val">${u.wallet_address}</span>` : null, isRawHTML: true },
-            { label: "🕒 آخر نشاط (Last Active):", value: u.last_active || u.last_active_at },
-            { label: "⏱️ آخر مطالبة (Last Claim):", value: u.last_claim_time },
-            { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active },
-            { label: "🚫 حالة الحظر (Banned):", value: u.banned },
-            { label: "📱 معرف الجهاز (Device ID):", value: u.device_id },
-            { label: "🎲 إجمالي الرهانات (Total Bets):", value: u.total_bets },
-            { label: "🏆 إجمالي الفوز (Total Wins):", value: u.total_wins },
-            { label: "❌ إجمالي الخسائر (Total Losses):", value: u.total_losses },
             { label: "💬 عدد التفاعلات (Interactions):", value: u.interactions },
-            { label: "🛠️ عدد الترقايات (Upgrades Count):", value: u.upgrades_count },
-            { label: "📜 قائمة الترقايات (Upgrades):", value: u.upgrades },
-            { label: "✅ المهام المكتملة (Completed Tasks):", value: u.completed_tasks }
+            { label: "🏆 إجمالي الفوز بالألعاب (Total Wins):", value: u.total_wins },
+            { label: "✅ المهام المكتملة (Completed Tasks):", value: u.completed_tasks },
+            { label: "🌐 عنوان المحفظة (Wallet):", value: u.wallet_address ? `<span class="u-wallet-val">${u.wallet_address}</span>` : null, isRawHTML: true },
+            { label: "🕒 آخر نشاط (Last Active):", value: u.last_active },
+            { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active },
+            { label: "🚫 حالة الحظر (Banned):", value: u.banned }
         ];
 
         let rowsHtml = fields.map(f => {
