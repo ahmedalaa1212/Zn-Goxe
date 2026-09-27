@@ -9,14 +9,11 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="referrer" content="strict-origin-when-cross-origin">
 
-    <!-- Monetag SDK Script (مخصص للمكافأة اليومية) -->
-    <script src="//libtl.com/sdk.js" data-zone="11322720" data-sdk="show_11322720"></script>
+    <!-- Monetag SDK Script -->
+    <script src='//libtl.com/sdk.js' data-zone='11322720' data-sdk='show_11322720'></script>
 
-    <!-- Monetix SDK Script (مخصص لزر تسريع التعدين) -->
+    <!-- Monetix SDK Script -->
     <script src="https://www.monetixads.online/ads.js" data-mxid="MX-3AE08FE9"></script>
-
-    <!-- GigaPub Ad Script (مخصص لزر تجميع الرصيد) -->
-    <script src="https://ad.gigapub.tech/script?id=8373"></script>
 
     <!-- Telegram & FontAwesome -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -240,8 +237,9 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي -->
+    <!-- شريط التنقل السفلي المكون من 7 قوائم مرتبة ومضبوطة -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
+        <!-- جهة اليمين -->
         <button class="nav-item" id="nav-friends" data-view="friends">
             <i class="fas fa-users"></i>
             <span>الأصدقاء</span>
@@ -265,6 +263,7 @@
             </div>
         </button>
 
+        <!-- جهة اليسار -->
         <button class="nav-item" id="nav-shop" data-view="shop">
             <i class="fas fa-store"></i>
             <span>المتجر</span>
@@ -496,7 +495,7 @@
         })();
     </script>
 
-    <!-- استدعاء سكريبتات اللعبة -->
+    <!-- استدعاء سكريبتات المحفظة والمزرعة واللعبة الرئيسي -->
     <script src="wallet/wallet.js"></script>
     <script src="farm/farm.js?v=4.1"></script>
     <script src="game.js?v=4.1"></script>
