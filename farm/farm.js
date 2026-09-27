@@ -56,7 +56,7 @@ window.closeAutoClaimModal = function() {
     const GAME_CONFIG = {
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
-        gigapubZoneId: window.GIGAPUB_ZONE_ID || "8373",
+        gigaPubZoneId: window.GIGAPUB_ZONE_ID || "8373",
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.10, // زيادة السرعة بمقدار 0.1 ZN/ساعة
         boostDurationMs: 2 * 60 * 60 * 1000, // تعمل لمدة 2 ساعة
@@ -359,48 +359,6 @@ window.closeAutoClaimModal = function() {
         }
     }
 
-    // --- إعلان GigaPub الخاص بزر تجميع الرصيد (مرة واحدة يومياً) ---
-    async function showGigaPubAd() {
-        toggleAdLoadingOverlay(true);
-
-        return new Promise((resolve) => {
-            let resolved = false;
-
-            const finish = (result) => {
-                if (!resolved) {
-                    resolved = true;
-                    clearTimeout(timeoutTimer);
-                    toggleAdLoadingOverlay(false);
-                    resolve(result);
-                }
-            };
-
-            const timeoutTimer = setTimeout(() => {
-                console.warn("GigaPub Ad timeout.");
-                finish(false);
-            }, 60000);
-
-            if (typeof window.showGiga === 'function') {
-                try {
-                    window.showGiga()
-                        .then(() => {
-                            finish(true);
-                        })
-                        .catch((e) => {
-                            console.error("خطأ تشغيل إعلان GigaPub:", e);
-                            finish(false);
-                        });
-                } catch (e) {
-                    console.error("استدعاء GigaPub فشل:", e);
-                    finish(false);
-                }
-            } else {
-                console.warn("دالة GigaPub (window.showGiga) غير متوفرة. تأكد من إضافة السكريبت في HTML.");
-                finish(false);
-            }
-        });
-    }
-
     // --- إعلانات Monetag الخاصة بالتسجيل اليومي ---
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
@@ -548,6 +506,46 @@ window.closeAutoClaimModal = function() {
         });
     }
 
+    // --- إعلانات GigaPub الخاصة بزر تجميع الرصيد الرئيسي ---
+    async function showGigaPubAd() {
+        toggleAdLoadingOverlay(true);
+
+        return new Promise((resolve) => {
+            let resolved = false;
+
+            const finish = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeoutTimer);
+                    toggleAdLoadingOverlay(false);
+                    resolve(result);
+                }
+            };
+
+            const timeoutTimer = setTimeout(() => {
+                console.warn("GigaPub Ad timeout.");
+                finish(false);
+            }, 60000);
+
+            if (typeof window.showGiga === 'function') {
+                try {
+                    window.showGiga()
+                        .then(() => finish(true))
+                        .catch((e) => {
+                            console.error("خطأ تشغيل إعلان GigaPub:", e);
+                            finish(false);
+                        });
+                } catch (e) {
+                    console.error("استدعاء GigaPub فشل:", e);
+                    finish(false);
+                }
+            } else {
+                console.warn("دالة GigaPub الإعلانية غير متوفرة (window.showGiga). تأكد من إدراج السكريبت في الصفحة.");
+                finish(false);
+            }
+        });
+    }
+
     function getActiveBoostRate(pData) {
         if (!pData || !pData.last_boost_time) return 0;
         let lastBoostMs = parseServerDateMs(pData.last_boost_time);
@@ -690,12 +688,12 @@ window.closeAutoClaimModal = function() {
 
                 if (resData.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.monetag_zone_id;
                 if (resData.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
-                if (resData.gigapub_zone_id) GAME_CONFIG.gigapubZoneId = resData.gigapub_zone_id;
+                if (resData.gigapub_zone_id) GAME_CONFIG.gigaPubZoneId = resData.gigapub_zone_id;
 
                 if (resData.game_config) {
                     if (resData.game_config.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.game_config.monetag_zone_id;
                     if (resData.game_config.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.game_config.monetix_block_id;
-                    if (resData.game_config.gigapub_zone_id) GAME_CONFIG.gigapubZoneId = resData.game_config.gigapub_zone_id;
+                    if (resData.game_config.gigapub_zone_id) GAME_CONFIG.gigaPubZoneId = resData.game_config.gigapub_zone_id;
 
                     if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
                         GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
@@ -1322,27 +1320,35 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // --- تجميع الرصيد الرئيسي (يظهر إعلان GigaPub مرة واحدة فقط في أول ضغطة يومياً) ---
-    window.handleMainClaim = async function() {
+    // --- تجميع الرصيد الرئيسي (يطلب GigaPub لأول ضغطة في اليوم UTC فقط) ---
+    window.handleMainClaim = async function(e) {
+        if (e && typeof e.stopPropagation === 'function') {
+            e.stopPropagation(); // حظر انتشار الحدث لتفادي اعتراض Monetag أو أي إعلانات أخرى
+        }
+
         if (isDebouncedClick() || isClaimingMain || isAutoClaiming) return;
 
         const pData = window.userState || window.PlayerData || {};
         const todayStr = getTodayUTCStr();
-        const userId = tele?.initDataUnsafe?.user?.id || pData.tg_id || pData.telegram_id || "global";
-        const storageKey = `zn_gigapub_claim_date_${userId}`;
-        const lastAdDate = localStorage.getItem(storageKey) || pData.last_gigapub_claim_date;
+        const userId = tele?.initDataUnsafe?.user?.id || pData.tg_id || pData.telegram_id || 'global';
+        const storageKey = `zn_gigapub_claim_ad_${userId}`;
+        const lastAdDate = pData.last_claim_ad_date || localStorage.getItem(storageKey);
 
-        // فحص ما إذا كان الإعلان قد ظهر اليوم أم لا (أول ضغطة في اليوم فقط)
+        // إظهار إعلان GigaPub فقط عند أول ضغطة يومياً بالتوقيت العالمي UTC
         if (lastAdDate !== todayStr) {
             const adSuccess = await showGigaPubAd();
+
             if (!adSuccess) {
-                showToast("❌ يجب مشاهدة الإعلان لإكمال عملية تجميع الرصيد!");
+                showToast("❌ يجب مشاهدة إعلان GigaPub لتجميع الرصيد!");
                 return;
             }
-            // حفظ تاريخ عرض الإعلان لمنع ظهوره في باقي ضغطات اليوم
-            localStorage.setItem(storageKey, todayStr);
-            if (window.userState) window.userState.last_gigapub_claim_date = todayStr;
-            if (window.PlayerData) window.PlayerData.last_gigapub_claim_date = todayStr;
+
+            pData.last_claim_ad_date = todayStr;
+            if (window.userState) window.userState.last_claim_ad_date = todayStr;
+            if (window.PlayerData) window.PlayerData.last_claim_ad_date = todayStr;
+            try {
+                localStorage.setItem(storageKey, todayStr);
+            } catch (err) {}
         }
 
         isClaimingMain = true;
