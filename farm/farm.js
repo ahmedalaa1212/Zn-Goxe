@@ -54,6 +54,7 @@ window.closeAutoClaimModal = function() {
 
     // إعدادات اللعبة المحمية داخل النطاق الخاص
     const GAME_CONFIG = {
+        gigapubBlockId: window.GIGAPUB_BLOCK_ID || "8373",
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
         maxUpgradesPerLevel: 15,
@@ -358,6 +359,99 @@ window.closeAutoClaimModal = function() {
         }
     }
 
+    // --- إعلانات GigaPub الخاصة بتجميع الرصيد (مرة واحدة يومياً بـ UTC) ---
+    async function showGigaPubAd() {
+        toggleAdLoadingOverlay(true);
+
+        return new Promise((resolve) => {
+            let resolved = false;
+
+            const finish = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeoutTimer);
+                    toggleAdLoadingOverlay(false);
+                    resolve(result);
+                }
+            };
+
+            const timeoutTimer = setTimeout(() => {
+                console.warn("GigaPub Ad timeout.");
+                finish(false);
+            }, 60000);
+
+            const blockId = GAME_CONFIG.gigapubBlockId || "8373";
+
+            let gigapubFn = null;
+            if (typeof window.showGigaPubAd === 'function') {
+                gigapubFn = window.showGigaPubAd;
+            } else if (typeof window.show_gigapub_ad === 'function') {
+                gigapubFn = window.show_gigapub_ad;
+            } else if (window.GigaPub && typeof window.GigaPub.show === 'function') {
+                gigapubFn = window.GigaPub.show.bind(window.GigaPub);
+            } else if (window.GigaPub && typeof window.GigaPub.showReward === 'function') {
+                gigapubFn = window.GigaPub.showReward.bind(window.GigaPub);
+            } else if (typeof window[`show_${blockId}`] === 'function') {
+                gigapubFn = window[`show_${blockId}`];
+            } else if (typeof window.showRewardAd === 'function') {
+                gigapubFn = window.showRewardAd;
+            }
+
+            if (gigapubFn) {
+                try {
+                    const checkSuccessStatus = (status) => {
+                        if (status === true) return true;
+                        if (typeof status === 'string') {
+                            const str = status.toLowerCase();
+                            return str === 'completed' || str === 'closed' || str === 'rewarded' || str === 'true';
+                        }
+                        if (typeof status === 'object' && status !== null) {
+                            if (status.rewarded === true || status.completed === true || status.closed === true) return true;
+                            const st = (status.status || status.state || status.event || status.type || '').toString().toLowerCase();
+                            return st === 'completed' || st === 'closed' || st === 'rewarded';
+                        }
+                        return false;
+                    };
+
+                    const handleCallback = (status) => {
+                        toggleAdLoadingOverlay(false);
+                        if (checkSuccessStatus(status)) {
+                            finish(true);
+                        } else if (status === false || (typeof status === 'string' && (status === 'failed' || status === 'error' || status === 'skipped' || status === 'dismissed'))) {
+                            finish(false);
+                        }
+                    };
+
+                    const res = gigapubFn(blockId, handleCallback);
+
+                    setTimeout(() => {
+                        toggleAdLoadingOverlay(false);
+                    }, 500);
+
+                    if (res && typeof res.then === 'function') {
+                        res.then((r) => {
+                            toggleAdLoadingOverlay(false);
+                            if (checkSuccessStatus(r)) {
+                                finish(true);
+                            } else if (r === false) {
+                                finish(false);
+                            }
+                        }).catch((err) => {
+                            console.error("GigaPub Promise Error:", err);
+                            finish(false);
+                        });
+                    }
+                } catch (e) {
+                    console.error("خطأ تشغيل إعلان GigaPub:", e);
+                    finish(false);
+                }
+            } else {
+                console.warn("GigaPub SDK غير متوفر أو لم يتم تحميل كود الإعلان بعد.");
+                finish(false);
+            }
+        });
+    }
+
     // --- إعلانات Monetag الخاصة بالتسجيل اليومي ---
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
@@ -466,7 +560,6 @@ window.closeAutoClaimModal = function() {
                     };
 
                     const handleMonetixCallback = (status) => {
-                        // إخفاء شاشة التحميل فور ورود أي استجابة أو إشعار من الإعلان
                         toggleAdLoadingOverlay(false);
 
                         if (checkSuccessStatus(status)) {
@@ -478,7 +571,6 @@ window.closeAutoClaimModal = function() {
 
                     const res = monetixFn(handleMonetixCallback);
 
-                    // إخفاء شاشة "جاري التحميل" فوراً بمجرد طلب فتح الإعلان ليظهر الإعلان بوضوح بدون القائمة فوقه
                     startHideTimer = setTimeout(() => {
                         toggleAdLoadingOverlay(false);
                     }, 500);
@@ -647,10 +739,12 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
+                if (resData.gigapub_block_id) GAME_CONFIG.gigapubBlockId = resData.gigapub_block_id;
                 if (resData.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.monetag_zone_id;
                 if (resData.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
 
                 if (resData.game_config) {
+                    if (resData.game_config.gigapub_block_id) GAME_CONFIG.gigapubBlockId = resData.game_config.gigapub_block_id;
                     if (resData.game_config.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.game_config.monetag_zone_id;
                     if (resData.game_config.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.game_config.monetix_block_id;
 
@@ -1279,11 +1373,36 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // --- تجميع الرصيد الرئيسي (مباشر وبدون أي إعلانات) ---
+    // --- تجميع الرصيد الرئيسي (إعلان GigaPub مرة واحدة فقط يومياً بالتوقيت العالمي UTC) ---
     window.handleMainClaim = async function() {
         if (isDebouncedClick() || isClaimingMain || isAutoClaiming) return;
 
         const pData = window.userState || window.PlayerData || {};
+        const todayStr = getTodayUTCStr();
+        const userId = tele?.initDataUnsafe?.user?.id || pData?.tg_id || pData?.telegram_id || 'guest';
+        const localAdKey = `zn_claim_ad_date_${userId}`;
+        const lastAdDate = pData.last_claim_ad_date || localStorage.getItem(localAdKey);
+
+        // فحص ما إذا كان الإعلان ظهر اليوم أم لا (الضغطة الأولى فقط في اليوم)
+        if (lastAdDate !== todayStr) {
+            const adSuccess = await showGigaPubAd();
+
+            if (!adSuccess) {
+                showToast("❌ يجب مشاهدة الإعلان كاملاً لتجميع الرصيد!");
+                return;
+            }
+
+            // تسجيل مشاهدة إعلان اليوم لمنع ظهوره في باقي الضغطات بنفس اليوم
+            pData.last_claim_ad_date = todayStr;
+            if (window.userState) window.userState.last_claim_ad_date = todayStr;
+            if (window.PlayerData) window.PlayerData.last_claim_ad_date = todayStr;
+            try {
+                localStorage.setItem(localAdKey, todayStr);
+            } catch (e) {
+                console.error("خطأ حفظ تاريخ إعلان التجميع:", e);
+            }
+        }
+
         isClaimingMain = true;
         const stateBackup = cloneCurrentState();
 
@@ -1347,4 +1466,3 @@ window.closeAutoClaimModal = function() {
     window.handleClaim = window.handleMainClaim;
 
 })();
-
