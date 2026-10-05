@@ -98,31 +98,34 @@ async function apiFetch(endpoint, options = {}) {
 
 // ==================== محرك السعر المباشر (Real-time Price Engine) ====================
 async function fetchRealZnxPrice() {
-    // 1. المحاولة من السيرفر الخلفي المباشر
-    const serverData = await apiFetch(`/price?t=${Date.now()}`, {
-        method: 'GET',
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' }
-    });
-
-    if (serverData) {
-        const validPrice = parseFloat(serverData.price || serverData.dex_usd_price || 0);
-        if (validPrice > 0) {
-            if (serverData.pool_created_at) window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
-            setTargetPrice(validPrice);
-            updateMarketStatsUI({
-                price: validPrice,
-                change_24h: serverData.change_24h || 0,
-                high_24h: serverData.high_24h || validPrice,
-                low_24h: serverData.low_24h || validPrice
-            });
-            return;
+    // 1. الأولوية الأولى: الجلب المباشر من هاتف/متصفح المستخدم (IP المستخدم لا يُحظر أبداً)
+    try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}?t=${Date.now()}`);
+        if (dexRes.ok) {
+            const dexData = await dexRes.json();
+            const pair = dexData.pair || (dexData.pairs && dexData.pairs[0]);
+            if (pair && pair.priceUsd) {
+                const livePrice = parseFloat(pair.priceUsd);
+                if (livePrice > 0) {
+                    if (pair.pairCreatedAt) window.ZNX_POOL_CREATED_AT = Math.floor(pair.pairCreatedAt / 1000);
+                    setTargetPrice(livePrice);
+                    updateMarketStatsUI({
+                        price: livePrice,
+                        change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
+                        high_24h: parseFloat(pair.high24h || pair.priceHigh24h || livePrice),
+                        low_24h: parseFloat(pair.low24h || pair.priceLow24h || livePrice)
+                    });
+                    return; // تم جلب السعر الحقيقي بنجاح من جهاز المستخدم
+                }
+            }
         }
+    } catch (e) {
+        console.warn("تعذر الجلب المباشر من DexScreener عبر متصفح العميل");
     }
 
-    // 2. المحاولة المباشرة من STON.fi API
+    // 2. المحاولة الثانية: الجلب من STON.fi مباشرة من هاتف المستخدم
     try {
-        const stonRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
+        const stonRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}?t=${Date.now()}`);
         if (stonRes.ok) {
             const stonData = await stonRes.json();
             const asset = stonData.asset || stonData;
@@ -139,30 +142,29 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (e) {
-        console.warn("تعذر الجلب المباشر من STON.fi");
+        console.warn("تعذر الجلب المباشر من STON.fi عبر متصفح العميل");
     }
 
-    // 3. المحاولة من DexScreener API
-    try {
-        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`);
-        if (dexRes.ok) {
-            const dexData = await dexRes.json();
-            const pair = dexData.pair || (dexData.pairs && dexData.pairs[0]);
-            if (pair && pair.priceUsd) {
-                const livePrice = parseFloat(pair.priceUsd);
-                if (pair.pairCreatedAt) window.ZNX_POOL_CREATED_AT = Math.floor(pair.pairCreatedAt / 1000);
-                setTargetPrice(livePrice);
-                updateMarketStatsUI({
-                    price: livePrice,
-                    change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
-                    high_24h: pair.priceUsd,
-                    low_24h: pair.priceUsd
-                });
-                return;
-            }
+    // 3. المحاولة الثالثة: الاستعلام من السيرفر الخلفي (Railway)
+    const serverData = await apiFetch(`/price?t=${Date.now()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+    });
+
+    if (serverData) {
+        const validPrice = parseFloat(serverData.price || 0);
+        // تجنب القيمة الاحتياطية الثابتة إذا كان هناك سعر حقيقي أحدث تم إحضاره سابقاً
+        if (validPrice > 0 && (validPrice !== 0.000764 || currentLivePrice === 0)) {
+            if (serverData.pool_created_at) window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
+            setTargetPrice(validPrice);
+            updateMarketStatsUI({
+                price: validPrice,
+                change_24h: serverData.change_24h || 0,
+                high_24h: serverData.high_24h || validPrice,
+                low_24h: serverData.low_24h || validPrice
+            });
         }
-    } catch (e) {
-        console.warn("تعذر الجلب المباشر من DexScreener");
     }
 }
 
@@ -673,7 +675,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
