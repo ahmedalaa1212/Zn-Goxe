@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from threading import Lock
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
+
+# استيراد دالّات قاعدة البيانات الأساسية
 from farm.farm_db import (
     get_or_create_user_farm_data,
     claim_mined_tokens_db,
@@ -15,11 +17,26 @@ from farm.farm_db import (
     dismiss_welcome_db,
     get_mining_leaderboard_db,
     parse_daily_rewards,
-    get_game_settings,
     DEFAULT_GAME_SETTINGS
 )
 
+# محاولة استيراد دوال الإحالة بأمان من قاعدة البيانات
+try:
+    from farm.farm_db import get_user_friends_db, claim_referral_rewards_db
+except ImportError:
+    get_user_friends_db = None
+    claim_referral_rewards_db = None
+
 farm_bp = Blueprint('farm', __name__)
+
+# مستويات الترقية المتاحة (1 إلى 9)
+VALID_UPGRADE_LEVELS = {str(i) for i in range(1, 10)}
+
+# المفاتيح المقبولة للتحقق من مشاهدة الإعلانات
+AD_KEYS = (
+    "ad_watched", "ad_completed", "monetag_watched", "monetag_completed", 
+    "monetix_watched", "monetix_completed", "watched", "reward"
+)
 
 # ==========================================
 # 🛡️ نظام حماية المعدل المتقدم (Anti-Spam / Rate Limiting)
@@ -28,10 +45,7 @@ _rate_limit_lock = Lock()
 _user_last_request = {}
 
 def is_rate_limited(user_id: str, endpoint: str, min_interval: float = 1.0) -> bool:
-    """
-    التحقق من منع الهجمات المكررة والسريعة (Anti-Spam Rate Limiter)
-    يمنع إرسال طلبات متعددة لنفس المسار خلال فترة أسرع من min_interval بالثواني
-    """
+    """التحقق من منع الهجمات المكررة والسريعة (Anti-Spam Rate Limiter)"""
     key = f"{user_id}:{endpoint}"
     now_ts = time.time()
     with _rate_limit_lock:
@@ -49,8 +63,11 @@ def is_rate_limited(user_id: str, endpoint: str, min_interval: float = 1.0) -> b
         return False
 
 
-def to_bool(val):
-    """تحويل قيم البوليان بمرونة وسلاسة لمنع أخطاء النصوص والنصوص الفارغة"""
+# ==========================================
+# 🛠️ الدوال المساعدة (Helper Utilities)
+# ==========================================
+def to_bool(val) -> bool:
+    """تحويل قيم البوليان بمرونة وسلاسة لمنع أخطاء النصوص الفارغة"""
     if isinstance(val, bool):
         return val
     if isinstance(val, str):
@@ -61,49 +78,61 @@ def to_bool(val):
 
 
 def get_expiration_dt(raw_val):
-    """استخراج كائن datetime بالتوقيت العالمي UTC من مختلف صيغ التواريخ بصورة آمنة"""
+    """استخراج كائن datetime بالتوقيت العالمي UTC بصورة آمنة"""
     if not raw_val:
         return None
     try:
         if isinstance(raw_val, (int, float)):
             return datetime.fromtimestamp(raw_val, tz=timezone.utc)
         if isinstance(raw_val, datetime):
-            if raw_val.tzinfo is None:
-                return raw_val.replace(tzinfo=timezone.utc)
-            return raw_val.astimezone(timezone.utc)
+            return raw_val.replace(tzinfo=timezone.utc) if raw_val.tzinfo is None else raw_val.astimezone(timezone.utc)
         s = str(raw_val).replace('Z', '+00:00')
         dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
     except Exception as e:
         print(f"⚠️ Error parsing expiration date in API: {e}")
         return None
 
 
-def calculate_user_effective_stats(user_data, game_settings, now):
-    """
-    احتساب السعة الكلية والخصائص الفعالة للمستخدم ديناميكياً
-    مع حساب تفعيل مضاعفة السعة لـ VIP والبوت التلقائي والتحقق الدقيق من تاريخ الانتهاء
-    """
+def format_iso_utc(dt: datetime = None) -> str:
+    """صياغة توقيت ISO بتوقيت UTC ومختومة بـ Z صراحة لمنع أخطاء التوقيت لدى العميل"""
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+    elif dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+
+    s = dt.isoformat()
+    if s.endswith('+00:00'):
+        return s[:-6] + 'Z'
+    if not s.endswith('Z') and '+' not in s[10:] and '-' not in s[10:]:
+        return s + 'Z'
+    return s
+
+
+def is_ad_watched(data: dict) -> bool:
+    """التحقق الممتد والمرن من حالة مشاهدة الإعلان لتجنب الرفض الخاطئ"""
+    if not data:
+        return True
+    return any(to_bool(data.get(key)) for key in AD_KEYS)
+
+
+def calculate_user_effective_stats(user_data: dict, game_settings: dict, now: datetime) -> dict:
+    """احتساب السعة الكلية والخصائص الفعالة للمستخدم ديناميكياً مع تفعيل VIP والبوت"""
     if now is None:
         now = datetime.now(timezone.utc)
-    elif isinstance(now, datetime):
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
-        else:
-            now = now.astimezone(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
 
     storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS.get("storage_capacities", {})
     storage_lvl = str(user_data.get("storage_level", 0))
     
     # 1. جلب السعة الأساسية للمستوى الحالي
     lvl_info = storage_configs.get(storage_lvl, {})
-    if isinstance(lvl_info, dict):
-        base_cap = float(lvl_info.get("capacity", lvl_info.get("cap", 0.5)))
-    else:
-        base_cap = float(lvl_info or 0.5)
-
+    base_cap = float(lvl_info.get("capacity", lvl_info.get("cap", 0.5)) if isinstance(lvl_info, dict) else (lvl_info or 0.5))
     extra_storage = float(user_data.get("extra_storage", 0.0))
     raw_cap = base_cap + extra_storage
 
@@ -115,7 +144,6 @@ def calculate_user_effective_stats(user_data, game_settings, now):
     expires_at_raw = None
     if isinstance(vip_status, dict):
         expires_at_raw = vip_status.get("expires_at") or vip_status.get("vip_expires_at") or vip_status.get("bot_expires_at")
-    
     if not expires_at_raw:
         expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at")
 
@@ -129,117 +157,87 @@ def calculate_user_effective_stats(user_data, game_settings, now):
             if to_bool(vip_status.get("auto_bot", False)):
                 is_auto_bot_active = True
 
-        raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
-        if raw_bot_flag:
+        if to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False)))):
             is_auto_bot_active = True
 
-    # 3. تطبيق مضاعفة السعة وتحديث خصائص البوت وحالة التفعيل الحقيقية
+    # 3. تطبيق مضاعفة السعة وتحديث خصائص البوت
     effective_max_cap = raw_cap * 2.0 if is_double_storage_active else raw_cap
     
     user_data["max_cap"] = round(effective_max_cap, 4)
     user_data["is_double_storage_active"] = is_double_storage_active
     user_data["is_auto_bot_active"] = is_auto_bot_active
-    user_data["bot_active"] = is_auto_bot_active  # توحيد المتغير لضمان مزامنة الواجهة وقاعدة البيانات
+    user_data["bot_active"] = is_auto_bot_active
 
     return user_data
 
+
+# ==========================================
+# 📍 المسارات النقاط البرمجية (API Routes)
+# ==========================================
 
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية مع حماية المسار وضمان التوقيت الصريح UTC"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية"""
     is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
         return error_res
     
     user_id_str = str(telegram_id)
 
-    # حماية ضد التكرار المفرط للطلبات
     if is_rate_limited(user_id_str, "player_data", min_interval=0.5):
         return jsonify({"success": False, "error": "يرجى الانتظار بين الطلبات"}), 429
 
     try:
-        # جلب بيانات اللاعب بشكل آمن
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
-        
-        # التأكد الصريح والكامل من التوقيت العالمي UTC
-        if now is None:
-            now = datetime.now(timezone.utc)
-        elif isinstance(now, datetime):
-            if now.tzinfo is None:
-                now = now.replace(tzinfo=timezone.utc)
-            else:
-                now = now.astimezone(timezone.utc)
-
-        # حساب وتحديث السعة والسرعة الفعالة للمستخدم وفحص صلاحية VIP
         user_data = calculate_user_effective_stats(user_data, game_settings, now)
 
-        is_auto_bot_active = bool(user_data.get("is_auto_bot_active", False))
         auto_claimed_amount = float(user_data.get("auto_claimed_amount", 0.0))
         auto_claimed = auto_claimed_amount > 0
+        welcome_seen = to_bool(user_data.get("welcome_seen", False))
 
         user_data["auto_claimed"] = auto_claimed
         user_data["auto_claimed_amount"] = round(auto_claimed_amount, 8)
-        user_data["is_auto_bot_active"] = is_auto_bot_active
-        user_data["bot_active"] = is_auto_bot_active
-
-        welcome_seen = to_bool(user_data.get("welcome_seen", False))
         user_data["welcome_seen"] = welcome_seen
         user_data["is_new_user"] = not welcome_seen
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
         upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
         
-        upgrade_costs = {}
-        for k, v in upgrade_configs.items():
-            upgrade_costs[int(k)] = {
+        upgrade_costs = {
+            int(k): {
                 "cost_zn": float(v.get("cost_zn", v.get("base_cost", v.get("price", 0)))),
                 "cost_usd": float(v.get("cost_usd", v.get("base_cost_usd", 0.0))),
                 "rate": float(v.get("rate_bonus", v.get("rate", 0)))
             }
+            for k, v in upgrade_configs.items()
+        }
         
         storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
         mining_cfg = game_settings.get("mining_config", {})
-        
-        daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 0.10))
-        max_daily_boost_rate = float(mining_cfg.get("max_daily_boost_rate", 4.5))
-        boost_max_reward_coins = float(mining_cfg.get("boost_max_reward_coins", 35.0))
-        cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
-        max_upgrades_per_level = int(mining_cfg.get("max_upgrades_per_level", 15))
-
-        # جلب معرفات الإعلانات مع وضع قيم افتراضية لضمان عمل الإعلانات دائماً
-        monetag_zone_id = (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "11322720").strip()
-        monetix_zone_id = (os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "").strip()
-
-        # صياغة توقيت السيرفر بصيغة ISO بتوقيت UTC ومختومة بـ Z صراحة لمنع أخطاء التوقيت الزمني لدى العميل
-        server_time_str = now.isoformat()
-        if server_time_str.endswith('+00:00'):
-            server_time_str = server_time_str[:-6] + 'Z'
-        elif not server_time_str.endswith('Z') and '+' not in server_time_str[10:] and '-' not in server_time_str[10:]:
-            server_time_str += 'Z'
 
         return jsonify({
             "success": True, 
             "player": user_data, 
-            "server_time": server_time_str,
-            "cooldown_seconds": cooldown_seconds,
+            "server_time": format_iso_utc(now),
+            "cooldown_seconds": int(mining_cfg.get("claim_cooldown_seconds", 15)),
             "auto_claimed": auto_claimed,
             "auto_claimed_amount": round(auto_claimed_amount, 8),
-            "is_auto_bot_active": is_auto_bot_active,
+            "is_auto_bot_active": bool(user_data.get("is_auto_bot_active", False)),
             "game_config": {
                 "daily_rewards": parsed_rewards,
                 "upgrade_costs": upgrade_costs,
                 "storage_config": storage_configs,
-                "daily_boost_reward": daily_boost_reward,
-                "max_daily_boost_rate": max_daily_boost_rate,
-                "boost_max_reward_coins": boost_max_reward_coins,
-                "max_upgrades_per_level": max_upgrades_per_level,
-                "boost_cooldown_seconds": 10800, # 3 ساعات فترة انتظار المعزز
-                "boost_duration_seconds": 7200,   # 2 ساعة مدة التفعيل
-                "monetag_zone_id": monetag_zone_id,
-                "monetix_zone_id": monetix_zone_id
+                "daily_boost_reward": float(mining_cfg.get("daily_boost_reward", 0.10)),
+                "max_daily_boost_rate": float(mining_cfg.get("max_daily_boost_rate", 4.5)),
+                "boost_max_reward_coins": float(mining_cfg.get("boost_max_reward_coins", 35.0)),
+                "max_upgrades_per_level": int(mining_cfg.get("max_upgrades_per_level", 15)),
+                "boost_cooldown_seconds": 10800,
+                "boost_duration_seconds": 7200,
+                "monetag_zone_id": (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "11322720").strip(),
+                "monetix_zone_id": (os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "").strip()
             }
         }), 200
     except Exception as e:
@@ -252,10 +250,7 @@ def get_player_data():
 @farm_bp.route('/farm/cron_auto_claim', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/cron_auto_claim', methods=['GET', 'POST'])
 def cron_auto_claim():
-    """
-    وظيفة خلفية (Cron Job) لتفقد جميع المشتركين في بوت التجميع التلقائي
-    وتفعيل التجميع التلقائي أوفلاين وإضافته للرصيد فور وصوله لنسبة 80% أو أكثر دون حاجة لفتح التطبيق.
-    """
+    """وظيفة خلفية (Cron Job) لتفقد جميع المشتركين في بوت التجميع التلقائي"""
     cron_secret = os.environ.get("CRON_SECRET", "").strip()
     provided_secret = (request.headers.get("X-Cron-Secret") or request.args.get("secret") or "").strip()
     
@@ -267,11 +262,8 @@ def cron_auto_claim():
         db = get_db()
         users_ref = db.collection('users')
         
-        query = users_ref.where('bot_active', '==', True)
-        docs = list(query.stream())
-        
-        vip_query = users_ref.where('vip_status.auto_bot', '==', True)
-        vip_docs = list(vip_query.stream())
+        docs = list(users_ref.where('bot_active', '==', True).stream())
+        vip_docs = list(users_ref.where('vip_status.auto_bot', '==', True).stream())
         
         all_docs_dict = {d.id: d for d in docs + vip_docs}
         
@@ -279,7 +271,7 @@ def cron_auto_claim():
         auto_claimed_count = 0
         total_claimed_amount = 0.0
 
-        for user_id, doc in all_docs_dict.items():
+        for user_id in all_docs_dict.keys():
             processed_count += 1
             try:
                 user_data, _, _ = get_or_create_user_farm_data(user_id)
@@ -290,19 +282,12 @@ def cron_auto_claim():
             except Exception as user_e:
                 print(f"⚠️ Error processing auto-claim cron for user {user_id}: {user_e}")
 
-        now_utc = datetime.now(timezone.utc)
-        timestamp_str = now_utc.isoformat()
-        if timestamp_str.endswith('+00:00'):
-            timestamp_str = timestamp_str[:-6] + 'Z'
-        elif not timestamp_str.endswith('Z') and '+' not in timestamp_str[10:] and '-' not in timestamp_str[10:]:
-            timestamp_str += 'Z'
-
         return jsonify({
             "success": True,
             "processed_users": processed_count,
             "auto_claimed_users": auto_claimed_count,
             "total_claimed_amount": round(total_claimed_amount, 8),
-            "timestamp": timestamp_str
+            "timestamp": format_iso_utc()
         }), 200
     except Exception as e:
         print(f"Error cron_auto_claim: {e}")
@@ -314,8 +299,8 @@ def cron_auto_claim():
 @farm_bp.route('/farm/dismiss_welcome', methods=['POST'])
 @farm_bp.route('/api/farm/dismiss_welcome', methods=['POST'])
 def dismiss_welcome():
-    """إغلاق نافذة الترحيب وتخزين الحالة لعدم ظهورها مجدداً"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    """إغلاق نافذة الترحيب وتخزين الحالة"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
@@ -336,8 +321,8 @@ def dismiss_welcome():
 @farm_bp.route('/farm/claim', methods=['POST'])
 @farm_bp.route('/api/farm/claim', methods=['POST'])
 def claim_mined_tokens():
-    """تجميع المحصول المعدن يدوياً مع حماية ضد السكريبتات والنقر المكرر"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    """تجميع المحصول المعدن يدوياً"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
@@ -348,8 +333,7 @@ def claim_mined_tokens():
 
     try:
         result = claim_mined_tokens_db(user_id_str)
-        status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return jsonify(result), (200 if result.get("success") else 400)
     except Exception as e:
         print(f"Error claim: {e}")
         traceback.print_exc()
@@ -360,8 +344,8 @@ def claim_mined_tokens():
 @farm_bp.route('/farm/upgrade', methods=['POST'])
 @farm_bp.route('/api/farm/upgrade', methods=['POST'])
 def buy_upgrade():
-    """شراء ترقية سرعة التعدين مع حماية تكرار الطلبات"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    """شراء ترقية سرعة التعدين"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
@@ -374,13 +358,12 @@ def buy_upgrade():
     raw_level = data.get("level")
     level = str(raw_level) if raw_level is not None else ""
     
-    if not level or level not in [str(i) for i in range(1, 10)]:
+    if not level or level not in VALID_UPGRADE_LEVELS:
         return jsonify({"success": False, "error": "مستوى غير صحيح"}), 400
         
     try:
         result = buy_upgrade_db(user_id_str, level)
-        status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return jsonify(result), (200 if result.get("success") else 400)
     except Exception as e:
         print(f"Error upgrade: {e}")
         traceback.print_exc()
@@ -391,8 +374,8 @@ def buy_upgrade():
 @farm_bp.route('/farm/upgrade_storage', methods=['POST'])
 @farm_bp.route('/api/farm/upgrade_storage', methods=['POST'])
 def buy_storage_upgrade():
-    """شراء ترقية سعة المخزن مع حماية تكرار الطلبات"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    """شراء ترقية سعة المخزن"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
@@ -403,8 +386,7 @@ def buy_storage_upgrade():
 
     try:
         result = buy_storage_db(user_id_str)
-        status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return jsonify(result), (200 if result.get("success") else 400)
     except Exception as e:
         print(f"Error upgrade storage: {e}")
         traceback.print_exc()
@@ -415,31 +397,19 @@ def buy_storage_upgrade():
 @farm_bp.route('/farm/daily_claim', methods=['POST'])
 @farm_bp.route('/api/farm/daily_claim', methods=['POST'])
 def claim_daily():
-    """استلام المكافأة اليومية بعد التحقق المرن والصارم من مشاهدة إعلان Monetag"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    """استلام المكافأة اليومية بعد التحقق من مشاهدة إعلان Monetag"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
 
-    # 🛡️ حماية ضد السبام والطلبات المكررة
     if is_rate_limited(user_id_str, "daily_claim", min_interval=2.0):
         return jsonify({"success": False, "error": "يرجى الانتظار قبل استلام المكافأة اليومية مجدداً"}), 429
 
     data = request.get_json(silent=True) or {}
     
-    # التحقق الممتد والمرن من حالة مشاهدة الإعلان لتجنب الرفض الخاطئ
-    ad_watched = (
-        to_bool(data.get("ad_watched", False)) or 
-        to_bool(data.get("ad_completed", False)) or 
-        to_bool(data.get("monetag_watched", False)) or 
-        to_bool(data.get("monetag_completed", False)) or
-        to_bool(data.get("watched", False)) or
-        to_bool(data.get("reward", False)) or
-        len(data) == 0  # السماح بالنفاذ إن كان طلب الاستلام عادي بدون payload تفصيلي
-    )
-    
-    if not ad_watched:
+    if not is_ad_watched(data):
         return jsonify({
             "success": False, 
             "error": "يجب مشاهدة إعلان Monetag بالكامل أولاً لاستلام المكافأة اليومية"
@@ -447,8 +417,7 @@ def claim_daily():
 
     try:
         result = claim_daily_reward_db(user_id_str)
-        status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return jsonify(result), (200 if result.get("success") else 400)
     except Exception as e:
         print(f"Error daily claim: {e}")
         traceback.print_exc()
@@ -459,31 +428,19 @@ def claim_daily():
 @farm_bp.route('/farm/daily_boost', methods=['POST'])
 @farm_bp.route('/api/farm/daily_boost', methods=['POST'])
 def claim_daily_boost():
-    """تفعيل التعزيز اليومي لسرعة التعدين (+0.10/ساعة) بعد التحقق من مشاهدة إعلان Monetix"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    """تفعيل التعزيز اليومي لسرعة التعدين بعد التحقق من مشاهدة إعلان Monetix"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
 
-    # 🛡️ حماية ضد السبام والهجمات الخارجية المكررة
     if is_rate_limited(user_id_str, "daily_boost", min_interval=3.0):
         return jsonify({"success": False, "error": "تم استلام طلب تفعيل التعزيز بالكامل، يرجى عدم تكرار الطلب"}), 429
 
     data = request.get_json(silent=True) or {}
     
-    # التحقق الممتد والمرن من مشاهدة إعلان Monetix
-    ad_watched = (
-        to_bool(data.get("ad_watched", False)) or 
-        to_bool(data.get("ad_completed", False)) or 
-        to_bool(data.get("monetix_watched", False)) or 
-        to_bool(data.get("monetix_completed", False)) or
-        to_bool(data.get("watched", False)) or
-        to_bool(data.get("reward", False)) or
-        len(data) == 0
-    )
-    
-    if not ad_watched:
+    if not is_ad_watched(data):
         return jsonify({
             "success": False, 
             "error": "يجب مشاهدة إعلان Monetix بالكامل أولاً لتفعيل معزز سرعة التعدين"
@@ -491,8 +448,7 @@ def claim_daily_boost():
 
     try:
         result = claim_daily_boost_db(user_id_str)
-        status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return jsonify(result), (200 if result.get("success") else 400)
     except Exception as e:
         print(f"Error daily boost: {e}")
         traceback.print_exc()
@@ -505,7 +461,7 @@ def claim_daily_boost():
 def get_leaderboard():
     """جلب قائمة أفضل 10 متصدرين للتعدين"""
     is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
         return error_res
         
@@ -532,7 +488,7 @@ def get_leaderboard():
 def get_user_friends():
     """جلب قائمة الأصدقاء المدعوين وإحصائيات مكافآت الإحالة"""
     is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
         return error_res
         
@@ -541,10 +497,9 @@ def get_user_friends():
         return jsonify({"success": False, "error": "يرجى التمهل في طلب قائمة الأصدقاء"}), 429
 
     try:
-        try:
-            from farm.farm_db import get_user_friends_db
+        if get_user_friends_db is not None:
             friends_data = get_user_friends_db(user_id_str)
-        except ImportError:
+        else:
             user_data, _, _ = get_or_create_user_farm_data(user_id_str)
             friends_data = {
                 "friends": user_data.get("referrals_list", []),
@@ -565,8 +520,8 @@ def get_user_friends():
 @farm_bp.route('/farm/claim_friends_reward', methods=['POST'])
 @farm_bp.route('/api/farm/claim_friends_reward', methods=['POST'])
 def claim_friends_reward():
-    """تجميع مكافآت دعوة الأصدقاء مع حماية ضد السبام"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    """تجميع مكافآت دعوة الأصدقاء"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
@@ -576,14 +531,12 @@ def claim_friends_reward():
         return jsonify({"success": False, "error": "يرجى الانتظار قبل استلام مكافآت الإحالة مجدداً"}), 429
 
     try:
-        try:
-            from farm.farm_db import claim_referral_rewards_db
+        if claim_referral_rewards_db is not None:
             result = claim_referral_rewards_db(user_id_str)
-        except ImportError:
+        else:
             result = {"success": False, "error": "دالة تجميع المكافآت غير متوفرة في قاعدة البيانات حالياً"}
             
-        status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return jsonify(result), (200 if result.get("success") else 400)
     except Exception as e:
         print(f"Error claim friends reward: {e}")
         traceback.print_exc()
