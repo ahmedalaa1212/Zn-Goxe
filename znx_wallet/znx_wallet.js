@@ -98,7 +98,56 @@ async function apiFetch(endpoint, options = {}) {
 
 // ==================== محرك السعر المباشر (Real-time Price Engine) ====================
 async function fetchRealZnxPrice() {
-    // 1. الأولوية الأولى: الجلب المباشر من هاتف/متصفح المستخدم (IP المستخدم لا يُحظر أبداً)
+    // 1. الأولوية الأولى: الاستعلام من السيرفر الخلفي (يتجاوز حظر CORS في تلجرام)
+    try {
+        const serverData = await apiFetch(`/price?t=${Date.now()}`, {
+            method: 'GET',
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache' }
+        });
+
+        if (serverData && (serverData.price !== undefined || serverData.priceUsd !== undefined)) {
+            const livePrice = parseFloat(serverData.price || serverData.priceUsd || 0);
+            if (livePrice > 0) {
+                if (serverData.pool_created_at) window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
+                
+                setTargetPrice(livePrice);
+                updateMarketStatsUI({
+                    price: livePrice,
+                    change_24h: serverData.change_24h !== undefined ? parseFloat(serverData.change_24h) : parseFloat(serverData.change24h || 0),
+                    high_24h: parseFloat(serverData.high_24h || serverData.high24h || livePrice),
+                    low_24h: parseFloat(serverData.low_24h || serverData.low24h || livePrice)
+                });
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn("⚠️ تعذر جلب السعر من السيرفر الخلفي، جاري الانتقال للمصادر البديلة...");
+    }
+
+    // 2. المحاولة الثانية: GeckoTerminal API مباشرة
+    try {
+        const geckoRes = await fetch(`https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}?t=${Date.now()}`);
+        if (geckoRes.ok) {
+            const gData = await geckoRes.json();
+            const attr = gData?.data?.attributes;
+            if (attr && attr.base_token_price_usd) {
+                const gPrice = parseFloat(attr.base_token_price_usd);
+                setTargetPrice(gPrice);
+                updateMarketStatsUI({
+                    price: gPrice,
+                    change_24h: parseFloat(attr.price_change_percentage?.h24 || 0),
+                    high_24h: parseFloat(attr.high_price_usd || gPrice),
+                    low_24h: parseFloat(attr.low_price_usd || gPrice)
+                });
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn("⚠️ تعذر الجلب من GeckoTerminal");
+    }
+
+    // 3. المحاولة الثالثة: DexScreener المباشر
     try {
         const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}?t=${Date.now()}`);
         if (dexRes.ok) {
@@ -115,15 +164,15 @@ async function fetchRealZnxPrice() {
                         high_24h: parseFloat(pair.high24h || pair.priceHigh24h || livePrice),
                         low_24h: parseFloat(pair.low24h || pair.priceLow24h || livePrice)
                     });
-                    return; // تم جلب السعر الحقيقي بنجاح من جهاز المستخدم
+                    return;
                 }
             }
         }
     } catch (e) {
-        console.warn("تعذر الجلب المباشر من DexScreener عبر متصفح العميل");
+        console.warn("⚠️ تعذر الجلب المباشر من DexScreener");
     }
 
-    // 2. المحاولة الثانية: الجلب من STON.fi مباشرة من هاتف المستخدم
+    // 4. المحاولة الرابعة: STON.fi المباشر
     try {
         const stonRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}?t=${Date.now()}`);
         if (stonRes.ok) {
@@ -138,33 +187,10 @@ async function fetchRealZnxPrice() {
                     high_24h: priceUsd,
                     low_24h: priceUsd
                 });
-                return;
             }
         }
     } catch (e) {
-        console.warn("تعذر الجلب المباشر من STON.fi عبر متصفح العميل");
-    }
-
-    // 3. المحاولة الثالثة: الاستعلام من السيرفر الخلفي (Railway)
-    const serverData = await apiFetch(`/price?t=${Date.now()}`, {
-        method: 'GET',
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' }
-    });
-
-    if (serverData) {
-        const validPrice = parseFloat(serverData.price || 0);
-        // تجنب القيمة الاحتياطية الثابتة إذا كان هناك سعر حقيقي أحدث تم إحضاره سابقاً
-        if (validPrice > 0 && (validPrice !== 0.000764 || currentLivePrice === 0)) {
-            if (serverData.pool_created_at) window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
-            setTargetPrice(validPrice);
-            updateMarketStatsUI({
-                price: validPrice,
-                change_24h: serverData.change_24h || 0,
-                high_24h: serverData.high_24h || validPrice,
-                low_24h: serverData.low_24h || validPrice
-            });
-        }
+        console.warn("⚠️ تعذر الجلب المباشر من STON.fi");
     }
 }
 
@@ -219,8 +245,8 @@ function updateSmoothTick() {
 function updateMarketStatsUI(data) {
     const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
     const changeEl = document.getElementById('statChange24h') || document.getElementById('znx-24h-change');
-    const highEl = document.getElementById('statHigh24h');
-    const lowEl = document.getElementById('statLow24h');
+    const highEl = document.getElementById('statHigh24h') || document.getElementById('znx-high-24h');
+    const lowEl = document.getElementById('statLow24h') || document.getElementById('znx-low-24h');
 
     if (priceEl) priceEl.innerText = formatPriceUsd(data.price || targetLivePrice);
 
