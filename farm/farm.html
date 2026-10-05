@@ -4,11 +4,9 @@
 <script>
 (function() {
     try {
-        // مسح مفاتيح الكاش القديمة المخزنة مؤقتاً للبوت
         localStorage.removeItem('bot_active');
         localStorage.removeItem('is_auto_bot_active');
         
-        // تفريغ البيانات القديمة المخبأة في localStorage لمنع إظهار البوت كنشط بدون اشتراك
         ['userState', 'farm_user_data', 'player_data'].forEach(function(key) {
             const item = localStorage.getItem(key);
             if (item) {
@@ -25,19 +23,15 @@
             }
         });
 
-        // التأكد من ضبط الحالة المبدئية للـ userState في الـ Window
-        if (window.userState) {
-            if (!window.userState.is_auto_bot_active && !window.userState.vip_active) {
-                window.userState.bot_active = false;
-                window.userState.is_auto_bot_active = false;
-            }
+        if (window.userState && !window.userState.is_auto_bot_active && !window.userState.vip_active) {
+            window.userState.bot_active = false;
+            window.userState.is_auto_bot_active = false;
         }
     } catch(e) {
         console.warn('Farm cache reset notice:', e);
     }
 })();
 
-// دالة مستقلة لإغلاق النافذة الترحيبية فقط
 window.closeWelcomeModal = function() {
     const welcomeModal = document.getElementById('welcome-modal');
     if (welcomeModal) {
@@ -46,7 +40,6 @@ window.closeWelcomeModal = function() {
     }
 };
 
-// دالة مستقلة لإغلاق نافذة إشعار التجميع التلقائي للبوت فقط
 window.closeAutoClaimModal = function() {
     const autoClaimModal = document.getElementById('auto-claim-modal');
     if (autoClaimModal) {
@@ -61,27 +54,27 @@ window.closeAutoClaimModal = function() {
     <!-- 1. الكروت العلوية: الرصيد، رصيد الدولار، ومعدل التعدين -->
     <div class="farm-stats-grid">
         <div class="stat-card">
+            <div class="stat-icon-wrapper coin-bg">🪙</div>
             <div class="stat-text">
                 <span class="stat-label">رصيد ZN</span>
                 <div id="farm-balance" class="stat-value">-- ZN</div>
             </div>
-            <div class="stat-icon-box coin-bg">🪙</div>
         </div>
 
         <div class="stat-card usd-card">
+            <div class="stat-icon-wrapper usd-bg">💵</div>
             <div class="stat-text">
                 <span class="stat-label">القيمة بالدولار</span>
-                <div id="farm-usd-balance" class="stat-value" style="color: #4ade80;">$--</div>
+                <div id="farm-usd-balance" class="stat-value">$--</div>
             </div>
-            <div class="stat-icon-box usd-bg">💵</div>
         </div>
 
         <div class="stat-card">
+            <div class="stat-icon-wrapper rate-bg">⚡</div>
             <div class="stat-text">
                 <span class="stat-label">معدل التعدين</span>
-                <div id="farm-rate" class="stat-value"><span dir="ltr">-- /h</span> ⚡</div>
+                <div id="farm-rate" class="stat-value"><span dir="ltr">-- /h</span></div>
             </div>
-            <div class="stat-icon-box rate-bg">⚡</div>
         </div>
     </div>
 
@@ -121,14 +114,13 @@ window.closeAutoClaimModal = function() {
             جاري التحميل... ⏳
         </button>
 
-        <button id="upgrade-storage-btn" disabled class="storage-upgrade-btn btn-disabled" onclick="window.handleStorageUpgrade()" style="margin-top: 8px;">
+        <button id="upgrade-storage-btn" disabled class="storage-upgrade-btn btn-disabled" onclick="window.handleStorageUpgrade()">
             ترقية المخزن 📦
         </button>
     </div>
 
     <!-- 4. ترقيات ومستويات التعدين -->
     <div class="card-box">
-        <!-- شريط حالة بوت التجميع (فوق قائمة التعدين) -->
         <div id="bot-active-badge" class="bot-badge" style="display: none;">
             🤖 بوت التجميع التلقائي نشط ويعمل الآن
         </div>
@@ -150,7 +142,7 @@ window.closeAutoClaimModal = function() {
 
 </div>
 
-<!-- 6. النافذة الترحيبية الاحترافية للمستخدم الجديد -->
+<!-- 6. النافذة الترحيبية للمستخدم الجديد -->
 <div id="welcome-modal" class="welcome-modal-overlay" style="display: none;">
     <div class="welcome-modal-content">
         <div class="welcome-icon">🎉</div>
@@ -175,7 +167,7 @@ window.closeAutoClaimModal = function() {
         <p class="welcome-desc">
             قام بوت التعدين الذكي بتجميع أرباح المزرعة تلقائياً وتفريغ المخزن!
         </p>
-        <div class="welcome-rate-badge" style="color: #10b981; border-color: #10b981; background: rgba(16, 185, 129, 0.15);">
+        <div class="welcome-rate-badge auto-badge-theme">
             <span id="auto-claimed-amount" dir="ltr">0.00 ZN</span> 💰
         </div>
         <p class="welcome-subnote">تمت إضافة الأرباح المجمعة إلى رصيدك بنجاح.</p>
@@ -193,44 +185,73 @@ window.closeAutoClaimModal = function() {
 
 <style>
 /* ==========================================
-   تنسيقات شاشة المزرعة الاقتصادية المحدثة
+   تنسيقات شاشة المزرعة الاقتصادية الاحترافية الفاخرة
    ========================================== */
+:root {
+    --bg-main: #0b0f19;
+    --card-bg: linear-gradient(145deg, #131b2e, #0d1322);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --primary-gold: #f59e0b;
+    --primary-gold-glow: rgba(245, 158, 11, 0.35);
+    --accent-green: #10b981;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+}
+
 .farm-container {
     padding: 12px;
     direction: rtl;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     max-width: 480px;
     margin: 0 auto;
     box-sizing: border-box;
-    color: #ffffff;
+    color: var(--text-primary);
+    user-select: none;
 }
 
 /* 1. الكروت العلوية الثلاثية */
 .farm-stats-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 6px;
+    gap: 8px;
     margin-bottom: 16px;
 }
 
 .stat-card {
-    background: #151c2c;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
     padding: 10px 6px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-    min-height: 65px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
 }
 
 .stat-card.usd-card {
-    border-color: rgba(74, 222, 128, 0.25);
-    background: rgba(74, 222, 128, 0.05);
+    border-color: rgba(16, 185, 129, 0.3);
+    background: linear-gradient(145deg, rgba(16, 185, 129, 0.08), rgba(13, 19, 34, 0.95));
 }
+
+.stat-icon-wrapper {
+    font-size: 14px;
+    margin-bottom: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+}
+
+.rate-bg { background: rgba(245, 158, 11, 0.15); }
+.coin-bg { background: rgba(245, 158, 11, 0.15); }
+.usd-bg { background: rgba(16, 185, 129, 0.15); }
 
 .stat-text {
     display: flex;
@@ -241,8 +262,8 @@ window.closeAutoClaimModal = function() {
 }
 
 .stat-label {
-    font-size: 10px;
-    color: #8e9baf;
+    font-size: 9.5px;
+    color: var(--text-secondary);
     font-weight: 600;
     white-space: nowrap;
 }
@@ -259,44 +280,43 @@ window.closeAutoClaimModal = function() {
     direction: ltr;
 }
 
-.stat-icon-box {
-    display: none;
+.stat-card.usd-card .stat-value {
+    color: #34d399;
 }
 
-.rate-bg { background: rgba(243, 156, 18, 0.15); }
-.coin-bg { background: rgba(16, 185, 129, 0.15); }
-.usd-bg { background: rgba(74, 222, 128, 0.15); }
-
-/* 2. العملة وزر التعزيز */
+/* 2. القسم الأوسط: العملة وزر التعزيز */
 .hero-section {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin: 15px 0 25px 0;
+    margin: 20px 0 28px 0;
+    position: relative;
 }
 
-.hero-spacer { width: 60px; }
+.hero-spacer { width: 62px; }
 
 .boost-btn {
     width: 62px;
     height: 62px;
     border-radius: 50%;
-    border: 1px solid #f39c12;
-    background: radial-gradient(circle, rgba(243, 156, 18, 0.25), rgba(15, 23, 42, 0.8));
+    border: 1px solid var(--primary-gold);
+    background: radial-gradient(circle at 30% 30%, rgba(245, 158, 11, 0.35), rgba(15, 23, 42, 0.9));
     color: white;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    box-shadow: 0 0 12px rgba(243, 156, 18, 0.3);
-    transition: transform 0.1s ease;
+    box-shadow: 0 0 16px var(--primary-gold-glow);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.boost-btn:active { transform: scale(0.95); }
+.boost-btn:active:not(:disabled) {
+    transform: scale(0.92);
+}
 
-#boost-icon { font-size: 16px; }
-#boost-text { font-size: 10px; font-weight: 800; color: #f39c12; white-space: nowrap; direction: ltr; }
+#boost-icon { font-size: 18px; margin-bottom: -2px; }
+#boost-text { font-size: 9.5px; font-weight: 800; color: var(--primary-gold); white-space: nowrap; direction: ltr; }
 
 .coin-wrapper {
     position: relative;
@@ -307,55 +327,64 @@ window.closeAutoClaimModal = function() {
 
 .coin-glow {
     position: absolute;
-    width: 120px;
-    height: 120px;
+    width: 130px;
+    height: 130px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(243, 156, 18, 0.35) 0%, rgba(0,0,0,0) 70%);
+    background: radial-gradient(circle, var(--primary-gold-glow) 0%, rgba(0,0,0,0) 70%);
+    animation: pulseGlow 3s infinite ease-in-out;
 }
 
 .main-coin {
-    width: 105px;
-    height: 105px;
-    background: radial-gradient(circle at 35% 35%, #ffe066, #f39c12 65%, #995c00);
+    width: 110px;
+    height: 110px;
+    background: radial-gradient(circle at 35% 35%, #fbbf24, #d97706 65%, #78350f);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 3px solid #fffb00;
-    box-shadow: 0 8px 25px rgba(243, 156, 18, 0.4);
+    border: 3px solid #fef08a;
+    box-shadow: 0 10px 30px rgba(217, 119, 6, 0.45);
     animation: floatCoin 3s ease-in-out infinite;
     z-index: 1;
 }
 
 .coin-ring {
-    width: 84px;
-    height: 84px;
+    width: 88px;
+    height: 88px;
     border-radius: 50%;
-    border: 2px dashed rgba(255, 255, 255, 0.7);
+    border: 2px dashed rgba(255, 255, 255, 0.8);
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .coin-text {
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 900;
     color: #ffffff;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    letter-spacing: 0.5px;
 }
 
 @keyframes floatCoin {
     0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-7px); }
+    50% { transform: translateY(-8px); }
+}
+
+@keyframes pulseGlow {
+    0%, 100% { opacity: 0.6; transform: scale(0.95); }
+    50% { opacity: 1; transform: scale(1.08); }
 }
 
 /* 3. كروت التخزين والترقيات */
 .card-box {
-    background: #151c2c;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 14px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    padding: 16px;
     margin-bottom: 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(10px);
 }
 
 .card-header {
@@ -367,28 +396,27 @@ window.closeAutoClaimModal = function() {
 
 .card-title {
     font-size: 13px;
-    font-weight: 700;
-    color: #f1f5f9;
+    font-weight: 800;
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
 .card-subtitle {
-    font-size: 10.5px;
-    color: #8e9baf;
+    font-size: 10px;
+    color: var(--text-secondary);
 }
 
-/* شريط حالة بوت التجميع المعدل ليظهر أعلى قائمة التعدين */
 .bot-badge {
-    background: rgba(16, 185, 129, 0.15);
-    border: 1px solid #10b981;
-    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    color: #34d399;
     font-size: 11px;
     font-weight: 800;
-    padding: 8px 12px;
-    border-radius: 10px;
-    display: none; /* إخفاء افتراضي لمنع الظهور العشوائي قبل تحميل بيانات السيرفر */
+    padding: 10px 12px;
+    border-radius: 12px;
+    display: none;
     align-items: center;
     justify-content: center;
     gap: 6px;
@@ -399,70 +427,84 @@ window.closeAutoClaimModal = function() {
 }
 
 .bot-badge.active, .bot-badge.show {
-    display: inline-flex !important;
+    display: flex !important;
 }
 
 @keyframes pulseBot {
     0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.8; transform: scale(0.98); }
+    50% { opacity: 0.85; transform: scale(0.98); }
 }
 
 .storage-badge {
     font-size: 11px;
-    color: #f39c12;
-    background: rgba(243, 156, 18, 0.1);
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-weight: 700;
+    color: var(--primary-gold);
+    background: rgba(245, 158, 11, 0.12);
+    padding: 3px 10px;
+    border-radius: 8px;
+    font-weight: 800;
+    border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 .progress-outer {
     width: 100%;
-    background: #0b0f19;
+    background: #070a12;
     height: 12px;
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
-    margin-bottom: 12px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .progress-inner {
     width: 0%;
     height: 100%;
-    border-radius: 8px;
-    transition: width 0.3s ease;
-    background: linear-gradient(90deg, #f39c12, #f1c40f);
+    border-radius: 10px;
+    transition: width 0.4s ease-out;
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
 }
 
 .claim-action-btn, .storage-upgrade-btn {
     width: 100%;
-    padding: 11px;
+    padding: 12px;
     border: none;
     border-radius: 12px;
     font-weight: 800;
     font-size: 13px;
     cursor: pointer;
-    transition: background 0.2s ease, transform 0.1s ease;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
 }
 
-.claim-action-btn:active:not(:disabled), .storage-upgrade-btn:active:not(:disabled) { transform: scale(0.98); }
+.storage-upgrade-btn {
+    margin-top: 8px;
+}
+
+.claim-action-btn:active:not(:disabled), .storage-upgrade-btn:active:not(:disabled) {
+    transform: scale(0.98);
+}
 
 .btn-disabled {
     background: #1e293b !important;
     color: #64748b !important;
     cursor: not-allowed !important;
     box-shadow: none !important;
+    border: 1px solid transparent !important;
 }
 
 .btn-ready {
-    background: #10b981 !important;
+    background: linear-gradient(90deg, #10b981, #059669) !important;
     color: #ffffff !important;
-    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3) !important;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4) !important;
 }
 
 .btn-ready-yellow {
-    background: rgba(243, 156, 18, 0.18) !important;
-    border: 1px solid #f39c12 !important;
-    color: #f39c12 !important;
+    background: rgba(245, 158, 11, 0.15) !important;
+    border: 1px solid var(--primary-gold) !important;
+    color: var(--primary-gold) !important;
 }
 
 /* 4. شبكة المستويات والمكافآت */
@@ -479,21 +521,26 @@ window.closeAutoClaimModal = function() {
 }
 
 .mining-card {
-    background: #0b0f19;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
-    padding: 8px 4px;
+    background: #080c16;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 10px 6px;
     text-align: center;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    min-height: 108px;
+    min-height: 112px;
     box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+
+.mining-card:hover {
+    border-color: rgba(245, 158, 11, 0.3);
 }
 
 .mining-card-icon {
-    font-size: 18px;
+    font-size: 20px;
     margin-bottom: 2px;
 }
 
@@ -501,15 +548,15 @@ window.closeAutoClaimModal = function() {
     color: #cbd5e1;
     font-size: 10.5px;
     font-weight: 700;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
 }
 
 .mining-card-btn {
     width: 100%;
-    padding: 5px 2px;
+    padding: 6px 2px;
     border: none;
-    border-radius: 6px;
-    background: #f39c12;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #f59e0b, #d97706);
     color: #000;
     font-weight: 800;
     font-size: 9.5px;
@@ -518,28 +565,28 @@ window.closeAutoClaimModal = function() {
     white-space: nowrap;
 }
 
-.mining-card-btn:active:not(:disabled) { opacity: 0.8; }
+.mining-card-btn:active:not(:disabled) { opacity: 0.85; }
 
 .mining-card-btn:disabled {
-    background: rgba(255, 255, 255, 0.08) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
     color: #475569 !important;
     cursor: not-allowed !important;
 }
 
 /* كروت المكافآت اليومية */
 .reward-day-card {
-    background: #0b0f19;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
+    background: #080c16;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
     padding: 6px 2px;
     text-align: center;
     font-size: 9.5px;
-    color: #8e9baf;
+    color: var(--text-secondary);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    min-height: 52px;
+    min-height: 56px;
     box-sizing: border-box;
     gap: 2px;
 }
@@ -550,22 +597,22 @@ window.closeAutoClaimModal = function() {
 .reward-day-card.claimed { 
     background: rgba(16, 185, 129, 0.1); 
     border-color: rgba(16, 185, 129, 0.3); 
-    color: #10b981; 
+    color: #34d399; 
 }
 
 .reward-day-card.active { 
-    border-color: #f39c12; 
-    color: #f39c12; 
-    background: rgba(243, 156, 18, 0.05);
+    border-color: var(--primary-gold); 
+    color: var(--primary-gold); 
+    background: rgba(245, 158, 11, 0.08);
 }
 
 #daily-timer {
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #ef4444;
+    color: #f87171;
     font-size: 8.5px;
     font-weight: 800;
-    padding: 1px 4px;
+    padding: 2px 4px;
     border-radius: 4px;
     width: 90%;
     direction: ltr;
@@ -575,10 +622,10 @@ window.closeAutoClaimModal = function() {
 .welcome-modal-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(11, 15, 25, 0.88);
-    backdrop-filter: blur(8px);
+    background: rgba(7, 10, 18, 0.88);
+    backdrop-filter: blur(10px);
     z-index: 9999;
-    display: none; /* الوضع الافتراضي مخفي لحين استدعاؤه من الكود */
+    display: none;
     justify-content: center;
     align-items: center;
     padding: 20px;
@@ -590,14 +637,14 @@ window.closeAutoClaimModal = function() {
 
 .welcome-modal-content {
     background: linear-gradient(145deg, #1e293b, #0f172a);
-    border: 1px solid rgba(243, 156, 18, 0.4);
-    border-radius: 20px;
-    padding: 24px 18px;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    border-radius: 24px;
+    padding: 26px 20px;
     text-align: center;
     max-width: 320px;
     width: 100%;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-    animation: welcomePop 0.3s ease-out;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+    animation: welcomePop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @keyframes welcomePop {
@@ -605,43 +652,54 @@ window.closeAutoClaimModal = function() {
     to { transform: scale(1); opacity: 1; }
 }
 
-.welcome-icon { font-size: 42px; margin-bottom: 8px; }
-.welcome-title { font-size: 18px; font-weight: 900; color: #f39c12; margin-bottom: 8px; }
-.welcome-desc { font-size: 12px; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px; }
+.welcome-icon { font-size: 46px; margin-bottom: 8px; }
+.welcome-title { font-size: 19px; font-weight: 900; color: var(--primary-gold); margin-bottom: 8px; }
+.welcome-desc { font-size: 12px; color: #cbd5e1; line-height: 1.6; margin-bottom: 14px; }
 
 .welcome-rate-badge {
-    background: rgba(243, 156, 18, 0.15);
-    border: 1px solid #f39c12;
-    color: #f39c12;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid var(--primary-gold);
+    color: var(--primary-gold);
     font-size: 20px;
     font-weight: 900;
-    padding: 8px;
-    border-radius: 12px;
+    padding: 8px 16px;
+    border-radius: 14px;
     display: inline-block;
     margin-bottom: 12px;
 }
 
-.welcome-subnote { font-size: 10.5px; color: #94a3b8; margin-bottom: 18px; }
+.welcome-rate-badge.auto-badge-theme {
+    color: #34d399;
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.welcome-subnote { font-size: 11px; color: var(--text-secondary); margin-bottom: 20px; }
 
 .welcome-btn {
     width: 100%;
-    padding: 12px;
-    background: linear-gradient(90deg, #f39c12, #e67e22);
+    padding: 13px;
+    background: linear-gradient(90deg, #f59e0b, #d97706);
     border: none;
-    border-radius: 12px;
+    border-radius: 14px;
     color: #000000;
     font-weight: 900;
     font-size: 14px;
     cursor: pointer;
-    box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+    transition: transform 0.1s;
+}
+
+.welcome-btn:active {
+    transform: scale(0.97);
 }
 
 /* 6. شاشة تحميل الإعلان (Ad Loading Overlay) */
 .ad-loading-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(11, 15, 25, 0.85);
-    backdrop-filter: blur(6px);
+    background: rgba(7, 10, 18, 0.88);
+    backdrop-filter: blur(8px);
     z-index: 99999;
     display: none;
     justify-content: center;
@@ -655,21 +713,21 @@ window.closeAutoClaimModal = function() {
 
 .ad-loading-content {
     background: #1e293b;
-    border: 1px solid rgba(243, 156, 18, 0.3);
-    border-radius: 16px;
-    padding: 20px 24px;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 20px;
+    padding: 22px 28px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    gap: 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
 }
 
 .ad-spinner {
-    width: 36px;
-    height: 36px;
-    border: 3px solid rgba(243, 156, 18, 0.2);
-    border-top: 3px solid #f39c12;
+    width: 38px;
+    height: 38px;
+    border: 3px solid rgba(245, 158, 11, 0.2);
+    border-top: 3px solid var(--primary-gold);
     border-radius: 50%;
     animation: spinAd 0.8s linear infinite;
 }
@@ -677,7 +735,7 @@ window.closeAutoClaimModal = function() {
 .ad-loading-text {
     color: #f1f5f9;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 800;
 }
 
 @keyframes spinAd {
