@@ -2,7 +2,7 @@
 """
 💎 ZNX Wallet API Module (Flask Blueprint)
 Optimized Backend Engine with STON.fi Direct Integration & Background Price Worker
-Fetches Live Price directly from STON.fi DEX APIs with zero Rate-Limit / IP Block
+Fetches Live Price directly from DEX APIs with zero Rate-Limit / IP Block & No Fallback Prices
 """
 
 import math
@@ -26,9 +26,7 @@ znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6"
 
-DEFAULT_FALLBACK_PRICE = 0.000764
-
-# كاش السعر والشمعات في الذاكرة
+# كاش السعر والشمعات في الذاكرة (بدون أي سعر احتياطي وهمي)
 _PRICE_CACHE = {
     'price': 0.0,
     'change_24h': 0.0,
@@ -79,9 +77,7 @@ def _make_http_request(url, timeout=4.0):
 
 
 def _update_price_from_external_apis():
-    """
-    جلب السعر المباشر: المصدر الأساسي رقم (1) هو STON.fi المباشر.
-    """
+    """جلب السعر المباشر الحقيقي من STON.fi و DexScreener و GeckoTerminal بدون أي أسعار احتياطية"""
     now = time.time()
     fetched_price = None
     change_24h = None
@@ -89,11 +85,10 @@ def _update_price_from_external_apis():
     low_24h = None
     pool_created_at = None
 
-    # 1. المصدر الأول والأساسي: STON.fi Asset & Pool APIs (السعر الحقيقي للتداول)
+    # 1. المصدر الأول والأهم: STON.fi Asset & Pool API المباشر
     try:
         ston_asset_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
-        ston_data = _make_http_request(ston_asset_url, timeout=3.5)
-        
+        ston_data = _make_http_request(ston_asset_url, timeout=4.0)
         if ston_data:
             asset = ston_data.get('asset', {}) if 'asset' in ston_data else ston_data
             p_str = asset.get('dex_usd_price') or asset.get('third_party_usd_price') or asset.get('price_usd')
@@ -102,9 +97,8 @@ def _update_price_from_external_apis():
                 if p > 0:
                     fetched_price = p
 
-        # الاستعلام عن بيانات المجمع من STON.fi لجلب نسبة التغيير وأعلى/أدنى سعر
         ston_pool_url = f"https://api.ston.fi/v1/pools/{STON_POOL_ADDRESS}?t={int(now)}"
-        pool_data = _make_http_request(ston_pool_url, timeout=3.5)
+        pool_data = _make_http_request(ston_pool_url, timeout=4.0)
         if pool_data:
             pool_info = pool_data.get('pool', {}) if 'pool' in pool_data else pool_data
             if pool_info:
@@ -117,69 +111,62 @@ def _update_price_from_external_apis():
     except Exception as e:
         print(f"⚠️ Worker STON.fi Fetch Error: {e}")
 
-    # 2. المصدر الثاني الاحتياطي: DexScreener (في حالة فشل STON.fi)
-    if not fetched_price:
-        try:
-            dex_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}?t={int(now)}"
-            data = _make_http_request(dex_url, timeout=3.5)
-            if data and isinstance(data, dict):
-                pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else None)
-                if pair and pair.get('priceUsd'):
-                    p = float(pair.get('priceUsd', 0.0) or 0.0)
-                    if p > 0:
+    # 2. المصدر الثاني: DexScreener Pair API
+    try:
+        dex_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}?t={int(now)}"
+        data = _make_http_request(dex_url, timeout=4.0)
+        if data and isinstance(data, dict):
+            pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else None)
+            if pair and pair.get('priceUsd'):
+                p = float(pair.get('priceUsd', 0.0) or 0.0)
+                if p > 0:
+                    if not fetched_price:
                         fetched_price = p
-                        if change_24h is None:
-                            change_24h = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
-                        if pair.get('pairCreatedAt'):
-                            pool_created_at = int(pair['pairCreatedAt'] / 1000)
+                    if change_24h is None:
+                        change_24h = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
+                    if pair.get('pairCreatedAt'):
+                        pool_created_at = int(pair['pairCreatedAt'] / 1000)
 
-                        if not high_24h and (pair.get('high24h') or pair.get('priceHigh24h')):
-                            high_24h = float(pair.get('high24h') or pair.get('priceHigh24h'))
-                        if not low_24h and (pair.get('low24h') or pair.get('priceLow24h')):
-                            low_24h = float(pair.get('low24h') or pair.get('priceLow24h'))
-        except Exception as e:
-            print(f"⚠️ Worker DexScreener Error: {e}")
+                    if not high_24h and (pair.get('high24h') or pair.get('priceHigh24h')):
+                        high_24h = float(pair.get('high24h') or pair.get('priceHigh24h'))
+                    if not low_24h and (pair.get('low24h') or pair.get('priceLow24h')):
+                        low_24h = float(pair.get('low24h') or pair.get('priceLow24h'))
+    except Exception as e:
+        print(f"⚠️ Worker DexScreener Error: {e}")
 
-    # 3. المصدر الثالث الاحتياطي: GeckoTerminal Pool API
-    if not fetched_price:
+    # 3. المصدر الثالث: GeckoTerminal Pool API
+    if not fetched_price or high_24h is None or low_24h is None:
         try:
             gecko_url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}?t={int(now)}"
-            gdata = _make_http_request(gecko_url, timeout=3.5)
+            gdata = _make_http_request(gecko_url, timeout=4.0)
             if gdata and isinstance(gdata, dict) and 'data' in gdata:
                 attr = gdata['data'].get('attributes', {})
-                p = float(attr.get('base_token_price_usd', 0.0) or 0.0)
-                if p > 0:
-                    fetched_price = p
-                    if change_24h is None:
-                        change_24h = float(attr.get('price_change_percentage', {}).get('h24', 0.0) or 0.0)
+                if not fetched_price:
+                    p = float(attr.get('base_token_price_usd', 0.0) or 0.0)
+                    if p > 0:
+                        fetched_price = p
+                if change_24h is None:
+                    change_24h = float(attr.get('price_change_percentage', {}).get('h24', 0.0) or 0.0)
+
+                if not high_24h and attr.get('high_price_usd'):
+                    high_24h = float(attr.get('high_price_usd'))
+                if not low_24h and attr.get('low_price_usd'):
+                    low_24h = float(attr.get('low_price_usd'))
         except Exception as e:
             print(f"⚠️ Worker GeckoTerminal Error: {e}")
 
-    # تحديث الذاكرة المخبأة (Cache) في حالة نجاح الجلب من أي مصدر
+    # تحديث الكاش بالقيم الحقيقية فقط بدون إدخال أسعار وهمية
     if fetched_price and fetched_price > 0:
         _PRICE_CACHE['price'] = fetched_price
-        
         if change_24h is not None:
             _PRICE_CACHE['change_24h'] = change_24h
-        
         if pool_created_at:
             _PRICE_CACHE['pool_created_at'] = pool_created_at
 
-        curr_high = _PRICE_CACHE.get('high_24h', 0.0)
-        curr_low = _PRICE_CACHE.get('low_24h', 0.0)
-
-        _PRICE_CACHE['high_24h'] = max(high_24h, fetched_price) if high_24h else (max(curr_high, fetched_price) if curr_high > 0 else fetched_price * 1.01)
-        _PRICE_CACHE['low_24h'] = min(low_24h, fetched_price) if low_24h else (min(curr_low, fetched_price) if curr_low > 0 else fetched_price * 0.99)
+        _PRICE_CACHE['high_24h'] = high_24h if high_24h else fetched_price
+        _PRICE_CACHE['low_24h'] = low_24h if low_24h else fetched_price
         _PRICE_CACHE['last_updated'] = now
         return True
-
-    # استخدام القيمة الاحتياطية فقط إذا لم نتمكن من جلب أي سعر حقيقي وكانت الذاكرة فارغة تماماً
-    if _PRICE_CACHE['price'] <= 0:
-        _PRICE_CACHE['price'] = DEFAULT_FALLBACK_PRICE
-        _PRICE_CACHE['high_24h'] = DEFAULT_FALLBACK_PRICE * 1.01
-        _PRICE_CACHE['low_24h'] = DEFAULT_FALLBACK_PRICE * 0.99
-        _PRICE_CACHE['change_24h'] = 0.0
-        _PRICE_CACHE['last_updated'] = now
 
     return False
 
@@ -190,7 +177,7 @@ def _update_candles_from_external_apis():
     url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=70"
 
     try:
-        raw_data = _make_http_request(url, timeout=3.5)
+        raw_data = _make_http_request(url, timeout=4.0)
         if raw_data and isinstance(raw_data, dict):
             ohlcv_list = raw_data.get('data', {}).get('attributes', {}).get('ohlcv_list', [])
             if ohlcv_list:
@@ -210,10 +197,11 @@ def _update_candles_from_external_apis():
                         last_t = cd['time']
 
                 if unique_candles:
-                    curr_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else DEFAULT_FALLBACK_PRICE
-                    unique_candles[-1]['close'] = curr_price
-                    unique_candles[-1]['high'] = max(unique_candles[-1]['high'], curr_price)
-                    unique_candles[-1]['low'] = min(unique_candles[-1]['low'], curr_price)
+                    curr_price = _PRICE_CACHE['price']
+                    if curr_price > 0:
+                        unique_candles[-1]['close'] = curr_price
+                        unique_candles[-1]['high'] = max(unique_candles[-1]['high'], curr_price)
+                        unique_candles[-1]['low'] = min(unique_candles[-1]['low'], curr_price)
 
                     _CANDLES_CACHE['candles'] = unique_candles
                     _CANDLES_CACHE['last_updated'] = now_sec
@@ -229,7 +217,7 @@ def _background_price_worker():
     المُحرك الخلفي الصامت (Daemon Thread):
     يطلب السعر المباشر كل 3 ثوانٍ فقط من سيرفرك لحسابه الخاص ويخزنه في RAM.
     """
-    print("🚀 ZNX Wallet STON.fi Background Daemon Worker Started!")
+    print("🚀 ZNX Wallet Background Daemon Worker Started!")
     candles_timer = 0
     while True:
         try:
@@ -242,7 +230,7 @@ def _background_price_worker():
         except Exception as e:
             print(f"⚠️ Worker Thread Error: {e}")
 
-        time.sleep(3)  # استعلام واحد كل 3 ثوانٍ (20 طلب فقط بالدقيقة - آمن 100% من الحظر)
+        time.sleep(3)
 
 
 def start_background_worker_if_needed():
@@ -259,7 +247,7 @@ start_background_worker_if_needed()
 
 
 def fetch_live_dex_price():
-    """إرجاع السعر الحقيقي فوراً من الذاكرة (RAM) بدون أي طلب خارجي متكرر"""
+    """إرجاع السعر الحقيقي فوراً من الذاكرة (RAM)"""
     if _PRICE_CACHE['price'] <= 0:
         _update_price_from_external_apis()
     return _PRICE_CACHE
@@ -268,22 +256,25 @@ def fetch_live_dex_price():
 def fetch_dex_candles(timeframe='5m'):
     """إرجاع الشمعات من الذاكرة المخبأة"""
     now_sec = int(time.time())
+    curr_price = _PRICE_CACHE['price']
+
     if _CANDLES_CACHE['candles']:
         candles = [dict(c) for c in _CANDLES_CACHE['candles']]
-        curr_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else DEFAULT_FALLBACK_PRICE
         if candles and curr_price > 0:
             candles[-1]['close'] = curr_price
             candles[-1]['high'] = max(candles[-1]['high'], curr_price)
             candles[-1]['low'] = min(candles[-1]['low'], curr_price)
         return candles
 
-    return _generate_continuous_smooth_candles(
-        current_price=_PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else DEFAULT_FALLBACK_PRICE,
-        change_24h=_PRICE_CACHE['change_24h'],
-        now_sec=now_sec,
-        limit=70,
-        timeframe_sec=300
-    )
+    if curr_price > 0:
+        return _generate_continuous_smooth_candles(
+            current_price=curr_price,
+            change_24h=_PRICE_CACHE['change_24h'],
+            now_sec=now_sec,
+            limit=70,
+            timeframe_sec=300
+        )
+    return []
 
 
 def _generate_continuous_smooth_candles(current_price, change_24h, now_sec, limit=70, timeframe_sec=300):
@@ -359,7 +350,7 @@ def _extract_user_id():
     return None
 
 
-# ==================== المسارات والربط (Endpoints with STON.fi Live Data) ====================
+# ==================== المسارات والربط (Endpoints) ====================
 
 @znx_wallet_bp.route('/price', methods=['GET', 'OPTIONS'])
 @znx_wallet_bp.route('/api/znx-wallet/price', methods=['GET', 'OPTIONS'])
@@ -369,9 +360,12 @@ def get_price_only():
         return _cors_response({'success': True})
 
     cache = fetch_live_dex_price()
+    has_valid_price = cache['price'] > 0
+
     return _cors_response({
         'success': True,
-        'price': cache['price'],
+        'has_price': has_valid_price,
+        'price': cache['price'] if has_valid_price else None,
         'change_24h': cache['change_24h'],
         'high_24h': cache['high_24h'],
         'low_24h': cache['low_24h'],
@@ -438,6 +432,7 @@ def get_wallet_data():
             serializable_tiers.append(t_copy)
 
         price_data = fetch_live_dex_price()
+        has_valid_price = price_data['price'] > 0
 
         return _cors_response({
             'success': True,
@@ -450,7 +445,8 @@ def get_wallet_data():
             'my_info': my_info,
             'global_total': total_global_znx,
             'max_global_znx': float(global_stats.get('max_global_znx', 32500000.0)),
-            'live_price': price_data['price'],
+            'has_price': has_valid_price,
+            'live_price': price_data['price'] if has_valid_price else None,
             'change_24h': price_data['change_24h'],
             'high_24h': price_data['high_24h'],
             'low_24h': price_data['low_24h'],
