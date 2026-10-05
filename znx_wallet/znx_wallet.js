@@ -1,6 +1,6 @@
 /**
- * 💎 ZNX Wallet Engine (Front-end Module - Professional Bybit-Style Chart & Real STON.fi Engine)
- * Cleaned, Optimized, and Real-Time Price Synced Version
+ * 💎 ZNX Wallet Engine (Front-end Module - Professional Bybit-Style Chart & Backend Synced Engine)
+ * Cleaned, Optimized, Zero Client CORS/Rate-Limit Error Version
  */
 
 // ==================== الثوابت والمتغيرات العامة ====================
@@ -69,7 +69,7 @@ function formatCoins(val, decimals = 2) {
 
 function formatPriceUsd(val) {
     const num = parseFloat(val) || 0;
-    if (num <= 0) return "$0.000000";
+    if (num <= 0) return "جاري جلب السعر...";
     if (num < 0.000001) return `$${num.toFixed(8)}`;
     if (num < 0.0001) return `$${num.toFixed(7)}`;
     if (num < 0.01) return `$${num.toFixed(6)}`;
@@ -77,7 +77,7 @@ function formatPriceUsd(val) {
     return `$${num.toFixed(6)}`;
 }
 
-// دالة موحدة للاستعلامات لتجنب التكرار
+// دالة موحدة للاستعلامات من السيرفر الخلفي
 async function apiFetch(endpoint, options = {}) {
     const baseUrl = window.location.origin;
     const paths = [`/api/znx-wallet${endpoint}`, `/api/znx_wallet${endpoint}`];
@@ -98,99 +98,39 @@ async function apiFetch(endpoint, options = {}) {
 
 // ==================== محرك السعر المباشر (Real-time Price Engine) ====================
 async function fetchRealZnxPrice() {
-    // 1. الأولوية الأولى: الاستعلام من السيرفر الخلفي (يتجاوز حظر CORS في تلجرام)
     try {
+        // الطلب يتم حصرياً من السيرفر الخلفي لمنع حظر IP المستخدم أو تقييد CORS في التلجرام
         const serverData = await apiFetch(`/price?t=${Date.now()}`, {
             method: 'GET',
             cache: 'no-store',
             headers: { 'Cache-Control': 'no-cache' }
         });
 
-        if (serverData && (serverData.price !== undefined || serverData.priceUsd !== undefined)) {
-            const livePrice = parseFloat(serverData.price || serverData.priceUsd || 0);
-            if (livePrice > 0) {
-                if (serverData.pool_created_at) window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
-                
-                setTargetPrice(livePrice);
-                updateMarketStatsUI({
-                    price: livePrice,
-                    change_24h: serverData.change_24h !== undefined ? parseFloat(serverData.change_24h) : parseFloat(serverData.change24h || 0),
-                    high_24h: parseFloat(serverData.high_24h || serverData.high24h || livePrice),
-                    low_24h: parseFloat(serverData.low_24h || serverData.low24h || livePrice)
-                });
-                return;
+        if (serverData && serverData.has_price && serverData.price > 0) {
+            const livePrice = parseFloat(serverData.price);
+            if (serverData.pool_created_at) window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
+            
+            setTargetPrice(livePrice);
+            updateMarketStatsUI({
+                price: livePrice,
+                change_24h: serverData.change_24h !== undefined ? parseFloat(serverData.change_24h) : 0,
+                high_24h: parseFloat(serverData.high_24h || livePrice),
+                low_24h: parseFloat(serverData.low_24h || livePrice)
+            });
+            return;
+        } else {
+            // في حالة عدم جاهزية السعر بعد من السيرفر
+            const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
+            if (priceEl && (!currentLivePrice || currentLivePrice <= 0)) {
+                priceEl.innerText = "جاري جلب السعر...";
             }
         }
     } catch (e) {
-        console.warn("⚠️ تعذر جلب السعر من السيرفر الخلفي، جاري الانتقال للمصادر البديلة...");
-    }
-
-    // 2. المحاولة الثانية: GeckoTerminal API مباشرة
-    try {
-        const geckoRes = await fetch(`https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}?t=${Date.now()}`);
-        if (geckoRes.ok) {
-            const gData = await geckoRes.json();
-            const attr = gData?.data?.attributes;
-            if (attr && attr.base_token_price_usd) {
-                const gPrice = parseFloat(attr.base_token_price_usd);
-                setTargetPrice(gPrice);
-                updateMarketStatsUI({
-                    price: gPrice,
-                    change_24h: parseFloat(attr.price_change_percentage?.h24 || 0),
-                    high_24h: parseFloat(attr.high_price_usd || gPrice),
-                    low_24h: parseFloat(attr.low_price_usd || gPrice)
-                });
-                return;
-            }
+        console.warn("⚠️ جاري انتظار تحديث السعر من السيرفر الخلفي...");
+        const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
+        if (priceEl && (!currentLivePrice || currentLivePrice <= 0)) {
+            priceEl.innerText = "جاري جلب السعر...";
         }
-    } catch (e) {
-        console.warn("⚠️ تعذر الجلب من GeckoTerminal");
-    }
-
-    // 3. المحاولة الثالثة: DexScreener المباشر
-    try {
-        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}?t=${Date.now()}`);
-        if (dexRes.ok) {
-            const dexData = await dexRes.json();
-            const pair = dexData.pair || (dexData.pairs && dexData.pairs[0]);
-            if (pair && pair.priceUsd) {
-                const livePrice = parseFloat(pair.priceUsd);
-                if (livePrice > 0) {
-                    if (pair.pairCreatedAt) window.ZNX_POOL_CREATED_AT = Math.floor(pair.pairCreatedAt / 1000);
-                    setTargetPrice(livePrice);
-                    updateMarketStatsUI({
-                        price: livePrice,
-                        change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
-                        high_24h: parseFloat(pair.high24h || pair.priceHigh24h || livePrice),
-                        low_24h: parseFloat(pair.low24h || pair.priceLow24h || livePrice)
-                    });
-                    return;
-                }
-            }
-        }
-    } catch (e) {
-        console.warn("⚠️ تعذر الجلب المباشر من DexScreener");
-    }
-
-    // 4. المحاولة الرابعة: STON.fi المباشر
-    try {
-        const stonRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}?t=${Date.now()}`);
-        if (stonRes.ok) {
-            const stonData = await stonRes.json();
-            const asset = stonData.asset || stonData;
-            const priceUsd = parseFloat(asset?.dex_usd_price || asset?.third_party_usd_price || 0);
-            if (priceUsd > 0) {
-                setTargetPrice(priceUsd);
-                updateMarketStatsUI({
-                    price: priceUsd,
-                    change_24h: parseFloat(asset?.price_change_24h || 0),
-                    high_24h: priceUsd,
-                    low_24h: priceUsd
-                });
-            }
-        }
-    } catch (e) {
-        console.warn("⚠️ تعذر الجلب المباشر من STON.fi");
     }
 }
 
@@ -248,7 +188,13 @@ function updateMarketStatsUI(data) {
     const highEl = document.getElementById('statHigh24h') || document.getElementById('znx-high-24h');
     const lowEl = document.getElementById('statLow24h') || document.getElementById('znx-low-24h');
 
-    if (priceEl) priceEl.innerText = formatPriceUsd(data.price || targetLivePrice);
+    if (priceEl) {
+        if (data.price && data.price > 0) {
+            priceEl.innerText = formatPriceUsd(data.price);
+        } else {
+            priceEl.innerText = "جاري جلب السعر...";
+        }
+    }
 
     if (changeEl && data.change_24h !== undefined) {
         const ch = parseFloat(data.change_24h) || 0;
@@ -256,8 +202,8 @@ function updateMarketStatsUI(data) {
         changeEl.style.color = ch >= 0 ? 'var(--accent-green, #0ecb81)' : 'var(--accent-red, #f6465d)';
     }
 
-    if (highEl && data.high_24h) highEl.innerText = formatPriceUsd(data.high_24h);
-    if (lowEl && data.low_24h) lowEl.innerText = formatPriceUsd(data.low_24h);
+    if (highEl) highEl.innerText = data.high_24h && data.high_24h > 0 ? formatPriceUsd(data.high_24h) : "--";
+    if (lowEl) lowEl.innerText = data.low_24h && data.low_24h > 0 ? formatPriceUsd(data.low_24h) : "--";
 }
 
 function startLivePriceEngine() {
@@ -366,29 +312,7 @@ async function loadChartData(tf) {
         return;
     }
 
-    // Fallback: GeckoTerminal Direct API
-    try {
-        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=120`;
-        const directRes = await fetch(directUrl);
-        if (directRes.ok) {
-            const json = await directRes.json();
-            const list = json?.data?.attributes?.ohlcv_list || [];
-            if (list.length > 0) {
-                let candles = list.map(item => ({
-                    time: parseInt(item[0]),
-                    open: parseFloat(item[1]),
-                    high: parseFloat(item[2]),
-                    low: parseFloat(item[3]),
-                    close: parseFloat(item[4])
-                }));
-                applyCandlesToChart(candles);
-                return;
-            }
-        }
-    } catch (e) {
-        console.warn("⚠️ تعذر جلب الشمعات الخارجية، استخدام التوليد المباشر.");
-    }
-
+    // إنشاء الشمعات زمنياً عند عدم توفر كاش كافٍ من السيرفر
     generateAccurateTimeboundCandles(tf);
 }
 
