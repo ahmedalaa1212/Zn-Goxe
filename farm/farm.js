@@ -1,8 +1,11 @@
 /**
  * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Retroactive Jumps)
+ * Cleaned, Optimized & Modularized Version
  */
 
-// الدوال العامة للتحكم بالنوافذ المنبثقة
+// ==========================================
+// 1. الدوال العامة للتحكم بالنوافذ المنبثقة
+// ==========================================
 window.initFarmView = function() {
     if (typeof window.onFarmTabOpen === 'function') {
         window.onFarmTabOpen();
@@ -16,17 +19,18 @@ window.closeWelcomeModal = function() {
         modal.classList.remove('active', 'show');
     }
 
-    if (!window.userState) window.userState = {};
-    if (!window.PlayerData) window.PlayerData = {};
-
-    window.userState.is_new_user = false;
-    window.PlayerData.is_new_user = false;
-    window.userState.welcome_seen = true;
-    window.PlayerData.welcome_seen = true;
+    window.updateState?.({ is_new_user: false, welcome_seen: true }) || (
+        (window.userState = window.userState || {}),
+        (window.PlayerData = window.PlayerData || {}),
+        (window.userState.is_new_user = false),
+        (window.PlayerData.is_new_user = false),
+        (window.userState.welcome_seen = true),
+        (window.PlayerData.welcome_seen = true)
+    );
 
     try {
         const tele = window.Telegram?.WebApp;
-        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
+        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
         if (userId) {
             localStorage.setItem(`zn_welcome_seen_${userId}`, 'true');
         }
@@ -46,13 +50,16 @@ window.closeAutoClaimModal = function() {
     }
 };
 
+// ==========================================
+// 2. النطاق المحمي الخاص بالمزرعة (Module)
+// ==========================================
 (function initFarmModule() {
     'use strict';
 
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    // إعدادات اللعبة المحمية داخل النطاق الخاص
+    // إعدادات اللعبة
     const GAME_CONFIG = {
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
@@ -93,7 +100,7 @@ window.closeAutoClaimModal = function() {
 
     let MIN_CLAIM_INTERVAL = 15;
 
-    // أقفال العمليات لمنع النقر المكرر والتلاعب الموازي
+    // أقفال العمليات لمنع التكرار والتضارب
     let isClaimingDaily = false;
     let isBoosting = false; 
     let isFetching = false;
@@ -108,17 +115,26 @@ window.closeAutoClaimModal = function() {
     let lastAutoClaimAttempt = 0;
     let lastClickTime = 0;
 
-    // منع النقر المتعدد السريع
+    // --- أدوات موحدة لإدارة الحالة محلياً ---
+    function updateState(patch) {
+        if (!patch || typeof patch !== 'object') return;
+        window.userState = Object.assign(window.userState || {}, patch);
+        window.PlayerData = Object.assign(window.PlayerData || {}, patch);
+        saveCachedData(window.userState);
+    }
+    window.updateState = updateState;
+
+    function getState() {
+        return window.userState || window.PlayerData || {};
+    }
+
     function isDebouncedClick(cooldownMs = 500) {
         const now = Date.now();
-        if (now - lastClickTime < cooldownMs) {
-            return true;
-        }
+        if (now - lastClickTime < cooldownMs) return true;
         lastClickTime = now;
         return false;
     }
 
-    // دالة تحليل تاريخ السيرفر مع فحص المنطقة الزمنية بدقة
     function parseServerDateMs(dateStr) {
         if (!dateStr) return getAdjustedNowMs();
         if (typeof dateStr === 'number') return dateStr;
@@ -127,9 +143,7 @@ window.closeAutoClaimModal = function() {
         const tIndex = s.indexOf('T');
         if (tIndex !== -1) {
             const timePart = s.substring(tIndex + 1);
-            if (!timePart.includes('Z') && !timePart.includes('+') && !timePart.includes('-')) {
-                s += 'Z';
-            }
+            if (!timePart.includes('Z') && !timePart.includes('+') && !timePart.includes('-')) s += 'Z';
         } else if (!s.includes('Z') && !s.includes('+') && !s.includes('-')) {
             s += 'Z';
         }
@@ -139,15 +153,13 @@ window.closeAutoClaimModal = function() {
     }
 
     function getCacheKey() {
-        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
+        const userId = tele?.initDataUnsafe?.user?.id || getState().tg_id || getState().telegram_id;
         return userId ? `zn_farm_cache_${userId}` : 'zn_farm_cache_global';
     }
 
     function saveCachedData(data) {
         try {
-            if (!data) return;
-            const key = getCacheKey();
-            localStorage.setItem(key, JSON.stringify(data));
+            if (data) localStorage.setItem(getCacheKey(), JSON.stringify(data));
         } catch (e) {
             console.error("خطأ حفظ الكاش المحلي:", e);
         }
@@ -155,8 +167,7 @@ window.closeAutoClaimModal = function() {
 
     function loadCachedData() {
         try {
-            const key = getCacheKey();
-            const cached = localStorage.getItem(key);
+            const cached = localStorage.getItem(getCacheKey());
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (parsed && typeof parsed === 'object') {
@@ -173,7 +184,7 @@ window.closeAutoClaimModal = function() {
 
     function clearStaleLocalCache() {
         try {
-            const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
+            const userId = tele?.initDataUnsafe?.user?.id || getState().tg_id || getState().telegram_id;
             if (userId) {
                 localStorage.removeItem(`zn_farm_cache_${userId}`);
                 localStorage.removeItem(`zn_welcome_seen_${userId}`);
@@ -233,27 +244,23 @@ window.closeAutoClaimModal = function() {
         }
     }
 
+    // --- دوال التنسيق والأرقام ---
     function formatUsdBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || Math.abs(num) < 0.000001) return "$0.00";
         
         let str = num.toFixed(6).replace(/\.?0+$/, '');
         const parts = str.split('.');
-        if (!parts[1]) {
-            return `$${parts[0]}.00`;
-        } else if (parts[1].length === 1) {
-            return `$${parts[0]}.${parts[1]}0`;
-        } else {
-            return `$${str}`;
-        }
+        if (!parts[1]) return `$${parts[0]}.00`;
+        if (parts[1].length === 1) return `$${parts[0]}.${parts[1]}0`;
+        return `$${str}`;
     }
 
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
         
-        let fixed = num.toFixed(6);
-        let parts = fixed.split('.');
+        let parts = num.toFixed(6).split('.');
         let decimals = parts[1].replace(/0+$/, '');
         if (decimals.length < 2) decimals = (decimals + '00').slice(0, 2);
         return `${parts[0]}.${decimals}`;
@@ -263,53 +270,42 @@ window.closeAutoClaimModal = function() {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.000000";
         
-        let fixed = num.toFixed(6);
-        let parts = fixed.split('.');
+        let parts = num.toFixed(6).split('.');
         let decimals = parts[1].replace(/0+$/, '');
         if (decimals.length < 3) decimals = (decimals + '000').slice(0, 3);
         return `${parts[0]}.${decimals}`;
     }
 
     function getStoredBalance() {
-        if (window.userState && window.userState.balance !== undefined) {
-            return parseFloat(window.userState.balance || 0);
-        }
-        return parseFloat(window.PlayerData?.balance || 0);
+        return parseFloat(getState().balance || 0);
     }
 
     function getStoredUsdBalance() {
-        if (window.userState && window.userState.usd_balance !== undefined) {
-            return parseFloat(window.userState.usd_balance || 0);
-        }
-        return parseFloat(window.PlayerData?.usd_balance || 0);
+        return parseFloat(getState().usd_balance || 0);
     }
 
     function setStoredBalance(newBalance, newUsdBalance) {
-        if (!window.userState) window.userState = {};
-        if (!window.PlayerData) window.PlayerData = {};
+        const patch = {};
 
         if (newBalance !== undefined && newBalance !== null) {
             const val = parseFloat(newBalance);
-            window.userState.balance = val; 
-            window.PlayerData.balance = val;
+            patch.balance = val;
             const balEl = document.getElementById('farm-balance');
             if (balEl) balEl.innerText = `${formatZnBalance(val)} ZN`;
         }
 
         if (newUsdBalance !== undefined && newUsdBalance !== null) {
             const usdVal = parseFloat(newUsdBalance);
-            window.userState.usd_balance = usdVal;
-            window.PlayerData.usd_balance = usdVal;
+            patch.usd_balance = usdVal;
             const usdEl = document.getElementById('farm-usd-balance');
             if (usdEl) usdEl.innerText = formatUsdBalance(usdVal);
         }
 
-        saveCachedData(window.userState);
+        updateState(patch);
     }
 
     function getTodayUTCStr() {
-        const adjustedNow = new Date(getAdjustedNowMs());
-        return adjustedNow.toISOString().split('T')[0];
+        return new Date(getAdjustedNowMs()).toISOString().split('T')[0];
     }
     
     function getTimeUntilUTCMidnight() {
@@ -353,12 +349,10 @@ window.closeAutoClaimModal = function() {
 
     function toggleAdLoadingOverlay(show) {
         const overlay = document.getElementById('ad-loading-overlay');
-        if (overlay) {
-            overlay.style.display = show ? 'flex' : 'none';
-        }
+        if (overlay) overlay.style.display = show ? 'flex' : 'none';
     }
 
-    // --- إعلانات Monetag الخاصة بالتسجيل اليومي ---
+    // --- إعلانات Monetag ---
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
         const zoneId = GAME_CONFIG.monetagZoneId || "11322720";
@@ -384,12 +378,8 @@ window.closeAutoClaimModal = function() {
             if (typeof window[functionName] === 'function') {
                 try {
                     const adPromise = window[functionName]();
-
                     if (adPromise && typeof adPromise.then === 'function') {
-                        adPromise.then((res) => {
-                            if (res !== false) finish(true);
-                            else finish(false);
-                        }).catch((e) => {
+                        adPromise.then((res) => finish(res !== false)).catch((e) => {
                             console.error("خطأ تشغيل إعلان Monetag:", e);
                             finish(false);
                         });
@@ -401,13 +391,13 @@ window.closeAutoClaimModal = function() {
                     finish(false);
                 }
             } else {
-                console.warn(`دالة Monetag الإعلانية غير متوفرة (${functionName}). تأكد من إدراج السكريبت في الصفحة.`);
+                console.warn(`دالة Monetag الإعلانية غير متوفرة (${functionName}).`);
                 finish(false);
             }
         });
     }
 
-    // --- إعلانات Monetix الخاصة بمكافأة تسريع التعدين (+0.1 ZN/ساعة) ---
+    // --- إعلانات Monetix ---
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
 
@@ -434,19 +424,9 @@ window.closeAutoClaimModal = function() {
             const cleanBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '_');
             const noDashBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '');
 
-            let monetixFn = null;
-            if (typeof window.showRewardAd === 'function') {
-                monetixFn = window.showRewardAd;
-            } else if (typeof window.show_reward_ad === 'function') {
-                monetixFn = window.show_reward_ad;
-            } else if (typeof window[`show_${cleanBlockId}`] === 'function') {
-                monetixFn = window[`show_${cleanBlockId}`];
-            } else if (typeof window[`show_${noDashBlockId}`] === 'function') {
-                monetixFn = window[`show_${noDashBlockId}`];
-            } else if (window.Monetix && typeof window.Monetix.showReward === 'function') {
-                monetixFn = window.Monetix.showReward.bind(window.Monetix);
-            } else if (window.Monetix && typeof window.Monetix.show === 'function') {
-                monetixFn = window.Monetix.show.bind(window.Monetix);
+            let monetixFn = window.showRewardAd || window.show_reward_ad || window[`show_${cleanBlockId}`] || window[`show_${noDashBlockId}`];
+            if (!monetixFn && window.Monetix) {
+                monetixFn = typeof window.Monetix.showReward === 'function' ? window.Monetix.showReward.bind(window.Monetix) : window.Monetix.show?.bind(window.Monetix);
             }
 
             if (monetixFn) {
@@ -455,42 +435,32 @@ window.closeAutoClaimModal = function() {
                         if (status === true) return true;
                         if (typeof status === 'string') {
                             const str = status.toLowerCase();
-                            return str === 'completed' || str === 'closed' || str === 'rewarded' || str === 'true';
+                            return ['completed', 'closed', 'rewarded', 'true'].includes(str);
                         }
                         if (typeof status === 'object' && status !== null) {
-                            if (status.rewarded === true || status.completed === true || status.closed === true) return true;
+                            if (status.rewarded || status.completed || status.closed) return true;
                             const st = (status.status || status.state || status.event || status.type || '').toString().toLowerCase();
-                            return st === 'completed' || st === 'closed' || st === 'rewarded';
+                            return ['completed', 'closed', 'rewarded'].includes(st);
                         }
                         return false;
                     };
 
                     const handleMonetixCallback = (status) => {
-                        // إخفاء شاشة التحميل فور ورود أي استجابة أو إشعار من الإعلان
                         toggleAdLoadingOverlay(false);
-
-                        if (checkSuccessStatus(status)) {
-                            finish(true);
-                        } else if (status === false || (typeof status === 'string' && (status === 'failed' || status === 'error' || status === 'skipped' || status === 'dismissed'))) {
+                        if (checkSuccessStatus(status)) finish(true);
+                        else if (status === false || (typeof status === 'string' && ['failed', 'error', 'skipped', 'dismissed'].includes(status))) {
                             finish(false);
                         }
                     };
 
                     const res = monetixFn(handleMonetixCallback);
-
-                    // إخفاء شاشة "جاري التحميل" فوراً بمجرد طلب فتح الإعلان ليظهر الإعلان بوضوح بدون القائمة فوقه
-                    startHideTimer = setTimeout(() => {
-                        toggleAdLoadingOverlay(false);
-                    }, 500);
+                    startHideTimer = setTimeout(() => toggleAdLoadingOverlay(false), 500);
 
                     if (res && typeof res.then === 'function') {
                         res.then((r) => {
                             toggleAdLoadingOverlay(false);
-                            if (checkSuccessStatus(r)) {
-                                finish(true);
-                            } else if (r === false) {
-                                finish(false);
-                            }
+                            if (checkSuccessStatus(r)) finish(true);
+                            else if (r === false) finish(false);
                         }).catch((err) => {
                             console.error("Monetix Promise Error:", err);
                             finish(false);
@@ -501,7 +471,7 @@ window.closeAutoClaimModal = function() {
                     finish(false);
                 }
             } else {
-                console.warn("Monetix SDK غير متوفر أو لم يتم تحميل كود showRewardAd بعد.");
+                console.warn("Monetix SDK غير متوفر.");
                 finish(false);
             }
         });
@@ -511,15 +481,11 @@ window.closeAutoClaimModal = function() {
         if (!pData || !pData.last_boost_time) return 0;
         let lastBoostMs = parseServerDateMs(pData.last_boost_time);
         let elapsed = getAdjustedNowMs() - lastBoostMs;
-        if (elapsed >= 0 && elapsed < GAME_CONFIG.boostDurationMs) {
-            return GAME_CONFIG.dailyBoostReward;
-        }
-        return 0;
+        return (elapsed >= 0 && elapsed < GAME_CONFIG.boostDurationMs) ? GAME_CONFIG.dailyBoostReward : 0;
     }
 
-    // حساب وتثبيت التعدين المباشر بالسرعة القديمة وتحديد التجميد بدقة
     function accrueCurrentMining() {
-        const pData = window.userState || window.PlayerData;
+        const pData = getState();
         if (!pData) return 0;
 
         let nowMs = getAdjustedNowMs();
@@ -539,20 +505,11 @@ window.closeAutoClaimModal = function() {
 
         if (accumulated >= maxC) accumulated = maxC;
 
-        pData.base_unclaimed = accumulated;
-        pData.unclaimed = accumulated;
-        pData.last_accrual_time = nowMs;
-
-        if (window.userState) {
-            window.userState.base_unclaimed = accumulated;
-            window.userState.unclaimed = accumulated;
-            window.userState.last_accrual_time = nowMs;
-        }
-        if (window.PlayerData) {
-            window.PlayerData.base_unclaimed = accumulated;
-            window.PlayerData.unclaimed = accumulated;
-            window.PlayerData.last_accrual_time = nowMs;
-        }
+        updateState({
+            base_unclaimed: accumulated,
+            unclaimed: accumulated,
+            last_accrual_time: nowMs
+        });
 
         return accumulated;
     }
@@ -566,10 +523,7 @@ window.closeAutoClaimModal = function() {
                 ? resData.player.bot_active 
                 : (resData.player?.is_auto_bot_active === true));
 
-        if (window.userState) window.userState.bot_active = isBotActive;
-        if (window.PlayerData) window.PlayerData.bot_active = isBotActive;
-        
-        saveCachedData(window.userState || window.PlayerData);
+        updateState({ bot_active: isBotActive });
 
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
         if (botBadge) {
@@ -580,9 +534,8 @@ window.closeAutoClaimModal = function() {
         if (autoCollected > 0) {
             const autoModal = document.getElementById('auto-claim-modal');
             const autoAmountText = document.getElementById('auto-claimed-amount') || document.getElementById('modal-auto-amount');
-            if (autoAmountText) {
-                autoAmountText.innerText = `${formatZnBalance(autoCollected)} ZN`;
-            }
+            if (autoAmountText) autoAmountText.innerText = `${formatZnBalance(autoCollected)} ZN`;
+            
             if (autoModal) {
                 autoModal.style.display = 'flex';
                 autoModal.classList.add('show', 'active');
@@ -592,40 +545,49 @@ window.closeAutoClaimModal = function() {
         }
     }
 
-    async function triggerAutoClaim80() {
-        if (isAutoClaiming || isClaimingMain) return;
-        isAutoClaiming = true;
-        
+    // --- دالة التجميع المركزية لمنع تكرار كود الـ Claim ---
+    async function executeClaimApi(isAuto = false) {
         try {
             let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
 
-                if (!window.userState) window.userState = {};
-                if (!window.PlayerData) window.PlayerData = {};
-
                 const nowMs = getAdjustedNowMs();
                 const claimTime = resData.last_claim_time || new Date(nowMs).toISOString();
 
-                window.userState.last_claim_time = claimTime;
-                window.PlayerData.last_claim_time = claimTime;
+                updateState({
+                    last_claim_time: claimTime,
+                    unclaimed: 0.0,
+                    base_unclaimed: 0.0,
+                    last_accrual_time: parseServerDateMs(claimTime)
+                });
 
-                window.userState.unclaimed = 0.0;
-                window.PlayerData.unclaimed = 0.0;
-                window.userState.base_unclaimed = 0.0;
-                window.PlayerData.base_unclaimed = 0.0;
-                window.userState.last_accrual_time = parseServerDateMs(claimTime);
-                window.PlayerData.last_accrual_time = parseServerDateMs(claimTime);
-
-                saveCachedData(window.userState);
                 window.updateFarmUI();
 
-                const claimedAmt = parseFloat(resData.claimed_amount || resData.amount || 0);
-                updateBotAndAutoClaimUI({ auto_claimed_amount: claimedAmt });
+                if (isAuto) {
+                    const claimedAmt = parseFloat(resData.claimed_amount || resData.amount || 0);
+                    updateBotAndAutoClaimUI({ auto_claimed_amount: claimedAmt });
+                } else {
+                    showToast(`💰 تم تجميع ${formatZnBalance(resData.claimed_amount)} عملة بنجاح!`);
+                }
+                return true;
+            } else {
+                if (!isAuto) showToast(resData?.error || "❌ تعذر تجميع الرصيد");
+                return false;
             }
         } catch (e) {
-            console.error("خطأ التجميع التلقائي الأونلاين (80%):", e);
+            console.error(isAuto ? "خطأ التجميع التلقائي (80%):" : "خطأ التجميع الرئيسي:", e);
+            if (!isAuto) showToast("❌ حدث خطأ أثناء التجميع");
+            return false;
+        }
+    }
+
+    async function triggerAutoClaim80() {
+        if (isAutoClaiming || isClaimingMain) return;
+        isAutoClaiming = true;
+        try {
+            await executeClaimApi(true);
         } finally {
             isAutoClaiming = false;
         }
@@ -651,70 +613,42 @@ window.closeAutoClaimModal = function() {
                 if (resData.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
 
                 if (resData.game_config) {
-                    if (resData.game_config.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.game_config.monetag_zone_id;
-                    if (resData.game_config.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.game_config.monetix_block_id;
-
-                    if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
-                        GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
-                    }
-                    if (resData.game_config.upgrade_costs) {
-                        GAME_CONFIG.upgradeCosts = resData.game_config.upgrade_costs;
-                    }
-                    if (resData.game_config.storage_config) {
-                        GAME_CONFIG.storageConfig = resData.game_config.storage_config;
-                    }
-                    if (resData.game_config.max_upgrades_per_level) {
-                        GAME_CONFIG.maxUpgradesPerLevel = resData.game_config.max_upgrades_per_level;
-                    }
-                    if (resData.game_config.daily_boost_reward) {
-                        GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
-                    }
+                    const cfg = resData.game_config;
+                    if (cfg.monetag_zone_id) GAME_CONFIG.monetagZoneId = cfg.monetag_zone_id;
+                    if (cfg.monetix_block_id) GAME_CONFIG.monetixBlockId = cfg.monetix_block_id;
+                    if (cfg.daily_rewards && Array.isArray(cfg.daily_rewards)) GAME_CONFIG.dailyRewards = cfg.daily_rewards;
+                    if (cfg.upgrade_costs) GAME_CONFIG.upgradeCosts = cfg.upgrade_costs;
+                    if (cfg.storage_config) GAME_CONFIG.storageConfig = cfg.storage_config;
+                    if (cfg.max_upgrades_per_level) GAME_CONFIG.maxUpgradesPerLevel = cfg.max_upgrades_per_level;
+                    if (cfg.daily_boost_reward) GAME_CONFIG.dailyBoostReward = cfg.daily_boost_reward;
                 }
 
                 if (resData.player) {
                     const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
-
-                    if (isNewUser) {
-                        clearStaleLocalCache();
-                    }
-
-                    window.userState = {};
-                    window.PlayerData = {};
-
-                    Object.assign(window.PlayerData, resData.player);
-                    Object.assign(window.userState, resData.player);
+                    if (isNewUser) clearStaleLocalCache();
 
                     const isBotActive = (resData.bot_active !== undefined)
                         ? resData.bot_active
-                        : (resData.player.bot_active !== undefined
-                            ? resData.player.bot_active
-                            : (resData.player.is_auto_bot_active === true));
-
-                    window.PlayerData.bot_active = isBotActive;
-                    window.userState.bot_active = isBotActive;
+                        : (resData.player.bot_active !== undefined ? resData.player.bot_active : (resData.player.is_auto_bot_active === true));
 
                     const serverUnclaimed = parseFloat(resData.player.unclaimed || 0);
                     const serverTimeMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
 
-                    window.userState.base_unclaimed = serverUnclaimed;
-                    window.PlayerData.base_unclaimed = serverUnclaimed;
-                    window.userState.unclaimed = serverUnclaimed;
-                    window.PlayerData.unclaimed = serverUnclaimed;
-                    window.userState.last_accrual_time = serverTimeMs;
-                    window.PlayerData.last_accrual_time = serverTimeMs;
+                    const newState = Object.assign({}, resData.player, {
+                        bot_active: isBotActive,
+                        base_unclaimed: serverUnclaimed,
+                        unclaimed: serverUnclaimed,
+                        last_accrual_time: serverTimeMs
+                    });
 
-                    saveCachedData(window.userState);
+                    updateState(newState);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
                     const welcomeModal = document.getElementById('welcome-modal');
                     if (welcomeModal) {
-                        if (isNewUser) {
-                            welcomeModal.style.display = 'flex';
-                            welcomeModal.classList.add('show', 'active');
-                        } else {
-                            welcomeModal.style.display = 'none';
-                            welcomeModal.classList.remove('show', 'active');
-                        }
+                        welcomeModal.style.display = isNewUser ? 'flex' : 'none';
+                        welcomeModal.classList.toggle('show', isNewUser);
+                        welcomeModal.classList.toggle('active', isNewUser);
                     }
                 }
 
@@ -729,7 +663,7 @@ window.closeAutoClaimModal = function() {
     };
 
     window.updateFarmUI = function() {
-        const pData = window.userState || window.PlayerData || {};
+        const pData = getState();
         let bal = getStoredBalance();
         let usdBal = getStoredUsdBalance();
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
@@ -755,9 +689,7 @@ window.closeAutoClaimModal = function() {
 
         const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
-        if (botBadge) {
-            botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
-        }
+        if (botBadge) botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
 
         const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
         if (upgradeStgBtn) {
@@ -771,11 +703,10 @@ window.closeAutoClaimModal = function() {
             } else {
                 const costZn = typeof nextCfg === 'object' ? (nextCfg.cost_zn ?? nextCfg.cost ?? 0) : 0;
                 const costUsd = typeof nextCfg === 'object' ? (nextCfg.cost_usd ?? 0) : 0;
-                
                 const costStrZn = formatCompactCost(costZn);
                 const costStrUsd = costUsd > 0 ? ` + $${costUsd.toFixed(2)}` : '';
-                
                 const canAfford = (bal >= costZn) && (usdBal >= costUsd);
+
                 upgradeStgBtn.innerText = isUpgradingStorage ? "جاري الترقية... ⏳" : `ترقية المخزن Lvl ${nextLvl + 1} (${costStrZn} ZN${costStrUsd}) 📦`;
                 upgradeStgBtn.disabled = !canAfford || isUpgradingStorage;
                 upgradeStgBtn.className = (canAfford && !isUpgradingStorage) ? "storage-upgrade-btn btn-ready-yellow" : "storage-upgrade-btn btn-disabled";
@@ -810,19 +741,14 @@ window.closeAutoClaimModal = function() {
                         <div class="mining-card-title">مستوى ${i} (MAX)</div>
                         <button class="mining-card-btn" disabled>15/15 MAX</button>
                     </div>`;
-                } else if (count > 0) {
+                } else if (count > 0 || isUnlocked) {
+                    const titleText = count > 0 ? `مستوى ${i} (x${count})` : `مستوى ${i}`;
+                    const btnText = isThisCardUpgrading ? 'جاري...' : (count > 0 ? `ترقية (${costStrZn}${costStrUsd})` : `شراء (${costStrZn}${costStrUsd})`);
                     fieldsHTML += `
                     <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
-                        <div class="mining-card-title">مستوى ${i} (x${count})</div>
-                        <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${isThisCardUpgrading ? 'جاري...' : `ترقية (${costStrZn}${costStrUsd})`}</button>
-                    </div>`;
-                } else if (isUnlocked) {
-                    fieldsHTML += `
-                    <div class="mining-card" onclick="window.handleUpgrade(${i})">
-                        <div class="mining-card-icon">🏛️</div>
-                        <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${isThisCardUpgrading ? 'جاري...' : `شراء (${costStrZn}${costStrUsd})`}</button>
+                        <div class="mining-card-title">${titleText}</div>
+                        <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${btnText}</button>
                     </div>`;
                 } else {
                     fieldsHTML += `
@@ -848,15 +774,11 @@ window.closeAutoClaimModal = function() {
         const lastBoostTimeStr = pData.last_boost_time;
 
         if (!lastBoostTimeStr) {
-            if (!isBoosting) {
-                boostBtn.className = "boost-btn";
-                boostBtn.disabled = false;
-                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
-            } else {
-                boostBtn.className = "boost-btn btn-disabled";
-                boostBtn.disabled = true;
-                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
-            }
+            boostBtn.className = isBoosting ? "boost-btn btn-disabled" : "boost-btn";
+            boostBtn.disabled = isBoosting;
+            boostBtn.innerHTML = isBoosting 
+                ? `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`
+                : `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
             return;
         }
 
@@ -874,15 +796,11 @@ window.closeAutoClaimModal = function() {
             boostBtn.disabled = true;
             boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${formatTimeDifference(remainingCooldown)}</span>`;
         } else {
-            if (!isBoosting) {
-                boostBtn.className = "boost-btn";
-                boostBtn.disabled = false;
-                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
-            } else {
-                boostBtn.className = "boost-btn btn-disabled";
-                boostBtn.disabled = true;
-                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
-            }
+            boostBtn.className = isBoosting ? "boost-btn btn-disabled" : "boost-btn";
+            boostBtn.disabled = isBoosting;
+            boostBtn.innerHTML = isBoosting 
+                ? `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`
+                : `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
         }
     }
 
@@ -896,13 +814,12 @@ window.closeAutoClaimModal = function() {
 
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
-        if (!rewards || !Array.isArray(rewards)) return 0.2;
-        return rewards[index] ?? 40.0;
+        return (rewards && Array.isArray(rewards)) ? (rewards[index] ?? 40.0) : 0.2;
     }
 
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
-        const pData = window.userState || window.PlayerData || {};
+        const pData = getState();
         if (!container) return; 
 
         let html = '';
@@ -943,18 +860,16 @@ window.closeAutoClaimModal = function() {
     loadCachedData();
     window.updateFarmUI();
 
+    // --- المؤقت الدوري لحساب التعدين الحي والواجهة ---
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
-        const pData = window.userState || window.PlayerData;
+        const pData = getState();
         if (!pData) return;
         
         const todayStr = getTodayUTCStr();
-
         if (lastCheckedDate && lastCheckedDate !== todayStr) {
             lastCheckedDate = todayStr;
-            if (typeof window.fetchPlayerDataFromServer === 'function') {
-                window.fetchPlayerDataFromServer(true);
-            }
+            window.fetchPlayerDataFromServer?.(true);
         }
         lastCheckedDate = todayStr;
 
@@ -973,9 +888,7 @@ window.closeAutoClaimModal = function() {
         let unclaim = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
         if (unclaim >= maxC) unclaim = maxC;
-        pData.unclaimed = unclaim;
-        if (window.userState) window.userState.unclaimed = unclaim;
-        if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
+        updateState({ unclaimed: unclaim });
 
         const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
         if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain) {
@@ -1027,8 +940,7 @@ window.closeAutoClaimModal = function() {
         updateBoostButtonUI(pData);
 
         const dailyTimerEl = document.getElementById('daily-timer');
-        const lastDailyClaim = pData.last_daily_claim_date;
-        if (dailyTimerEl && lastDailyClaim === todayStr) {
+        if (dailyTimerEl && pData.last_daily_claim_date === todayStr) {
             dailyTimerEl.innerText = `⏳ ${getTimeUntilUTCMidnight()}`;
         }
 
@@ -1043,10 +955,11 @@ window.closeAutoClaimModal = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
+    // --- معالجات الترقية والاستلام ---
     window.handleStorageUpgrade = async function() {
         if (isDebouncedClick() || isUpgradingStorage) return;
 
-        const pData = window.userState || window.PlayerData || {};
+        const pData = getState();
         const stgLvl = parseInt(pData.storage_level ?? 0, 10);
         const nextLvl = stgLvl + 1;
         const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
@@ -1064,18 +977,14 @@ window.closeAutoClaimModal = function() {
         }
 
         isUpgradingStorage = true;
-
         accrueCurrentMining();
-
         const stateBackup = cloneCurrentState();
 
         setStoredBalance(Math.max(0, bal - costZn), Math.max(0, usdBal - costUsd));
-        window.userState.storage_level = nextLvl;
-        window.PlayerData.storage_level = nextLvl;
-        if (nextCfg.capacity !== undefined) {
-            window.userState.max_cap = parseFloat(nextCfg.capacity);
-            window.PlayerData.max_cap = parseFloat(nextCfg.capacity);
-        }
+        updateState({
+            storage_level: nextLvl,
+            max_cap: nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : getState().max_cap
+        });
         window.updateFarmUI();
 
         try {
@@ -1084,16 +993,11 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
-                if (resData.storage_level !== undefined) {
-                    window.userState.storage_level = resData.storage_level;
-                    window.PlayerData.storage_level = resData.storage_level;
-                }
-                if (resData.max_cap !== undefined) {
-                    window.userState.max_cap = parseFloat(resData.max_cap);
-                    window.PlayerData.max_cap = parseFloat(nextCfg.capacity);
-                }
+                updateState({
+                    storage_level: resData.storage_level !== undefined ? resData.storage_level : nextLvl,
+                    max_cap: resData.max_cap !== undefined ? parseFloat(resData.max_cap) : parseFloat(nextCfg.capacity)
+                });
 
-                saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
             } else {
                 restoreState(stateBackup);
@@ -1127,25 +1031,23 @@ window.closeAutoClaimModal = function() {
         }
 
         upgradingLevel = level;
-
         accrueCurrentMining();
-
         const stateBackup = cloneCurrentState();
 
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
 
-        if (!window.userState.upgrades) window.userState.upgrades = {};
-        if (!window.PlayerData.upgrades) window.PlayerData.upgrades = {};
-        const currentCount = parseInt(window.userState.upgrades[`lvl${level}`] || 0, 10);
-        window.userState.upgrades[`lvl${level}`] = currentCount + 1;
-        window.PlayerData.upgrades[`lvl${level}`] = currentCount + 1;
+        const stateObj = getState();
+        const upgradesObj = Object.assign({}, stateObj.upgrades || {});
+        const currentCount = parseInt(upgradesObj[`lvl${level}`] || 0, 10);
+        upgradesObj[`lvl${level}`] = currentCount + 1;
 
         const addRate = parseFloat(lvlCfg.rate || 0);
-        if (addRate > 0) {
-            const currentHourly = parseFloat(window.userState.hourly_rate || 0.1);
-            window.userState.hourly_rate = currentHourly + addRate;
-            window.PlayerData.hourly_rate = currentHourly + addRate;
-        }
+        const currentHourly = parseFloat(stateObj.hourly_rate || 0.1);
+
+        updateState({
+            upgrades: upgradesObj,
+            hourly_rate: addRate > 0 ? (currentHourly + addRate) : currentHourly
+        });
         window.updateFarmUI();
 
         try {
@@ -1155,16 +1057,11 @@ window.closeAutoClaimModal = function() {
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
                 const newHourly = resData.new_hourly_rate ?? resData.hourly_rate ?? resData.rate;
-                if (newHourly !== undefined && newHourly !== null) {
-                    window.userState.hourly_rate = parseFloat(newHourly);
-                    window.PlayerData.hourly_rate = parseFloat(newHourly);
-                }
-                if (resData.upgrades) {
-                    window.userState.upgrades = resData.upgrades;
-                    window.PlayerData.upgrades = resData.upgrades;
-                }
+                const patch = {};
+                if (newHourly !== undefined && newHourly !== null) patch.hourly_rate = parseFloat(newHourly);
+                if (resData.upgrades) patch.upgrades = resData.upgrades;
 
-                saveCachedData(window.userState);
+                updateState(patch);
                 showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
             } else {
                 restoreState(stateBackup);
@@ -1180,12 +1077,10 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // --- استلام المكافأة اليومية (مباشر عبر إعلان Monetag) ---
     window.handleDailyClaim = async function(dayNum) {
         if (isDebouncedClick() || isClaimingDaily) return;
         
         const adSuccess = await showMonetagAd();
-
         if (!adSuccess) {
             showToast("❌ يجب مشاهدة الإعلان كاملاً لاستلام المكافأة اليومية!");
             return;
@@ -1200,18 +1095,11 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
-                if (!window.userState) window.userState = {};
-                if (!window.PlayerData) window.PlayerData = {};
+                const patch = {};
+                if (resData.daily_day !== undefined) patch.daily_day = resData.daily_day;
+                if (resData.last_daily_claim_date) patch.last_daily_claim_date = resData.last_daily_claim_date;
 
-                if (resData.daily_day !== undefined) {
-                    window.userState.daily_day = resData.daily_day;
-                    window.PlayerData.daily_day = resData.daily_day;
-                }
-                if (resData.last_daily_claim_date) {
-                    window.userState.last_daily_claim_date = resData.last_daily_claim_date;
-                    window.PlayerData.last_daily_claim_date = resData.last_daily_claim_date;
-                }
-                saveCachedData(window.userState);
+                updateState(patch);
                 showToast(`🎉 تم مشاهدة الإعلان واستلام مكافأة اليوم ${resData.daily_day} بنجاح!`);
             } else {
                 showToast(resData?.error || "❌ تعذر استلام المكافأة");
@@ -1226,21 +1114,17 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // --- تسريع التعدين اليومي (مباشر عبر إعلان Monetix) ---
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
         const adSuccess = await showMonetixAd();
-
         if (!adSuccess) {
             showToast("❌ يجب مشاهدة إعلان Monetix بكامل مدته لتفعيل تسريع التعدين!");
             return;
         }
 
         isBoosting = true;
-        
         accrueCurrentMining();
-
         const stateBackup = cloneCurrentState();
 
         try {
@@ -1248,23 +1132,16 @@ window.closeAutoClaimModal = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
 
-                if (resData.player) {
-                    Object.assign(window.PlayerData, resData.player);
-                    Object.assign(window.userState, resData.player);
-                }
+                if (resData.player) updateState(resData.player);
 
                 const newBal = resData.new_balance ?? resData.balance ?? resData.player?.balance;
                 const newUsdBal = resData.new_usd_balance ?? resData.usd_balance ?? resData.player?.usd_balance;
                 setStoredBalance(newBal, newUsdBal);
 
-                if (resData.last_boost_time || resData.player?.last_boost_time) {
-                    const bTime = resData.last_boost_time || resData.player?.last_boost_time;
-                    window.userState.last_boost_time = bTime;
-                    window.PlayerData.last_boost_time = bTime;
-                }
+                const bTime = resData.last_boost_time || resData.player?.last_boost_time;
+                if (bTime) updateState({ last_boost_time: bTime });
 
                 showToast(`⚡ تم مشاهدة الإعلان وتفعيل تعزيز السرعة (+0.1 ZN/ساعة) لمدة ساعتين بنجاح!`);
-                saveCachedData(window.userState);
             } else {
                 restoreState(stateBackup);
                 showToast(resData?.error || "❌ تعذر تفعيل التعزيز");
@@ -1279,11 +1156,10 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // --- تجميع الرصيد الرئيسي (مباشر وبدون أي إعلانات) ---
     window.handleMainClaim = async function() {
         if (isDebouncedClick() || isClaimingMain || isAutoClaiming) return;
 
-        const pData = window.userState || window.PlayerData || {};
+        const pData = getState();
         isClaimingMain = true;
         const stateBackup = cloneCurrentState();
 
@@ -1294,50 +1170,19 @@ window.closeAutoClaimModal = function() {
             const nowMs = getAdjustedNowMs();
             const nowIso = new Date(nowMs).toISOString();
 
-            window.userState.unclaimed = 0.0;
-            window.PlayerData.unclaimed = 0.0;
-            window.userState.base_unclaimed = 0.0;
-            window.PlayerData.base_unclaimed = 0.0;
-            window.userState.last_claim_time = nowIso;
-            window.PlayerData.last_claim_time = nowIso;
-            window.userState.last_accrual_time = nowMs;
-            window.PlayerData.last_accrual_time = nowMs;
+            updateState({
+                unclaimed: 0.0,
+                base_unclaimed: 0.0,
+                last_claim_time: nowIso,
+                last_accrual_time: nowMs
+            });
             window.updateFarmUI();
         }
 
         try {
-            let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
-            if (resData && resData.success) {
-                if (resData.server_time) syncServerTime(resData.server_time);
-                setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
-                
-                if (!window.userState) window.userState = {};
-                if (!window.PlayerData) window.PlayerData = {};
-
-                const nowMs = getAdjustedNowMs();
-                const claimTime = resData.last_claim_time || new Date(nowMs).toISOString();
-
-                window.userState.last_claim_time = claimTime;
-                window.PlayerData.last_claim_time = claimTime;
-
-                window.userState.unclaimed = 0.0;
-                window.PlayerData.unclaimed = 0.0;
-                window.userState.base_unclaimed = 0.0;
-                window.PlayerData.base_unclaimed = 0.0;
-                window.userState.last_accrual_time = parseServerDateMs(claimTime);
-                window.PlayerData.last_accrual_time = parseServerDateMs(claimTime);
-
-                saveCachedData(window.userState);
-                
-                showToast(`💰 تم تجميع ${formatZnBalance(resData.claimed_amount)} عملة بنجاح!`);
-            } else {
-                restoreState(stateBackup);
-                showToast(resData?.error || "❌ تعذر تجميع الرصيد");
-            }
+            await executeClaimApi(false);
         } catch (e) {
-            console.error("خطأ التجميع الرئيسي:", e);
             restoreState(stateBackup);
-            showToast("❌ حدث خطأ أثناء التجميع");
         } finally {
             isClaimingMain = false;
             window.updateFarmUI();
