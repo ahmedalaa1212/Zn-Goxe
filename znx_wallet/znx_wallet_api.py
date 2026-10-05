@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 💎 ZNX Wallet API Module (Flask Blueprint)
-Optimized Backend Engine with STON.fi Direct Integration & Background Price Worker
-Fetches Live Price directly from DEX APIs with zero Rate-Limit / IP Block & No Fallback Prices
+Optimized Backend Engine with Multi-DEX Direct Integration & Persistent Memory
+Fixes Cloudflare Blocking & Preserves Last Known Live Price
 """
 
 import math
@@ -26,7 +26,7 @@ znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6"
 
-# كاش السعر والشمعات في الذاكرة (بدون أي سعر احتياطي وهمي)
+# كاش السعر والشمعات في الذاكرة (بدون أسعار احتياطية وهمية، ولكن يحفظ آخر سعر حقيقي تم جلبُه)
 _PRICE_CACHE = {
     'price': 0.0,
     'change_24h': 0.0,
@@ -54,13 +54,16 @@ def _cors_response(data, status_code=200):
     return response, status_code
 
 
-def _make_http_request(url, timeout=4.0):
-    """إرسال طلبات HTTP مع هيدرز حقيقية لتفادي الحظر من Cloudflare"""
+def _make_http_request(url, timeout=5.0):
+    """إرسال طلبات HTTP مع هيدرز متصفح حقيقية وتجاوز حظر Cloudflare"""
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache'
+        'Origin': 'https://geckoterminal.com',
+        'Referer': 'https://geckoterminal.com/',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
     }
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
@@ -71,13 +74,14 @@ def _make_http_request(url, timeout=4.0):
         with urlopen(req, timeout=timeout, context=ssl_context) as resp:
             if resp.status == 200:
                 return json.loads(resp.read().decode('utf-8'))
-    except Exception:
-        pass
+    except Exception as e:
+        # طباعة الخطأ لمعرفة مصدر المنع في Logs السيرفر
+        print(f"⚠️ HTTP Fetch Error ({url[:45]}...): {e}")
     return None
 
 
 def _update_price_from_external_apis():
-    """جلب السعر المباشر الحقيقي من STON.fi و DexScreener و GeckoTerminal بدون أي أسعار احتياطية"""
+    """جلب السعر المباشر الحقيقي من عدة مصادر بدون أي أسعار وهمية"""
     now = time.time()
     fetched_price = None
     change_24h = None
@@ -85,60 +89,59 @@ def _update_price_from_external_apis():
     low_24h = None
     pool_created_at = None
 
-    # 1. المصدر الأول والأهم: STON.fi Asset & Pool API المباشر
+    # المصدر 1: DexScreener Token API (الأكثر استقراراً للعملات)
     try:
-        ston_asset_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
-        ston_data = _make_http_request(ston_asset_url, timeout=4.0)
-        if ston_data:
-            asset = ston_data.get('asset', {}) if 'asset' in ston_data else ston_data
-            p_str = asset.get('dex_usd_price') or asset.get('third_party_usd_price') or asset.get('price_usd')
-            if p_str:
-                p = float(p_str)
-                if p > 0:
-                    fetched_price = p
-
-        ston_pool_url = f"https://api.ston.fi/v1/pools/{STON_POOL_ADDRESS}?t={int(now)}"
-        pool_data = _make_http_request(ston_pool_url, timeout=4.0)
-        if pool_data:
-            pool_info = pool_data.get('pool', {}) if 'pool' in pool_data else pool_data
-            if pool_info:
-                if pool_info.get('price_change_24h'):
-                    change_24h = float(pool_info['price_change_24h'])
-                if pool_info.get('high_24h'):
-                    high_24h = float(pool_info['high_24h'])
-                if pool_info.get('low_24h'):
-                    low_24h = float(pool_info['low_24h'])
-    except Exception as e:
-        print(f"⚠️ Worker STON.fi Fetch Error: {e}")
-
-    # 2. المصدر الثاني: DexScreener Pair API
-    try:
-        dex_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}?t={int(now)}"
-        data = _make_http_request(dex_url, timeout=4.0)
-        if data and isinstance(data, dict):
-            pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else None)
+        dex_token_url = f"https://api.dexscreener.com/latest/dex/tokens/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
+        data = _make_http_request(dex_token_url, timeout=5.0)
+        if data and isinstance(data, dict) and data.get('pairs'):
+            # اختيار المجمع ذو السيولة المرتفعة أو مجمع TON
+            pair = data['pairs'][0]
             if pair and pair.get('priceUsd'):
                 p = float(pair.get('priceUsd', 0.0) or 0.0)
                 if p > 0:
-                    if not fetched_price:
-                        fetched_price = p
-                    if change_24h is None:
-                        change_24h = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
+                    fetched_price = p
+                    change_24h = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
                     if pair.get('pairCreatedAt'):
                         pool_created_at = int(pair['pairCreatedAt'] / 1000)
-
-                    if not high_24h and (pair.get('high24h') or pair.get('priceHigh24h')):
+                    if pair.get('high24h') or pair.get('priceHigh24h'):
                         high_24h = float(pair.get('high24h') or pair.get('priceHigh24h'))
-                    if not low_24h and (pair.get('low24h') or pair.get('priceLow24h')):
+                    if pair.get('low24h') or pair.get('priceLow24h'):
                         low_24h = float(pair.get('low24h') or pair.get('priceLow24h'))
     except Exception as e:
-        print(f"⚠️ Worker DexScreener Error: {e}")
+        print(f"⚠️ DexScreener Token Fetch Error: {e}")
 
-    # 3. المصدر الثالث: GeckoTerminal Pool API
+    # المصدر 2: STON.fi Asset & Pool API المباشر
+    if not fetched_price:
+        try:
+            ston_asset_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
+            ston_data = _make_http_request(ston_asset_url, timeout=5.0)
+            if ston_data:
+                asset = ston_data.get('asset', {}) if 'asset' in ston_data else ston_data
+                p_str = asset.get('dex_usd_price') or asset.get('third_party_usd_price') or asset.get('price_usd')
+                if p_str:
+                    p = float(p_str)
+                    if p > 0:
+                        fetched_price = p
+
+            ston_pool_url = f"https://api.ston.fi/v1/pools/{STON_POOL_ADDRESS}?t={int(now)}"
+            pool_data = _make_http_request(ston_pool_url, timeout=5.0)
+            if pool_data:
+                pool_info = pool_data.get('pool', {}) if 'pool' in pool_data else pool_data
+                if pool_info:
+                    if change_24h is None and pool_info.get('price_change_24h'):
+                        change_24h = float(pool_info['price_change_24h'])
+                    if not high_24h and pool_info.get('high_24h'):
+                        high_24h = float(pool_info['high_24h'])
+                    if not low_24h and pool_info.get('low_24h'):
+                        low_24h = float(pool_info['low_24h'])
+        except Exception as e:
+            print(f"⚠️ STON.fi Fetch Error: {e}")
+
+    # المصدر 3: GeckoTerminal Pool API
     if not fetched_price or high_24h is None or low_24h is None:
         try:
             gecko_url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}?t={int(now)}"
-            gdata = _make_http_request(gecko_url, timeout=4.0)
+            gdata = _make_http_request(gecko_url, timeout=5.0)
             if gdata and isinstance(gdata, dict) and 'data' in gdata:
                 attr = gdata['data'].get('attributes', {})
                 if not fetched_price:
@@ -153,9 +156,9 @@ def _update_price_from_external_apis():
                 if not low_24h and attr.get('low_price_usd'):
                     low_24h = float(attr.get('low_price_usd'))
         except Exception as e:
-            print(f"⚠️ Worker GeckoTerminal Error: {e}")
+            print(f"⚠️ GeckoTerminal Fetch Error: {e}")
 
-    # تحديث الكاش بالقيم الحقيقية فقط بدون إدخال أسعار وهمية
+    # تحديث الكاش بالقيم الحقيقية عند نجاح الجلب
     if fetched_price and fetched_price > 0:
         _PRICE_CACHE['price'] = fetched_price
         if change_24h is not None:
@@ -166,6 +169,7 @@ def _update_price_from_external_apis():
         _PRICE_CACHE['high_24h'] = high_24h if high_24h else fetched_price
         _PRICE_CACHE['low_24h'] = low_24h if low_24h else fetched_price
         _PRICE_CACHE['last_updated'] = now
+        print(f"✅ Live ZNX Price Updated: ${fetched_price} | 24h: {change_24h}%")
         return True
 
     return False
@@ -177,7 +181,7 @@ def _update_candles_from_external_apis():
     url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=70"
 
     try:
-        raw_data = _make_http_request(url, timeout=4.0)
+        raw_data = _make_http_request(url, timeout=5.0)
         if raw_data and isinstance(raw_data, dict):
             ohlcv_list = raw_data.get('data', {}).get('attributes', {}).get('ohlcv_list', [])
             if ohlcv_list:
@@ -215,7 +219,7 @@ def _update_candles_from_external_apis():
 def _background_price_worker():
     """
     المُحرك الخلفي الصامت (Daemon Thread):
-    يطلب السعر المباشر كل 3 ثوانٍ فقط من سيرفرك لحسابه الخاص ويخزنه في RAM.
+    يحدث السعر كل 3 ثوانٍ ويحفظ القيمة في الذاكرة RAM.
     """
     print("🚀 ZNX Wallet Background Daemon Worker Started!")
     candles_timer = 0
