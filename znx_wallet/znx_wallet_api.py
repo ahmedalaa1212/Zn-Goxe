@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 💎 ZNX Wallet API Module (Flask Blueprint)
-Optimized Backend Engine for Real-Time Price, Fast Caching, and Synchronized Candles
+Engineered with Background Async Fetcher to Prevent API Rate Limits and Ensure Real-Time Rates
 """
 
 import math
@@ -9,6 +9,7 @@ import time
 import json
 import ssl
 import random
+import threading
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs
 from flask import Blueprint, jsonify, request
@@ -26,12 +27,12 @@ STON_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6"
 
 DEFAULT_FALLBACK_PRICE = 0.000764
 
-# كاش السعر والشمعات في الذاكرة
+# ذاكرة الكاش المركزية للمشروع
 _PRICE_CACHE = {
     'price': DEFAULT_FALLBACK_PRICE,
     'change_24h': 0.0,
-    'high_24h': 0.0,
-    'low_24h': 0.0,
+    'high_24h': DEFAULT_FALLBACK_PRICE,
+    'low_24h': DEFAULT_FALLBACK_PRICE,
     'pool_created_at': 1735689600,
     'last_updated': 0
 }
@@ -41,12 +42,15 @@ _CANDLES_CACHE = {
     'last_updated': 0
 }
 
+_BG_WORKER_STARTED = False
 
-def _make_http_request(url, timeout=2.5):
+
+def _make_http_request(url, timeout=3.0):
     """إرسال طلبات HTTP هادئة وسريعة مع الهيدرز المناسبة لتفادي حظر Cloudflare"""
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/125.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Cache-Control': 'no-cache'
     }
     ssl_context = ssl.create_default_context()
@@ -63,17 +67,14 @@ def _make_http_request(url, timeout=2.5):
     return None
 
 
-def fetch_live_dex_price():
-    """جلب السعر والإحصائيات المباشرة مع كاش مدته ثانية واحدة لضمان السرعة والدقة"""
+def _update_price_from_external():
+    """جلب السعر المباشر من أكثر من مصدّر موازي"""
     now = time.time()
-
-    if now - _PRICE_CACHE['last_updated'] < 1.5 and _PRICE_CACHE['price'] > 0:
-        return _PRICE_CACHE
-
-    # 1. DexScreener Pair API (الأسرع والأكثر استقراراً في تحديثات الأسعار)
+    
+    # 1. المصدر الأول: DexScreener
     try:
         dex_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}"
-        data = _make_http_request(dex_url, timeout=2)
+        data = _make_http_request(dex_url, timeout=2.5)
         if data and isinstance(data, dict):
             pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else None)
             if pair:
@@ -81,24 +82,24 @@ def fetch_live_dex_price():
                 if price_usd > 0:
                     _PRICE_CACHE['price'] = price_usd
                     _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
-
+                    
                     if pair.get('pairCreatedAt'):
                         _PRICE_CACHE['pool_created_at'] = int(pair['pairCreatedAt'] / 1000)
 
                     h24 = pair.get('high24h') or pair.get('priceHigh24h')
                     l24 = pair.get('low24h') or pair.get('priceLow24h')
 
-                    _PRICE_CACHE['high_24h'] = float(h24) if h24 else max(_PRICE_CACHE.get('high_24h', price_usd), price_usd)
-                    _PRICE_CACHE['low_24h'] = float(l24) if l24 else min(_PRICE_CACHE.get('low_24h', price_usd), price_usd) if _PRICE_CACHE.get('low_24h', 0) > 0 else price_usd
+                    _PRICE_CACHE['high_24h'] = float(h24) if h24 else max(_PRICE_CACHE['high_24h'], price_usd)
+                    _PRICE_CACHE['low_24h'] = float(l24) if l24 else min(_PRICE_CACHE['low_24h'], price_usd)
                     _PRICE_CACHE['last_updated'] = now
-                    return _PRICE_CACHE
+                    return
     except Exception as e:
-        print(f"⚠️ DexScreener Fetch Exception: {e}")
+        print(f"⚠️ DexScreener Update Failed: {e}")
 
-    # 2. STON.fi Asset API المباشر
+    # 2. المصدر الثاني: STON.fi API
     try:
         ston_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}"
-        ston_data = _make_http_request(ston_url, timeout=2)
+        ston_data = _make_http_request(ston_url, timeout=2.5)
         if ston_data:
             asset = ston_data.get('asset', {}) if 'asset' in ston_data else ston_data
             price_usd_str = asset.get('dex_usd_price') or asset.get('third_party_usd_price')
@@ -106,32 +107,119 @@ def fetch_live_dex_price():
                 price_usd = float(price_usd_str)
                 if price_usd > 0:
                     _PRICE_CACHE['price'] = price_usd
-                    _PRICE_CACHE['high_24h'] = max(_PRICE_CACHE.get('high_24h', price_usd), price_usd)
-                    _PRICE_CACHE['low_24h'] = min(_PRICE_CACHE.get('low_24h', price_usd), price_usd) if _PRICE_CACHE.get('low_24h', 0) > 0 else price_usd
+                    _PRICE_CACHE['high_24h'] = max(_PRICE_CACHE['high_24h'], price_usd)
+                    _PRICE_CACHE['low_24h'] = min(_PRICE_CACHE['low_24h'], price_usd) if _PRICE_CACHE['low_24h'] > 0 else price_usd
                     _PRICE_CACHE['last_updated'] = now
-                    return _PRICE_CACHE
+                    return
     except Exception as e:
-        print(f"⚠️ STON.fi Fetch Exception: {e}")
+        print(f"⚠️ STON.fi Update Failed: {e}")
 
-    # 3. TonAPI Rates (احتياطي ثالث)
+    # 3. المصدر الثالث: GeckoTerminal Pool API
     try:
-        tonapi_url = f"https://tonapi.io/v2/rates?tokens={ZNX_CONTRACT_ADDRESS}&currencies=usd"
-        data = _make_http_request(tonapi_url, timeout=2)
-        if data and 'rates' in data and ZNX_CONTRACT_ADDRESS in data['rates']:
-            price_usd = float(data['rates'][ZNX_CONTRACT_ADDRESS].get('prices', {}).get('USD', 0.0) or 0.0)
+        gecko_url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}"
+        g_data = _make_http_request(gecko_url, timeout=2.5)
+        if g_data and 'data' in g_data:
+            attrs = g_data['data'].get('attributes', {})
+            price_usd = float(attrs.get('base_token_price_usd', 0.0) or 0.0)
             if price_usd > 0:
                 _PRICE_CACHE['price'] = price_usd
+                _PRICE_CACHE['change_24h'] = float(attrs.get('price_change_percentage', {}).get('h24', 0.0) or 0.0)
                 _PRICE_CACHE['last_updated'] = now
-                return _PRICE_CACHE
+                return
     except Exception as e:
-        print(f"⚠️ TonAPI Fetch Exception: {e}")
+        print(f"⚠️ GeckoTerminal Price Update Failed: {e}")
 
-    _PRICE_CACHE['last_updated'] = now
+
+def _update_candles_from_external():
+    """تحديث الشموع البيانية في الذاكرة"""
+    now_sec = int(time.time())
+    url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=70"
+    
+    try:
+        raw_data = _make_http_request(url, timeout=3.0)
+        if raw_data and isinstance(raw_data, dict):
+            ohlcv_list = raw_data.get('data', {}).get('attributes', {}).get('ohlcv_list', [])
+            if ohlcv_list:
+                candles = []
+                for item in ohlcv_list:
+                    t, o, h, l, c = int(item[0]), float(item[1]), float(item[2]), float(item[3]), float(item[4])
+                    if t <= now_sec + 60:
+                        candles.append({'time': t, 'open': o, 'high': h, 'low': l, 'close': c})
+
+                candles.sort(key=lambda x: x['time'])
+                unique_candles = []
+                last_t = None
+                for cd in candles:
+                    if cd['time'] != last_t:
+                        unique_candles.append(cd)
+                        last_t = cd['time']
+
+                if unique_candles:
+                    curr_p = _PRICE_CACHE['price']
+                    if curr_p > 0:
+                        unique_candles[-1]['close'] = curr_p
+                        unique_candles[-1]['high'] = max(unique_candles[-1]['high'], curr_p)
+                        unique_candles[-1]['low'] = min(unique_candles[-1]['low'], curr_p)
+
+                    _CANDLES_CACHE['candles'] = unique_candles
+                    _CANDLES_CACHE['last_updated'] = now_sec
+                    return
+    except Exception as e:
+        print(f"⚠️ Candles Update Error: {e}")
+
+    # توليد شموع محاكاة متناسقة في حالة تعثر المزود الخارجي
+    if not _CANDLES_CACHE['candles']:
+        _CANDLES_CACHE['candles'] = _generate_continuous_smooth_candles(
+            current_price=_PRICE_CACHE['price'],
+            change_24h=_PRICE_CACHE['change_24h'],
+            now_sec=now_sec
+        )
+        _CANDLES_CACHE['last_updated'] = now_sec
+
+
+def _background_price_updater():
+    """مُحرك خلفي يعمل بشكل دائم لجلب الأسعار دون إجهاد المزودين الخارجيين"""
+    while True:
+        try:
+            _update_price_from_external()
+            _update_candles_from_external()
+        except Exception as e:
+            print(f"❌ Background Engine Error: {e}")
+        time.sleep(4)  # التحديث كل 4 ثوانٍ لضمان أعلى دقة وبدون أي حظر
+
+
+def start_background_engine_if_needed():
+    """بدء تشغيل المحرك الخلفي لمرة واحدة عند تحميل الموديول"""
+    global _BG_WORKER_STARTED
+    if not _BG_WORKER_STARTED:
+        _BG_WORKER_STARTED = True
+        worker_thread = threading.Thread(target=_background_price_updater, daemon=True)
+        worker_thread.start()
+
+
+# تشغيل المحرك تلقائياً
+start_background_engine_if_needed()
+
+
+def fetch_live_dex_price():
+    """إرجاع السعر المباشر من الذاكرة فوراً لسرعة استجابة فائقة بدون انتظار شبكة"""
     return _PRICE_CACHE
 
 
+def fetch_dex_candles(timeframe='5m'):
+    """إرجاع الشموع مع دمج آخر سعر لحظي فيها"""
+    candles = _CANDLES_CACHE['candles']
+    curr_p = _PRICE_CACHE['price']
+    
+    if candles and curr_p > 0:
+        candles[-1]['close'] = curr_p
+        candles[-1]['high'] = max(candles[-1]['high'], curr_p)
+        candles[-1]['low'] = min(candles[-1]['low'], curr_p)
+        
+    return candles
+
+
 def _generate_continuous_smooth_candles(current_price, change_24h, now_sec, limit=70, timeframe_sec=300):
-    """توليد شموع سلسة كبديل في حالة انقطاع المزود الخارجي للشموع"""
     start_period = (now_sec // timeframe_sec) * timeframe_sec
     ratio_of_day = (limit * timeframe_sec) / 86400.0
     estimated_change = (change_24h / 100.0) * ratio_of_day
@@ -148,10 +236,10 @@ def _generate_continuous_smooth_candles(current_price, change_24h, now_sec, limi
         if i == limit - 1:
             curr_close = current_price
         else:
-            noise = random.uniform(-0.002, 0.002) * current_price
+            noise = random.uniform(-0.0015, 0.0015) * current_price
             curr_close = max(0.00000001, curr_open + (target_trend - curr_open) * 0.40 + noise)
 
-        wick = random.uniform(0.0002, 0.001) * current_price
+        wick = random.uniform(0.0001, 0.0008) * current_price
         c_high = max(curr_open, curr_close) + wick
         c_low = max(0.00000001, min(curr_open, curr_close) - wick)
 
@@ -167,75 +255,8 @@ def _generate_continuous_smooth_candles(current_price, change_24h, now_sec, limi
     return candles
 
 
-def fetch_dex_candles(timeframe='5m'):
-    """جلب بيانات الشمعات ومزامنة الشمعة الأخيرة مع السعر اللحظي"""
-    now_sec = int(time.time())
-    price_info = fetch_live_dex_price()
-    current_live_price = price_info.get('price', DEFAULT_FALLBACK_PRICE)
-    change_24h = price_info.get('change_24h', 0.0)
-
-    # تحديث الكاش القائم بسرعة
-    if now_sec - _CANDLES_CACHE['last_updated'] < 8 and len(_CANDLES_CACHE['candles']) > 0:
-        candles = _CANDLES_CACHE['candles']
-        if current_live_price > 0:
-            candles[-1]['close'] = current_live_price
-            candles[-1]['high'] = max(candles[-1]['high'], current_live_price)
-            candles[-1]['low'] = min(candles[-1]['low'], current_live_price)
-        return candles
-
-    url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=70"
-
-    try:
-        raw_data = _make_http_request(url, timeout=2.5)
-        if raw_data and isinstance(raw_data, dict):
-            ohlcv_list = raw_data.get('data', {}).get('attributes', {}).get('ohlcv_list', [])
-            if ohlcv_list:
-                candles = []
-                for item in ohlcv_list:
-                    t, o, h, l, c = int(item[0]), float(item[1]), float(item[2]), float(item[3]), float(item[4])
-                    if t <= now_sec + 60:
-                        candles.append({'time': t, 'open': o, 'high': h, 'low': l, 'close': c})
-
-                candles.sort(key=lambda x: x['time'])
-
-                # تصفية الشموع المكررة
-                unique_candles = []
-                last_t = None
-                for cd in candles:
-                    if cd['time'] != last_t:
-                        unique_candles.append(cd)
-                        last_t = cd['time']
-
-                if unique_candles:
-                    if current_live_price > 0:
-                        unique_candles[-1]['close'] = current_live_price
-                        unique_candles[-1]['high'] = max(unique_candles[-1]['high'], current_live_price)
-                        unique_candles[-1]['low'] = min(unique_candles[-1]['low'], current_live_price)
-
-                    _CANDLES_CACHE['candles'] = unique_candles
-                    _CANDLES_CACHE['last_updated'] = now_sec
-                    return unique_candles
-    except Exception as e:
-        print(f"⚠️ GeckoTerminal Candles Error: {e}")
-
-    # استخدام التوليد السلس في حالة عدم الاستجابة من الخارجية
-    generated_candles = _generate_continuous_smooth_candles(
-        current_price=current_live_price,
-        change_24h=change_24h,
-        now_sec=now_sec,
-        limit=70,
-        timeframe_sec=300
-    )
-
-    _CANDLES_CACHE['candles'] = generated_candles
-    _CANDLES_CACHE['last_updated'] = now_sec
-    return generated_candles
-
-
 def _extract_user_id():
-    """استخراج مُعرّف المستخدم بأمان من الطلب أو initData"""
     user_id = None
-
     if request.method == 'GET':
         user_id = request.args.get('user_id') or request.args.get('tg_id')
     elif request.method == 'POST':
@@ -271,7 +292,7 @@ def _extract_user_id():
     return None
 
 
-# ==================== الـ Endpoints الخاصة بـ API ====================
+# ==================== Endpoints ====================
 
 @znx_wallet_bp.route('/price', methods=['GET', 'OPTIONS'])
 def get_price_only():
