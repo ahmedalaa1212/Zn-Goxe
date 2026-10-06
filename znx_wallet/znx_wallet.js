@@ -114,16 +114,82 @@ async function fetchRealZnxPrice() {
             updateMarketStatsUI({
                 price: livePrice,
                 change_24h: serverData.change_24h !== undefined ? parseFloat(serverData.change_24h) : 0,
-                high_24h: parseFloat(serverData.high_24h || livePrice),
-                low_24h: parseFloat(serverData.low_24h || livePrice)
+                high_24h: parseFloat(serverData.high_24h || livePrice * 1.05),
+                low_24h: parseFloat(serverData.low_24h || livePrice * 0.95)
             });
             return;
         }
     } catch (e) {
-        console.warn("⚠️ جاري التجربة من المصادر الخارجية...");
+        console.warn("⚠️ السيرفر الخلفي غير متوفر، جاري المحاولة من المصادر المباشرة...");
     }
 
-    // 2. Fallback مباشر من TonAPI (الخيار الأول المباشر لشبكة TON)
+    // 2. Fallback من STON.fi API المباشر (الأسرع والأدق لشبكة TON)
+    try {
+        const stonRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
+        if (stonRes.ok) {
+            const stonData = await stonRes.json();
+            const asset = stonData?.asset;
+            const price = parseFloat(asset?.dex_usd_price || asset?.third_party_usd_price || asset?.usd_price || 0);
+            if (price > 0) {
+                setTargetPrice(price);
+                updateMarketStatsUI({
+                    price: price,
+                    change_24h: 0,
+                    high_24h: price * 1.03,
+                    low_24h: price * 0.97
+                });
+                return;
+            }
+        }
+    } catch (err) {
+        console.warn("⚠️ فشل STON.fi Asset API...");
+    }
+
+    // 3. Fallback من DexScreener Tokens API المباشر
+    try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
+        if (dexRes.ok) {
+            const dexData = await dexRes.json();
+            const pair = Array.isArray(dexData?.pairs) ? dexData.pairs[0] : null;
+            if (pair && pair.priceUsd) {
+                const livePrice = parseFloat(pair.priceUsd);
+                const ch24 = pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0;
+                setTargetPrice(livePrice);
+                updateMarketStatsUI({
+                    price: livePrice,
+                    change_24h: ch24,
+                    high_24h: livePrice * (1 + Math.abs(ch24 / 100) + 0.02),
+                    low_24h: livePrice * Math.max(0.000001, (1 - Math.abs(ch24 / 100) - 0.02))
+                });
+                return;
+            }
+        }
+    } catch (err) {
+        console.warn("⚠️ فشل DexScreener API...");
+    }
+
+    // 4. Fallback من GeckoTerminal API
+    try {
+        const geckoRes = await fetch(`https://api.geckoterminal.com/api/v2/networks/ton/tokens/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
+        if (geckoRes.ok) {
+            const geckoData = await geckoRes.json();
+            const price = parseFloat(geckoData?.data?.attributes?.price_usd || 0);
+            if (price > 0) {
+                setTargetPrice(price);
+                updateMarketStatsUI({
+                    price: price,
+                    change_24h: parseFloat(geckoData?.data?.attributes?.price_change_percentage?.h24 || 0),
+                    high_24h: price * 1.05,
+                    low_24h: price * 0.95
+                });
+                return;
+            }
+        }
+    } catch (err) {
+        console.warn("⚠️ فشل GeckoTerminal API...");
+    }
+
+    // 5. Fallback مباشر من TonAPI
     try {
         const tonRes = await fetch(`https://tonapi.io/v2/rates?tokens=${ZNX_TOKEN_CONTRACT}&currencies=usd`, { cache: 'no-store' });
         if (tonRes.ok) {
@@ -131,33 +197,7 @@ async function fetchRealZnxPrice() {
             const tokenInfo = tonData?.rates?.[ZNX_TOKEN_CONTRACT];
             if (tokenInfo && tokenInfo.prices && tokenInfo.prices.USD > 0) {
                 const livePrice = parseFloat(tokenInfo.prices.USD);
-                let ch24 = 0;
-                if (tokenInfo.diff_24h && tokenInfo.diff_24h.USD) {
-                    ch24 = parseFloat(String(tokenInfo.diff_24h.USD).replace('%', '')) || 0;
-                }
-                setTargetPrice(livePrice);
-                updateMarketStatsUI({
-                    price: livePrice,
-                    change_24h: ch24,
-                    high_24h: livePrice * (1 + Math.abs(ch24 / 100)),
-                    low_24h: livePrice * (1 - Math.abs(ch24 / 100))
-                });
-                return;
-            }
-        }
-    } catch (err) {
-        console.warn("⚠️ فشل TonAPI المباشر، جاري تجربة DexScreener API...");
-    }
-
-    // 3. Fallback مباشر من DexScreener API (الخيار البديل الثاني)
-    try {
-        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`, { cache: 'no-store' });
-        if (dexRes.ok) {
-            const dexData = await dexRes.json();
-            const pair = dexData?.pair || (Array.isArray(dexData?.pairs) ? dexData.pairs[0] : null);
-            if (pair && pair.priceUsd) {
-                const livePrice = parseFloat(pair.priceUsd);
-                const ch24 = pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0;
+                let ch24 = tokenInfo.diff_24h?.USD ? parseFloat(String(tokenInfo.diff_24h.USD).replace('%', '')) : 0;
                 setTargetPrice(livePrice);
                 updateMarketStatsUI({
                     price: livePrice,
@@ -169,10 +209,9 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (err) {
-        console.warn("⚠️ تعذر جلب السعر من DexScreener API");
+        console.warn("⚠️️ فشل TonAPI المباشر");
     }
 
-    // في حالة عدم جاهزية السعر بعد
     const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
     if (priceEl && (!currentLivePrice || currentLivePrice <= 0)) {
         priceEl.innerText = "جاري جلب السعر...";
@@ -253,7 +292,7 @@ function updateMarketStatsUI(data) {
 function startLivePriceEngine() {
     fetchRealZnxPrice();
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 3000);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 10000); // استعلام كل 10 ثوانٍ لمنع الحظر
 
     if (smoothLoopTimer) clearInterval(smoothLoopTimer);
     smoothLoopTimer = setInterval(updateSmoothTick, 100);
@@ -264,9 +303,10 @@ function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) return;
 
-    // إذا كانت هناك iframe الخاصة بـ DexScreener Embed مثبتة في HTML، اتركها تعمل ولا تقم بمسحها
-    if (container.querySelector('iframe')) {
-        return;
+    // تنظيف الحاوية من أي iframe قديمة أو معطلة
+    const oldIframe = container.querySelector('iframe');
+    if (oldIframe) {
+        oldIframe.remove();
     }
 
     if (typeof LightweightCharts === 'undefined') {
@@ -283,7 +323,13 @@ function initChart() {
         return;
     }
 
-    container.innerHTML = '';
+    if (!tvChart) {
+        container.innerHTML = '';
+    } else {
+        try { tvChart.remove(); } catch(e){}
+        container.innerHTML = '';
+    }
+
     const width = container.clientWidth || container.parentElement?.clientWidth || window.innerWidth - 32 || 350;
     const height = container.clientHeight || 250;
 
