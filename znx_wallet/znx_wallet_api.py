@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 💎 ZNX Wallet API Module (Flask Blueprint)
-Optimized Backend Engine with Multi-DEX Direct Integration & Persistent Memory
-Fixes Cloudflare Blocking & Preserves Last Known Live Price
+Optimized Backend Engine with TonAPI Integration & Persistent Memory
+Fixes Cloudflare Blocking on Railway & Preserves Live ZNX Price
 """
 
 import math
@@ -26,7 +26,7 @@ znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6"
 
-# كاش السعر والشمعات في الذاكرة (بدون أسعار احتياطية وهمية، ولكن يحفظ آخر سعر حقيقي تم جلبُه)
+# كاش السعر والشمعات في الذاكرة (يحفظ آخر سعر حقيقي تم جلبُه لمنع ظهور 0.00$)
 _PRICE_CACHE = {
     'price': 0.0,
     'change_24h': 0.0,
@@ -55,15 +55,12 @@ def _cors_response(data, status_code=200):
 
 
 def _make_http_request(url, timeout=5.0):
-    """إرسال طلبات HTTP مع هيدرز متصفح حقيقية وتجاوز حظر Cloudflare"""
+    """إرسال طلبات HTTP وتجاوز قيود الشهادات والأبواب الحافظة"""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Origin': 'https://geckoterminal.com',
-        'Referer': 'https://geckoterminal.com/',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
+        'Cache-Control': 'no-cache'
     }
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
@@ -75,97 +72,64 @@ def _make_http_request(url, timeout=5.0):
             if resp.status == 200:
                 return json.loads(resp.read().decode('utf-8'))
     except Exception as e:
-        # طباعة الخطأ لمعرفة مصدر المنع في Logs السيرفر
         print(f"⚠️ HTTP Fetch Error ({url[:45]}...): {e}")
     return None
 
 
 def _update_price_from_external_apis():
-    """جلب السعر المباشر الحقيقي من عدة مصادر بدون أي أسعار وهمية"""
+    """جلب السعر المباشر عبر TonAPI.io المخصص لشبكة TON للهروب من حظر Cloudflare"""
     now = time.time()
     fetched_price = None
-    change_24h = None
+    change_24h = 0.0
     high_24h = None
     low_24h = None
-    pool_created_at = None
 
-    # المصدر 1: DexScreener Token API (الأكثر استقراراً للعملات)
+    # المصدر الأول والرئيسي: TonAPI.io (الرسمي لشبكة TON - لا يحظر سيرفرات Railway)
     try:
-        dex_token_url = f"https://api.dexscreener.com/latest/dex/tokens/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
-        data = _make_http_request(dex_token_url, timeout=5.0)
-        if data and isinstance(data, dict) and data.get('pairs'):
-            # اختيار المجمع ذو السيولة المرتفعة أو مجمع TON
-            pair = data['pairs'][0]
-            if pair and pair.get('priceUsd'):
-                p = float(pair.get('priceUsd', 0.0) or 0.0)
-                if p > 0:
-                    fetched_price = p
-                    change_24h = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
-                    if pair.get('pairCreatedAt'):
-                        pool_created_at = int(pair['pairCreatedAt'] / 1000)
-                    if pair.get('high24h') or pair.get('priceHigh24h'):
-                        high_24h = float(pair.get('high24h') or pair.get('priceHigh24h'))
-                    if pair.get('low24h') or pair.get('priceLow24h'):
-                        low_24h = float(pair.get('low24h') or pair.get('priceLow24h'))
-    except Exception as e:
-        print(f"⚠️ DexScreener Token Fetch Error: {e}")
+        tonapi_url = f"https://tonapi.io/v2/rates?tokens={ZNX_CONTRACT_ADDRESS}&currencies=usd"
+        data = _make_http_request(tonapi_url, timeout=5.0)
+        if data and isinstance(data, dict) and 'rates' in data:
+            token_info = data['rates'].get(ZNX_CONTRACT_ADDRESS, {})
+            prices = token_info.get('prices', {})
+            usd_price = prices.get('USD')
 
-    # المصدر 2: STON.fi Asset & Pool API المباشر
+            if usd_price and float(usd_price) > 0:
+                fetched_price = float(usd_price)
+                
+                # جلب نسبة التغير خلال 24 ساعة
+                diff_24h = token_info.get('diff_24h', {}).get('USD')
+                if diff_24h:
+                    clean_diff = str(diff_24h).replace('%', '').replace('+', '').strip()
+                    try:
+                        change_24h = float(clean_diff)
+                    except ValueError:
+                        change_24h = 0.0
+    except Exception as e:
+        print(f"⚠️ TonAPI Fetch Error: {e}")
+
+    # المصدر الثاني الاحتياطي: DexScreener (في حال توفر الخدمة)
     if not fetched_price:
         try:
-            ston_asset_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
-            ston_data = _make_http_request(ston_asset_url, timeout=5.0)
-            if ston_data:
-                asset = ston_data.get('asset', {}) if 'asset' in ston_data else ston_data
-                p_str = asset.get('dex_usd_price') or asset.get('third_party_usd_price') or asset.get('price_usd')
-                if p_str:
-                    p = float(p_str)
+            dex_token_url = f"https://api.dexscreener.com/latest/dex/tokens/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
+            data = _make_http_request(dex_token_url, timeout=5.0)
+            if data and isinstance(data, dict) and data.get('pairs'):
+                pair = data['pairs'][0]
+                if pair and pair.get('priceUsd'):
+                    p = float(pair.get('priceUsd', 0.0) or 0.0)
                     if p > 0:
                         fetched_price = p
-
-            ston_pool_url = f"https://api.ston.fi/v1/pools/{STON_POOL_ADDRESS}?t={int(now)}"
-            pool_data = _make_http_request(ston_pool_url, timeout=5.0)
-            if pool_data:
-                pool_info = pool_data.get('pool', {}) if 'pool' in pool_data else pool_data
-                if pool_info:
-                    if change_24h is None and pool_info.get('price_change_24h'):
-                        change_24h = float(pool_info['price_change_24h'])
-                    if not high_24h and pool_info.get('high_24h'):
-                        high_24h = float(pool_info['high_24h'])
-                    if not low_24h and pool_info.get('low_24h'):
-                        low_24h = float(pool_info['low_24h'])
+                        change_24h = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
+                        if pair.get('high24h') or pair.get('priceHigh24h'):
+                            high_24h = float(pair.get('high24h') or pair.get('priceHigh24h'))
+                        if pair.get('low24h') or pair.get('priceLow24h'):
+                            low_24h = float(pair.get('low24h') or pair.get('priceLow24h'))
         except Exception as e:
-            print(f"⚠️ STON.fi Fetch Error: {e}")
+            print(f"⚠️ DexScreener Token Fetch Error: {e}")
 
-    # المصدر 3: GeckoTerminal Pool API
-    if not fetched_price or high_24h is None or low_24h is None:
-        try:
-            gecko_url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}?t={int(now)}"
-            gdata = _make_http_request(gecko_url, timeout=5.0)
-            if gdata and isinstance(gdata, dict) and 'data' in gdata:
-                attr = gdata['data'].get('attributes', {})
-                if not fetched_price:
-                    p = float(attr.get('base_token_price_usd', 0.0) or 0.0)
-                    if p > 0:
-                        fetched_price = p
-                if change_24h is None:
-                    change_24h = float(attr.get('price_change_percentage', {}).get('h24', 0.0) or 0.0)
-
-                if not high_24h and attr.get('high_price_usd'):
-                    high_24h = float(attr.get('high_price_usd'))
-                if not low_24h and attr.get('low_price_usd'):
-                    low_24h = float(attr.get('low_price_usd'))
-        except Exception as e:
-            print(f"⚠️ GeckoTerminal Fetch Error: {e}")
-
-    # تحديث الكاش بالقيم الحقيقية عند نجاح الجلب
+    # تحديث الكاش بالقيم الحقيقية فور نجاح أي مصدر
     if fetched_price and fetched_price > 0:
         _PRICE_CACHE['price'] = fetched_price
-        if change_24h is not None:
-            _PRICE_CACHE['change_24h'] = change_24h
-        if pool_created_at:
-            _PRICE_CACHE['pool_created_at'] = pool_created_at
-
+        _PRICE_CACHE['change_24h'] = change_24h
         _PRICE_CACHE['high_24h'] = high_24h if high_24h else fetched_price
         _PRICE_CACHE['low_24h'] = low_24h if low_24h else fetched_price
         _PRICE_CACHE['last_updated'] = now
@@ -217,10 +181,7 @@ def _update_candles_from_external_apis():
 
 
 def _background_price_worker():
-    """
-    المُحرك الخلفي الصامت (Daemon Thread):
-    يحدث السعر كل 3 ثوانٍ ويحفظ القيمة في الذاكرة RAM.
-    """
+    """المُحرك الخلفي الصامت (Daemon Thread) لتحديث السعر أوتوماتيكياً كل 3 ثوانٍ"""
     print("🚀 ZNX Wallet Background Daemon Worker Started!")
     candles_timer = 0
     while True:
@@ -238,7 +199,7 @@ def _background_price_worker():
 
 
 def start_background_worker_if_needed():
-    """تشغيل خيط المحرك الخلفي Daemon Thread لمرة واحدة عند قيام السيرفر"""
+    """تشغيل خيط المحرك الخلفي لمرة واحدة عند قيام السيرفر"""
     global _BG_WORKER_STARTED
     if not _BG_WORKER_STARTED:
         _BG_WORKER_STARTED = True
@@ -246,19 +207,19 @@ def start_background_worker_if_needed():
         worker_thread.start()
 
 
-# تشغيل المحرك الخلفي فور تحميل الملف
+# تشغيل المحرك الخلفي فور استدعاء الملف
 start_background_worker_if_needed()
 
 
 def fetch_live_dex_price():
-    """إرجاع السعر الحقيقي فوراً من الذاكرة (RAM)"""
+    """إرجاع السعر الحقيقي فوراً من الذاكرة المخبأة RAM"""
     if _PRICE_CACHE['price'] <= 0:
         _update_price_from_external_apis()
     return _PRICE_CACHE
 
 
 def fetch_dex_candles(timeframe='5m'):
-    """إرجاع الشمعات من الذاكرة المخبأة"""
+    """إرجاع الشمعات البيانية من الكاش أو توليد شمعات انسيابية من السعر الحقيقي"""
     now_sec = int(time.time())
     curr_price = _PRICE_CACHE['price']
 
