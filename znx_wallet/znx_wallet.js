@@ -1,5 +1,5 @@
 /**
- * 💎 ZNX Wallet Engine (Front-end Module - Professional Bybit-Style Chart & Backend Synced Engine)
+ * 💎 ZNX Wallet Engine (Front-end Module - Hybrid Chart & Multi-API Price Engine)
  * Cleaned, Optimized, Zero Client CORS/Rate-Limit Error Version
  */
 
@@ -98,8 +98,8 @@ async function apiFetch(endpoint, options = {}) {
 
 // ==================== محرك السعر المباشر (Real-time Price Engine) ====================
 async function fetchRealZnxPrice() {
+    // 1. تجربة جلب السعر من السيرفر الخلفي أولاً
     try {
-        // الطلب يتم حصرياً من السيرفر الخلفي لمنع حظر IP المستخدم أو تقييد CORS في التلجرام
         const serverData = await apiFetch(`/price?t=${Date.now()}`, {
             method: 'GET',
             cache: 'no-store',
@@ -118,19 +118,64 @@ async function fetchRealZnxPrice() {
                 low_24h: parseFloat(serverData.low_24h || livePrice)
             });
             return;
-        } else {
-            // في حالة عدم جاهزية السعر بعد من السيرفر
-            const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
-            if (priceEl && (!currentLivePrice || currentLivePrice <= 0)) {
-                priceEl.innerText = "جاري جلب السعر...";
-            }
         }
     } catch (e) {
-        console.warn("⚠️ جاري انتظار تحديث السعر من السيرفر الخلفي...");
-        const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
-        if (priceEl && (!currentLivePrice || currentLivePrice <= 0)) {
-            priceEl.innerText = "جاري جلب السعر...";
+        console.warn("⚠️ جاري التجربة من المصادر الخارجية...");
+    }
+
+    // 2. Fallback مباشر من TonAPI (الخيار الأول المباشر لشبكة TON)
+    try {
+        const tonRes = await fetch(`https://tonapi.io/v2/rates?tokens=${ZNX_TOKEN_CONTRACT}&currencies=usd`, { cache: 'no-store' });
+        if (tonRes.ok) {
+            const tonData = await tonRes.json();
+            const tokenInfo = tonData?.rates?.[ZNX_TOKEN_CONTRACT];
+            if (tokenInfo && tokenInfo.prices && tokenInfo.prices.USD > 0) {
+                const livePrice = parseFloat(tokenInfo.prices.USD);
+                let ch24 = 0;
+                if (tokenInfo.diff_24h && tokenInfo.diff_24h.USD) {
+                    ch24 = parseFloat(String(tokenInfo.diff_24h.USD).replace('%', '')) || 0;
+                }
+                setTargetPrice(livePrice);
+                updateMarketStatsUI({
+                    price: livePrice,
+                    change_24h: ch24,
+                    high_24h: livePrice * (1 + Math.abs(ch24 / 100)),
+                    low_24h: livePrice * (1 - Math.abs(ch24 / 100))
+                });
+                return;
+            }
         }
+    } catch (err) {
+        console.warn("⚠️ فشل TonAPI المباشر، جاري تجربة DexScreener API...");
+    }
+
+    // 3. Fallback مباشر من DexScreener API (الخيار البديل الثاني)
+    try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`, { cache: 'no-store' });
+        if (dexRes.ok) {
+            const dexData = await dexRes.json();
+            const pair = dexData?.pair || (Array.isArray(dexData?.pairs) ? dexData.pairs[0] : null);
+            if (pair && pair.priceUsd) {
+                const livePrice = parseFloat(pair.priceUsd);
+                const ch24 = pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0;
+                setTargetPrice(livePrice);
+                updateMarketStatsUI({
+                    price: livePrice,
+                    change_24h: ch24,
+                    high_24h: livePrice * 1.05,
+                    low_24h: livePrice * 0.95
+                });
+                return;
+            }
+        }
+    } catch (err) {
+        console.warn("⚠️ تعذر جلب السعر من DexScreener API");
+    }
+
+    // في حالة عدم جاهزية السعر بعد
+    const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
+    if (priceEl && (!currentLivePrice || currentLivePrice <= 0)) {
+        priceEl.innerText = "جاري جلب السعر...";
     }
 }
 
@@ -145,7 +190,7 @@ function setTargetPrice(newPrice) {
         const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
         if (priceEl) priceEl.innerText = formatPriceUsd(newPrice);
         
-        if (!tvChart) initChart();
+        initChart();
         updateChartTick(newPrice);
         return;
     }
@@ -178,7 +223,6 @@ function updateSmoothTick() {
         priceEl.innerText = formatPriceUsd(currentLivePrice);
     }
 
-    // تحديث الشمعة الحالية فوراً مع التنعيم اللحظي
     updateChartTick(currentLivePrice);
 }
 
@@ -199,7 +243,7 @@ function updateMarketStatsUI(data) {
     if (changeEl && data.change_24h !== undefined) {
         const ch = parseFloat(data.change_24h) || 0;
         changeEl.innerText = `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`;
-        changeEl.style.color = ch >= 0 ? 'var(--accent-green, #0ecb81)' : 'var(--accent-red, #f6465d)';
+        changeEl.style.color = ch >= 0 ? 'var(--accent-green, #10b981)' : 'var(--accent-red, #ef4444)';
     }
 
     if (highEl) highEl.innerText = data.high_24h && data.high_24h > 0 ? formatPriceUsd(data.high_24h) : "--";
@@ -215,10 +259,15 @@ function startLivePriceEngine() {
     smoothLoopTimer = setInterval(updateSmoothTick, 100);
 }
 
-// ==================== محرك الرسم البياني (TradingView Chart) ====================
+// ==================== محرك الرسم البياني ====================
 function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) return;
+
+    // إذا كانت هناك iframe الخاصة بـ DexScreener Embed مثبتة في HTML، اتركها تعمل ولا تقم بمسحها
+    if (container.querySelector('iframe')) {
+        return;
+    }
 
     if (typeof LightweightCharts === 'undefined') {
         if (!document.getElementById('lw-charts-script')) {
@@ -276,12 +325,12 @@ function initChart() {
         });
 
         candleSeries = tvChart.addCandlestickSeries({
-            upColor: '#0ecb81',
-            downColor: '#f6465d',
-            borderDownColor: '#f6465d',
-            borderUpColor: '#0ecb81',
-            wickDownColor: '#f6465d',
-            wickUpColor: '#0ecb81',
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            borderDownColor: '#ef4444',
+            borderUpColor: '#10b981',
+            wickDownColor: '#ef4444',
+            wickUpColor: '#10b981',
             priceFormat: {
                 type: 'custom',
                 formatter: (price) => formatPriceUsd(price),
@@ -312,7 +361,6 @@ async function loadChartData(tf) {
         return;
     }
 
-    // إنشاء الشمعات زمنياً عند عدم توفر كاش كافٍ من السيرفر
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -409,7 +457,7 @@ function updateChartTick(price) {
     try {
         candleSeries.update(currentCandle);
     } catch (e) {
-        // تجاهل أخطاء التحديث التزامني البسيط
+        // تجاهل الأخطاء العابرة
     }
 }
 
