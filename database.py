@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 بيانات التطبيق الرئيسية مع ربط Supabase (PostgreSQL)
-نسخة الأداء الأقصى (Ultra-Low Latency Edition)
+نسخة الأداء الأقصى والاستقرار العالي
 """
 import json
 import os
 import math
 import sys
 import time
-import asyncio
 import threading
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -42,7 +41,6 @@ def init_db_pool():
             if db_pool is None or db_pool.closed:
                 try:
                     db_url = get_database_url()
-                    # رفع maxconn إلى 30 لمنع الاختناق عند الضغط
                     db_pool = pool.ThreadedConnectionPool(
                         minconn=2,
                         maxconn=30,
@@ -67,35 +65,28 @@ def init_db_pool():
 
 @contextmanager
 def get_db_connection():
-    """Context Manager خفيف وسريع بدون استعلامات فحص إضافية"""
+    """Context Manager آمن للتعامل مع اتصالات قاعدة البيانات"""
     pool_obj = init_db_pool()
-    conn = None
+    conn = pool_obj.getconn()
+    is_broken = False
     try:
-        conn = pool_obj.getconn()
         conn.autocommit = True
         yield conn
-    except (psycopg2.OperationalError, psycopg2.InterfaceError):
-        # إرجاع الاتصال الميت وإغلاقه واستبداله فوراً
-        if conn:
-            try: pool_obj.putconn(conn, close=True)
-            except Exception: pass
-            conn = None
-        # محاولة اتصال جديدة مرة واحدة
-        conn = pool_obj.getconn()
-        conn.autocommit = True
-        yield conn
+    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+        is_broken = True
+        raise e
+    except Exception:
+        raise
     finally:
-        if conn and conn.closed == 0:
-            pool_obj.putconn(conn)
+        if conn:
+            try:
+                pool_obj.putconn(conn, close=is_broken)
+            except Exception:
+                pass
 
 
 def get_db():
     return init_db_pool()
-
-
-async def run_async(func, *args, **kwargs):
-    """تشغيل الاستعلامات غير المتزامنة لعدم تجميد التلجرام"""
-    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 def _async_create_tables():
@@ -284,6 +275,9 @@ def fast_login_check(telegram_id, device_id=None, fingerprint_hash=None):
                     return {"allowed": False, "reason": "تم حظر هذا الجهاز وحسابك.", "user": None}
 
                 dev_data = chk.get('dev_data') if chk else None
+                if isinstance(dev_data, str):
+                    try: dev_data = json.loads(dev_data)
+                    except Exception: dev_data = None
 
                 if dev_data:
                     if dev_data.get('is_banned'):
@@ -564,7 +558,7 @@ def _fallback_get_leaderboard_data(limit=50, user_id=None):
                         target_bal = float(target_row.get('balance') or 0.0)
                         cur.execute("SELECT COUNT(*) AS higher_count FROM users WHERE balance > %s", (target_bal,))
                         count_row = cur.fetchone()
-                        higher_count = count_row.get('higher_count') if count_row me else 0
+                        higher_count = count_row.get('higher_count') if count_row else 0
                         user_rank = higher_count + 1
 
         return {
