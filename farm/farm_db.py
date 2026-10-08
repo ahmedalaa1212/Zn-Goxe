@@ -1,6 +1,5 @@
 import time
 from datetime import datetime, timezone, timedelta
-from google.cloud import firestore
 from database import get_db
 
 # ==================== ثوابت وحدود الأمان القصوى (Sanity Checks Limits) ====================
@@ -26,7 +25,6 @@ def safe_parse_datetime(dt_raw, default_dt=None):
         return default_dt
     try:
         if isinstance(dt_raw, (int, float)):
-            # حماية ضد أختام زمنية سالبة أو مستقبلية شاذة جداً (بعد عام 2100)
             if dt_raw < 0 or dt_raw > 4102444800:
                 return default_dt
             return datetime.fromtimestamp(dt_raw, tz=timezone.utc)
@@ -44,7 +42,7 @@ def safe_parse_datetime(dt_raw, default_dt=None):
         return default_dt
 
 
-# ==================== Caching لتوفير قراءات Firestore ====================
+# ==================== Caching لتوفير قراءات Supabase ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 15
 
@@ -125,7 +123,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
 
 
 def get_game_settings(force_refresh=False):
-    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
+    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Supabase إن لم تكن موجودة"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
@@ -134,18 +132,17 @@ def get_game_settings(force_refresh=False):
 
     db = get_db()
     try:
-        doc_ref = db.collection('settings').document('farm_settings')
-        doc = doc_ref.get()
-        if doc.exists:
-            data = doc.to_dict() or {}
+        res = db.table('settings').select('*').eq('key', 'farm_settings').execute()
+        if res.data and len(res.data) > 0:
+            data = res.data[0].get('value') or res.data[0]
             _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
             return data
         else:
-            doc_ref.set(DEFAULT_GAME_SETTINGS)
+            db.table('settings').insert({'key': 'farm_settings', 'value': DEFAULT_GAME_SETTINGS}).execute()
             _SETTINGS_CACHE = {"data": DEFAULT_GAME_SETTINGS, "timestamp": now_ts}
             return DEFAULT_GAME_SETTINGS
     except Exception as e:
-        print(f"⚠️ خطأ أثناء جلب إعدادات المزرعة من Firebase: {e}")
+        print(f"⚠️ خطأ أثناء جلب إعدادات المزرعة من Supabase: {e}")
 
     return _SETTINGS_CACHE["data"] or DEFAULT_GAME_SETTINGS
 
@@ -220,11 +217,9 @@ def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None
     if not start_dt or not end_dt or end_dt <= start_dt:
         return 0.0
     
-    # حماية ضد المعدلات السلبية أو المتضخمة جداً
     safe_rate = max(0.0, min(float(hourly_rate), MAX_SAFE_HOURLY_RATE))
     seconds_passed = (end_dt - start_dt).total_seconds()
     
-    # منع التعدين لمقادير زمنية سلبية أو خيالية (أكثر من سنة غياب دفعة واحدة)
     if seconds_passed <= 0:
         return 0.0
     if seconds_passed > 31536000: # 365 يوم max
@@ -256,7 +251,6 @@ def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
     if not last_claim:
         last_claim = now_dt
     
-    # معالجة حالة المستقبل (تلاعب بالساعة): إذا كان التاريخ أسبق من الآن بصورة شاذة
     if last_claim > (now_dt + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
         last_claim = now_dt
 
@@ -270,8 +264,11 @@ def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
 def dismiss_welcome_db(user_id_str):
     """تعيين حالة مشاهدة النافذة الترحيبية لمنع ظهورها مجدداً"""
     db = get_db()
-    user_ref = db.collection('users').document(str(user_id_str))
-    user_ref.set({"welcome_seen": True, "is_new_user": False}, merge=True)
+    str_uid = str(user_id_str)
+    db.table('users').update({
+        "welcome_seen": True,
+        "is_new_user": False
+    }).eq('tg_id', str_uid).execute()
     return {"success": True, "welcome_seen": True, "is_new_user": False}
 
 
@@ -294,7 +291,6 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
         if exp_dt is None or exp_dt > now_dt:
             is_active = True
 
-    # تطبيق Sanity checks إضافية على الأرصدة
     user_data["balance"] = min(max(0.0, float(user_data.get("balance", 0.0))), MAX_SAFE_BALANCE)
     user_data["usd_balance"] = min(max(0.0, float(user_data.get("usd_balance", 0.0))), 1000000.0)
     user_data["hourly_rate"] = min(max(0.10, float(user_data.get("hourly_rate", 0.10))), MAX_SAFE_HOURLY_RATE)
@@ -305,32 +301,32 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وحساب التعدين مباشرة من تاريخ آخر تجميع لمنع التراكم المكرر"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وحساب التعدين مباشرة من تاريخ آخر تجميع"""
     db = get_db()
     str_uid = str(user_id_str)
-    user_ref = db.collection('users').document(str_uid)
-    user_doc = user_ref.get()
     now = datetime.now(timezone.utc)
     game_settings = get_game_settings()
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
 
-    if not user_doc.exists:
+    res = db.table('users').select('*').eq('tg_id', str_uid).execute()
+
+    if not res.data:
         user_data = create_default_user_data_dict(str_uid, game_settings, now)
-        user_ref.set(user_data)
+        db.table('users').insert(user_data).execute()
     else:
-        user_data = user_doc.to_dict() or {}
+        user_data = res.data[0]
         auto_fix = {}
         
-        if "welcome_seen" not in user_data:
+        if "welcome_seen" not in user_data or user_data.get("welcome_seen") is None:
             has_progress = bool(user_data.get("upgrades") or user_data.get("last_daily_claim_date") or user_data.get("last_boost_time"))
             auto_fix["welcome_seen"] = has_progress
             auto_fix["is_new_user"] = not has_progress
 
-        if "usd_balance" not in user_data: auto_fix["usd_balance"] = 0.00
-        if "mined_points" not in user_data:
+        if "usd_balance" not in user_data or user_data.get("usd_balance") is None: auto_fix["usd_balance"] = 0.00
+        if "mined_points" not in user_data or user_data.get("mined_points") is None:
             auto_fix["mined_points"] = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
-        if "total_mined" not in user_data:
+        if "total_mined" not in user_data or user_data.get("total_mined") is None:
             auto_fix["total_mined"] = float(user_data.get("mined_points", 0.0))
         
         current_hr = float(user_data.get("hourly_rate", 0.0))
@@ -344,13 +340,13 @@ def get_or_create_user_farm_data(user_id_str):
         if "base_unclaimed" not in user_data: auto_fix["base_unclaimed"] = 0.0
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
         if "storage_level" not in user_data: auto_fix["storage_level"] = 0
-        if "upgrades" not in user_data: auto_fix["upgrades"] = {}
+        if "upgrades" not in user_data or user_data.get("upgrades") is None: auto_fix["upgrades"] = {}
         if "last_claim_ad_date" not in user_data: auto_fix["last_claim_ad_date"] = None
         if "last_claim_time" not in user_data or not user_data.get("last_claim_time"):
             auto_fix["last_claim_time"] = now.isoformat()
         if "bot_active" not in user_data: auto_fix["bot_active"] = False
             
-        if "upgrades_count" not in user_data:
+        if "upgrades_count" not in user_data or user_data.get("upgrades_count") is None:
             upgrades_dict = user_data.get("upgrades", {})
             auto_fix["upgrades_count"] = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float))) if isinstance(upgrades_dict, dict) else 0
         
@@ -359,7 +355,7 @@ def get_or_create_user_farm_data(user_id_str):
             auto_fix["max_cap"] = expected_max_cap
 
         if auto_fix:
-            user_ref.update(auto_fix)
+            db.table('users').update(auto_fix).eq('tg_id', str_uid).execute()
             user_data.update(auto_fix)
 
     # 1. تحديث وتدقيق صلاحية البوت/VIP والحدود الأقصى
@@ -432,15 +428,15 @@ def get_or_create_user_farm_data(user_id_str):
         user_data["bot_active"] = False
         user_data["is_auto_bot_active"] = False
 
-        if user_doc.exists and to_bool(user_doc.to_dict().get("bot_active", False)):
+        if to_bool(user_data.get("bot_active", False)):
             db_updates["bot_active"] = False
             db_updates["is_auto_bot_active"] = False
 
     if db_updates:
         try:
-            user_ref.update(db_updates)
+            db.table('users').update(db_updates).eq('tg_id', str_uid).execute()
         except Exception as e:
-            print(f"⚠️ Error updating offline farm calculations in DB: {e}")
+            print(f"⚠️ Error updating offline farm calculations in Supabase: {e}")
 
     if auto_claimed_amount > 0:
         referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
@@ -482,25 +478,23 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن بأسلوب المعاملات الآمنة (Firestore Transaction) لمنع Race Condition"""
+    """تجميع الرصيد المعدن مع تطبيق تحديثات عملية آمنة ومباشرة في Supabase"""
     db = get_db()
     str_uid = str(user_id_str)
-    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
 
-    @firestore.transactional
-    def run_claim_transaction(transaction, ref):
-        snapshot = ref.get(transaction=transaction)
-        now = datetime.now(timezone.utc)
-        today_utc_str = now.strftime('%Y-%m-%d')
+    now = datetime.now(timezone.utc)
+    today_utc_str = now.strftime('%Y-%m-%d')
 
-        if not snapshot.exists:
+    try:
+        res = db.table('users').select('*').eq('tg_id', str_uid).execute()
+        if not res.data:
             user_data = create_default_user_data_dict(str_uid, game_settings, now)
-            transaction.set(ref, user_data)
+            db.table('users').insert(user_data).execute()
         else:
-            user_data = snapshot.to_dict() or {}
+            user_data = res.data[0]
 
         last_claim_str = user_data.get("last_claim_time")
         if last_claim_str:
@@ -524,7 +518,7 @@ def claim_mined_tokens_db(user_id_str):
         new_mined_points = round(current_mined_points + mined_amount, 8)
         now_iso = now.isoformat()
 
-        transaction.update(ref, {
+        update_payload = {
             "balance": new_balance,
             "mined_points": new_mined_points,
             "total_mined": new_mined_points,
@@ -532,13 +526,15 @@ def claim_mined_tokens_db(user_id_str):
             "base_unclaimed": 0.0,
             "unclaimed": 0.0,
             "last_claim_ad_date": today_utc_str
-        })
+        }
+
+        db.table('users').update(update_payload).eq('tg_id', str_uid).execute()
 
         referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
         upgrades_cnt = user_data.get("upgrades_count", 0)
         user_name = user_data.get("first_name") or user_data.get("name") or user_data.get("username")
 
-        return {
+        result = {
             "success": True,
             "new_balance": new_balance,
             "new_usd_balance": round(current_usd_balance, 8),
@@ -555,9 +551,6 @@ def claim_mined_tokens_db(user_id_str):
             "user_name": user_name
         }
 
-    try:
-        transaction = db.transaction()
-        result = run_claim_transaction(transaction, user_ref)
     except Exception as e:
         return {"success": False, "error": f"تعذر تنفيذ التجميع: {str(e)}"}
 
@@ -578,11 +571,10 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين مع فحص التدرج، حدود الرصيد المعقولة وFirestore Transactions"""
+    """شراء ترقية سرعة التعدين مع فحص التدرج ورصيد المستخدم على Supabase"""
     level_str = str(level).strip()
     db = get_db()
     str_uid = str(user_id_str)
-    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
 
     upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
@@ -594,16 +586,15 @@ def buy_upgrade_db(user_id_str, level):
     cost_usd = float(level_cfg.get("cost_usd", level_cfg.get("base_cost_usd", 0.0)))
     rate_bonus = round(float(level_cfg.get("rate_bonus", level_cfg.get("rate", 0))), 2)
 
-    @firestore.transactional
-    def run_upgrade_transaction(transaction, ref):
-        snapshot = ref.get(transaction=transaction)
+    try:
         now = datetime.now(timezone.utc)
+        res = db.table('users').select('*').eq('tg_id', str_uid).execute()
 
-        if not snapshot.exists:
+        if not res.data:
             user_data = create_default_user_data_dict(str_uid, game_settings, now)
-            transaction.set(ref, user_data)
+            db.table('users').insert(user_data).execute()
         else:
-            user_data = snapshot.to_dict() or {}
+            user_data = res.data[0]
 
         current_balance = float(user_data.get("balance", 0.0))
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
@@ -637,7 +628,6 @@ def buy_upgrade_db(user_id_str, level):
         new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.10))
         
-        # حماية ضد تجاوز الحد الأقصى لمعدل الساعات
         new_hourly_rate = round(min(current_hourly_rate + rate_bonus, MAX_SAFE_HOURLY_RATE), 4)
 
         upgrades[lvl_key] = current_count + 1
@@ -645,13 +635,13 @@ def buy_upgrade_db(user_id_str, level):
 
         last_claim_str = user_data.get("last_claim_time") or now.isoformat()
 
-        transaction.update(ref, {
+        db.table('users').update({
             "balance": new_balance,
             "usd_balance": new_usd_balance,
             "hourly_rate": new_hourly_rate,
             "upgrades": upgrades,
             "upgrades_count": total_upgrades_count
-        })
+        }).eq('tg_id', str_uid).execute()
 
         user_data_copy = dict(user_data)
         user_data_copy["hourly_rate"] = new_hourly_rate
@@ -659,7 +649,7 @@ def buy_upgrade_db(user_id_str, level):
 
         referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
 
-        return {
+        res_out = {
             "success": True,
             "new_balance": new_balance,
             "new_usd_balance": new_usd_balance,
@@ -673,45 +663,41 @@ def buy_upgrade_db(user_id_str, level):
             "referrer_id": referrer_id
         }
 
-    try:
-        transaction = db.transaction()
-        res = run_upgrade_transaction(transaction, user_ref)
     except Exception as e:
         return {"success": False, "error": f"تعذر تنفيذ عملية الترقية: {str(e)}"}
 
-    if res.get("success") and res.get("referrer_id"):
+    if res_out.get("success") and res_out.get("referrer_id"):
         try:
-            ref_id = str(res["referrer_id"])
-            upg_cnt = res["upgrades_count"]
-            db.collection("users").document(ref_id).collection("friends").document(str_uid).set({
-                "upgrades_count": upg_cnt,
-                "tg_id": str_uid
-            }, merge=True)
+            ref_id = str(res_out["referrer_id"])
+            upg_cnt = res_out["upgrades_count"]
+            db.table('friends').upsert({
+                "referrer_id": ref_id,
+                "tg_id": str_uid,
+                "upgrades_count": upg_cnt
+            }).execute()
         except Exception as e:
             print(f"⚠️ Warning updating friend upgrades_count for referrer: {e}")
 
-    return res
+    return res_out
 
 
 def buy_storage_db(user_id_str):
-    """شراء ترقية سعة التخزين مع حماية أمان كاملة ومعاملات مجتمعة (Transaction)"""
+    """شراء ترقية سعة التخزين مع حماية أمان كاملة على Supabase"""
     db = get_db()
     str_uid = str(user_id_str)
-    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
 
     storage_cfgs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
 
-    @firestore.transactional
-    def run_storage_transaction(transaction, ref):
-        snapshot = ref.get(transaction=transaction)
+    try:
         now = datetime.now(timezone.utc)
+        res = db.table('users').select('*').eq('tg_id', str_uid).execute()
 
-        if not snapshot.exists:
+        if not res.data:
             user_data = create_default_user_data_dict(str_uid, game_settings, now)
-            transaction.set(ref, user_data)
+            db.table('users').insert(user_data).execute()
         else:
-            user_data = snapshot.to_dict() or {}
+            user_data = res.data[0]
 
         current_level = int(user_data.get("storage_level", 0))
         next_level = current_level + 1
@@ -746,12 +732,12 @@ def buy_storage_db(user_id_str):
         mined_amount = calculate_accrued_mined(user_data, now, new_max_cap)
         last_claim_str = user_data.get("last_claim_time") or now.isoformat()
 
-        transaction.update(ref, {
+        db.table('users').update({
             "balance": new_balance,
             "usd_balance": new_usd_balance,
             "storage_level": next_level,
             "max_cap": new_max_cap
-        })
+        }).eq('tg_id', str_uid).execute()
 
         return {
             "success": True,
@@ -765,31 +751,26 @@ def buy_storage_db(user_id_str):
             "server_time": now.isoformat()
         }
 
-    try:
-        transaction = db.transaction()
-        return run_storage_transaction(transaction, user_ref)
     except Exception as e:
         return {"success": False, "error": f"تعذر إتمام ترقية المخزن: {str(e)}"}
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية آمن ومحمي ضد النقر المكرر والسباق الزمني"""
+    """استلام المكافأة اليومية مع التحقق والتحديث عبر Supabase"""
     db = get_db()
     str_uid = str(user_id_str)
-    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
     parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
-    @firestore.transactional
-    def run_daily_claim_transaction(transaction, ref):
-        snapshot = ref.get(transaction=transaction)
+    try:
         now = datetime.now(timezone.utc)
+        res = db.table('users').select('*').eq('tg_id', str_uid).execute()
 
-        if not snapshot.exists:
+        if not res.data:
             user_data = create_default_user_data_dict(str_uid, game_settings, now)
-            transaction.set(ref, user_data)
+            db.table('users').insert(user_data).execute()
         else:
-            user_data = snapshot.to_dict() or {}
+            user_data = res.data[0]
 
         today_str = now.strftime('%Y-%m-%d')
         yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
@@ -814,13 +795,13 @@ def claim_daily_reward_db(user_id_str):
         new_balance = round(min(current_balance + reward_amount, MAX_SAFE_BALANCE), 8)
         new_ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
-        transaction.update(ref, {
+        db.table('users').update({
             "balance": new_balance,
             "daily_day": effective_daily_day,
             "daily_streak": effective_daily_day,
             "last_daily_claim_date": today_str,
             "ads_watched": new_ads_watched
-        })
+        }).eq('tg_id', str_uid).execute()
 
         return {
             "success": True,
@@ -834,30 +815,25 @@ def claim_daily_reward_db(user_id_str):
             "server_time": now.isoformat()
         }
 
-    try:
-        transaction = db.transaction()
-        return run_daily_claim_transaction(transaction, user_ref)
     except Exception as e:
         return {"success": False, "error": f"تعذر استلام المكافأة اليومية: {str(e)}"}
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل المعزز اليومي وتسجيل last_boost_time مع التحقق من فترة cooldown آمنة بـ Transaction"""
+    """تفعيل المعزز اليومي وتسجيل last_boost_time مع التحقق من فترة cooldown في Supabase"""
     db = get_db()
     str_uid = str(user_id_str)
-    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
 
-    @firestore.transactional
-    def run_boost_transaction(transaction, ref):
-        snapshot = ref.get(transaction=transaction)
+    try:
         now = datetime.now(timezone.utc)
+        res = db.table('users').select('*').eq('tg_id', str_uid).execute()
 
-        if not snapshot.exists:
+        if not res.data:
             user_data = create_default_user_data_dict(str_uid, game_settings, now)
-            transaction.set(ref, user_data)
+            db.table('users').insert(user_data).execute()
         else:
-            user_data = snapshot.to_dict() or {}
+            user_data = res.data[0]
 
         now_iso = now.isoformat()
         today_str = now.strftime('%Y-%m-%d')
@@ -892,11 +868,11 @@ def claim_daily_boost_db(user_id_str):
 
         last_claim_str = user_data.get("last_claim_time") or now_iso
 
-        transaction.update(ref, {
+        db.table('users').update({
             "last_boost_time": now_iso,
             "last_boost_date": today_str,
             "ads_watched": new_ads
-        })
+        }).eq('tg_id', str_uid).execute()
 
         return {
             "success": True,
@@ -914,41 +890,30 @@ def claim_daily_boost_db(user_id_str):
             "server_time": now_iso
         }
 
-    try:
-        transaction = db.transaction()
-        return run_boost_transaction(transaction, user_ref)
     except Exception as e:
         return {"success": False, "error": f"تعذر تفعيل التعزيز: {str(e)}"}
 
 
 def get_mining_leaderboard_db(limit=10):
-    """جلب قائمة المتصدرين لأفضل المعدنين مع تنقية وتنظيف التواريخ والأرقام الشاَذة"""
+    """جلب قائمة المتصدرين لأفضل المعدنين من جدول users في Supabase"""
     db = get_db()
-    users_ref = db.collection('users')
     
-    order_fields = ['mined_points', 'total_mined', 'mining_points']
-    docs = []
-
-    for field in order_fields:
+    try:
+        res = db.table('users').select('*').order('mined_points', desc=True).limit(limit).execute()
+        docs = res.data or []
+    except Exception as e:
+        print(f"⚠️ Warning mined_points query failed, trying total_mined: {e}")
         try:
-            query = users_ref.order_by(field, direction=firestore.Query.DESCENDING).limit(limit)
-            docs = list(query.stream())
-            if docs:
-                break
-        except Exception as e:
-            print(f"⚠️ Warning {field} query failed: {e}")
-
-    if not docs:
-        try:
-            docs = list(users_ref.limit(100).stream())
+            res = db.table('users').select('*').order('total_mined', desc=True).limit(limit).execute()
+            docs = res.data or []
         except Exception as inner_e:
-            print(f"❌ Error getting leaderboard docs: {inner_e}")
+            print(f"❌ Error getting leaderboard docs from Supabase: {inner_e}")
             return []
 
     leaderboard = []
-    for doc in docs:
-        data = doc.to_dict() or {}
-        name = data.get("first_name") or data.get("name") or data.get("username") or f"المستخدم {str(doc.id)[:4]}"
+    for data in docs:
+        tg_id = str(data.get("tg_id") or data.get("id"))
+        name = data.get("first_name") or data.get("name") or data.get("username") or f"المستخدم {tg_id[:4]}"
         
         mined_val = data.get("mined_points")
         if mined_val is None:
@@ -962,7 +927,7 @@ def get_mining_leaderboard_db(limit=10):
             total_m = 0.0
 
         leaderboard.append({
-            "tg_id": str(doc.id),
+            "tg_id": tg_id,
             "name": name,
             "total_mined": round(total_m, 8),
             "mined_points": round(total_m, 8),
