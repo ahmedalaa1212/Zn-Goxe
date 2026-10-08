@@ -9,6 +9,7 @@ gunicorn==21.2.0
 # 2. Database & Firebase Integration
 # ==========================================
 firebase-admin==6.2.0
+psycopg2-binary==2.9.9
 
 # ==========================================
 # 3. Telegram Bot Engine
