@@ -22,6 +22,28 @@ def get_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 
+class SupabaseDBProxy:
+    """كائن توافقي لمنع أخطاء AttributeError في الملفات القديمة التي تبحث عن db"""
+    def collection(self, *args, **kwargs):
+        return self
+    def doc(self, *args, **kwargs):
+        return self
+    def get(self, *args, **kwargs):
+        return None
+    def set(self, *args, **kwargs):
+        return None
+    def update(self, *args, **kwargs):
+        return None
+
+# متغيرات توافقية لمنع كسر الملفات والموديولات القديمة التي تستورد database.db أو initialize_firebase
+db = SupabaseDBProxy()
+
+def initialize_firebase(*args, **kwargs):
+    """دالة توافقية لمنع كسر استدعاءات Firebase القديمة"""
+    print("ℹ️ نظام قاعدة البيانات يعمل حالياً عبر Supabase PostgreSQL.")
+    return True
+
+
 def init_db():
     """إنشاء الهيكل والجداول تلقائياً في Supabase فور تشغيل السيرفر"""
     if not DATABASE_URL:
@@ -102,7 +124,11 @@ except Exception as e:
 
 def get_db():
     """دالة توافقية لإرجاع الاتصال لقاعدة البيانات"""
-    return get_connection()
+    try:
+        return get_connection()
+    except Exception as e:
+        print(f"❌ خطأ في الحصول على اتصال قاعدة البيانات: {e}")
+        return None
 
 
 # ==================== Safe Import of ZNX Wallet Module ====================
