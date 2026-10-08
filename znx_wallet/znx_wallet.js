@@ -3,12 +3,12 @@
  * Cleaned, Optimized, Zero Client CORS/Rate-Limit Error Version
  */
 
-// ==================== الثوابت والمتغيرات العامة ====================
+// ==================== الثوابت ومتغيرات النظام ====================
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const USDT_TOKEN_CONTRACT = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"; 
 const ZNX_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6";
 
-window.ZNX_POOL_CREATED_AT = 1768435200; 
+window.ZNX_POOL_CREATED_AT = 1735689600; 
 
 let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
@@ -98,7 +98,7 @@ async function apiFetch(endpoint, options = {}) {
 
 // ==================== محرك السعر المباشر (Real-time Price Engine) ====================
 async function fetchRealZnxPrice() {
-    // 1. تجربة جلب السعر من السيرفر الخلفي أولاً
+    // 1. تجربة جلب السعر من السيرفر الخلفي أولاً (الأسرع والأضمن)
     try {
         const serverData = await apiFetch(`/price?t=${Date.now()}`, {
             method: 'GET',
@@ -145,7 +145,30 @@ async function fetchRealZnxPrice() {
         console.warn("⚠️ فشل STON.fi Asset API...");
     }
 
-    // 3. Fallback من DexScreener Tokens API المباشر
+    // 3. Fallback من DexScreener Pair API المباشر
+    try {
+        const dexPairRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`, { cache: 'no-store' });
+        if (dexPairRes.ok) {
+            const dexPairData = await dexPairRes.json();
+            const pair = dexPairData?.pair;
+            if (pair && pair.priceUsd) {
+                const livePrice = parseFloat(pair.priceUsd);
+                const ch24 = pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0;
+                setTargetPrice(livePrice);
+                updateMarketStatsUI({
+                    price: livePrice,
+                    change_24h: ch24,
+                    high_24h: pair.high24h ? parseFloat(pair.high24h) : livePrice * 1.03,
+                    low_24h: pair.low24h ? parseFloat(pair.low24h) : livePrice * 0.97
+                });
+                return;
+            }
+        }
+    } catch (err) {
+        console.warn("⚠️ فشل DexScreener Pair API...");
+    }
+
+    // 4. Fallback من DexScreener Tokens API المباشر
     try {
         const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
         if (dexRes.ok) {
@@ -165,10 +188,10 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (err) {
-        console.warn("⚠️ فشل DexScreener API...");
+        console.warn("⚠️ فشل DexScreener Tokens API...");
     }
 
-    // 4. Fallback من GeckoTerminal API
+    // 5. Fallback من GeckoTerminal API
     try {
         const geckoRes = await fetch(`https://api.geckoterminal.com/api/v2/networks/ton/tokens/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
         if (geckoRes.ok) {
@@ -189,7 +212,7 @@ async function fetchRealZnxPrice() {
         console.warn("⚠️ فشل GeckoTerminal API...");
     }
 
-    // 5. Fallback مباشر من TonAPI
+    // 6. Fallback مباشر من TonAPI
     try {
         const tonRes = await fetch(`https://tonapi.io/v2/rates?tokens=${ZNX_TOKEN_CONTRACT}&currencies=usd`, { cache: 'no-store' });
         if (tonRes.ok) {
@@ -209,7 +232,7 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (err) {
-        console.warn("⚠️️ فشل TonAPI المباشر");
+        console.warn("⚠️ فشل TonAPI المباشر");
     }
 
     const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
@@ -292,18 +315,18 @@ function updateMarketStatsUI(data) {
 function startLivePriceEngine() {
     fetchRealZnxPrice();
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 10000); // استعلام كل 10 ثوانٍ لمنع الحظر
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 3000); // تحديث كل 3 ثوانٍ للاستفادة من كاش الـ RAM السريع بالسيرفر
 
     if (smoothLoopTimer) clearInterval(smoothLoopTimer);
     smoothLoopTimer = setInterval(updateSmoothTick, 100);
 }
 
-// ==================== محرك الرسم البياني ====================
+// ==================== محرك الرسم البياني (Candlestick Chart Engine) ====================
 function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) return;
 
-    // تنظيف الحاوية من أي iframe قديمة أو معطلة
+    // تنظيف الحاوية من أي iframe أو عنصر متخلف
     const oldIframe = container.querySelector('iframe');
     if (oldIframe) {
         oldIframe.remove();
@@ -456,7 +479,7 @@ function generateAccurateTimeboundCandles(tf) {
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
-    const poolCreationTime = window.ZNX_POOL_CREATED_AT || 1768435200;
+    const poolCreationTime = window.ZNX_POOL_CREATED_AT || 1735689600;
     
     const count = Math.min(60, Math.max(1, Math.floor((currentPeriodStart - poolCreationTime) / tfSec) + 1));
     const price = targetLivePrice > 0 ? targetLivePrice : currentLivePrice;
@@ -719,7 +742,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
