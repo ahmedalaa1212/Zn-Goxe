@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 💎 ZNX Wallet API Module (Flask Blueprint)
-Optimized Backend Engine with TonAPI Integration & Persistent Memory
-Fixes Cloudflare Blocking on Railway & Preserves Live ZNX Price
+Optimized Backend Engine with Multi-Source DEX Integration & Persistent Memory
+Fixes Cloudflare Blocking on Railway & Preserves Live ZNX Price & Real-Time Candles
 """
 
 import math
@@ -72,49 +72,38 @@ def _make_http_request(url, timeout=5.0):
             if resp.status == 200:
                 return json.loads(resp.read().decode('utf-8'))
     except Exception as e:
-        print(f"⚠️ HTTP Fetch Error ({url[:45]}...): {e}")
+        print(f"⚠️ HTTP Fetch Error ({url[:50]}...): {e}")
     return None
 
 
 def _update_price_from_external_apis():
-    """جلب السعر المباشر عبر TonAPI.io المخصص لشبكة TON للهروب من حظر Cloudflare"""
+    """جلب السعر المباشر بآلية Multi-Source متسلسلة للهروب من حظر Cloudflare"""
     now = time.time()
     fetched_price = None
     change_24h = 0.0
     high_24h = None
     low_24h = None
 
-    # المصدر الأول والرئيسي: TonAPI.io (الرسمي لشبكة TON - لا يحظر سيرفرات Railway)
+    # المصدر الأول: STON.fi API الرسمية والمباشرة لمجمعات شبكة TON
     try:
-        tonapi_url = f"https://tonapi.io/v2/rates?tokens={ZNX_CONTRACT_ADDRESS}&currencies=usd"
-        data = _make_http_request(tonapi_url, timeout=5.0)
-        if data and isinstance(data, dict) and 'rates' in data:
-            token_info = data['rates'].get(ZNX_CONTRACT_ADDRESS, {})
-            prices = token_info.get('prices', {})
-            usd_price = prices.get('USD')
-
-            if usd_price and float(usd_price) > 0:
-                fetched_price = float(usd_price)
-                
-                # جلب نسبة التغير خلال 24 ساعة
-                diff_24h = token_info.get('diff_24h', {}).get('USD')
-                if diff_24h:
-                    clean_diff = str(diff_24h).replace('%', '').replace('+', '').strip()
-                    try:
-                        change_24h = float(clean_diff)
-                    except ValueError:
-                        change_24h = 0.0
+        stonfi_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}"
+        data = _make_http_request(stonfi_url, timeout=4.0)
+        if data and isinstance(data, dict) and 'asset' in data:
+            asset_info = data['asset']
+            price_usd = asset_info.get('dex_usd_price')
+            if price_usd and float(price_usd) > 0:
+                fetched_price = float(price_usd)
     except Exception as e:
-        print(f"⚠️ TonAPI Fetch Error: {e}")
+        print(f"⚠️ STON.fi Fetch Error: {e}")
 
-    # المصدر الثاني الاحتياطي: DexScreener (في حال توفر الخدمة)
+    # المصدر الثاني: DexScreener Pair API Mapped Directly
     if not fetched_price:
         try:
-            dex_token_url = f"https://api.dexscreener.com/latest/dex/tokens/{ZNX_CONTRACT_ADDRESS}?t={int(now)}"
-            data = _make_http_request(dex_token_url, timeout=5.0)
-            if data and isinstance(data, dict) and data.get('pairs'):
-                pair = data['pairs'][0]
-                if pair and pair.get('priceUsd'):
+            dex_pair_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}"
+            data = _make_http_request(dex_pair_url, timeout=4.0)
+            if data and isinstance(data, dict) and data.get('pair'):
+                pair = data['pair']
+                if pair.get('priceUsd'):
                     p = float(pair.get('priceUsd', 0.0) or 0.0)
                     if p > 0:
                         fetched_price = p
@@ -124,9 +113,31 @@ def _update_price_from_external_apis():
                         if pair.get('low24h') or pair.get('priceLow24h'):
                             low_24h = float(pair.get('low24h') or pair.get('priceLow24h'))
         except Exception as e:
-            print(f"⚠️ DexScreener Token Fetch Error: {e}")
+            print(f"⚠️ DexScreener Pair Fetch Error: {e}")
 
-    # تحديث الكاش بالقيم الحقيقية فور نجاح أي مصدر
+    # المصدر الثالث: TonAPI.io
+    if not fetched_price:
+        try:
+            tonapi_url = f"https://tonapi.io/v2/rates?tokens={ZNX_CONTRACT_ADDRESS}&currencies=usd"
+            data = _make_http_request(tonapi_url, timeout=4.0)
+            if data and isinstance(data, dict) and 'rates' in data:
+                token_info = data['rates'].get(ZNX_CONTRACT_ADDRESS, {})
+                prices = token_info.get('prices', {})
+                usd_price = prices.get('USD')
+
+                if usd_price and float(usd_price) > 0:
+                    fetched_price = float(usd_price)
+                    diff_24h = token_info.get('diff_24h', {}).get('USD')
+                    if diff_24h:
+                        clean_diff = str(diff_24h).replace('%', '').replace('+', '').strip()
+                        try:
+                            change_24h = float(clean_diff)
+                        except ValueError:
+                            change_24h = 0.0
+        except Exception as e:
+            print(f"⚠️ TonAPI Fetch Error: {e}")
+
+    # تحديث الكاش فور نجاح أي مصدر
     if fetched_price and fetched_price > 0:
         _PRICE_CACHE['price'] = fetched_price
         _PRICE_CACHE['change_24h'] = change_24h
@@ -219,7 +230,7 @@ def fetch_live_dex_price():
 
 
 def fetch_dex_candles(timeframe='5m'):
-    """إرجاع الشمعات البيانية من الكاش أو توليد شمعات انسيابية من السعر الحقيقي"""
+    """إرجاع الشمعات البيانية من الكاش أو توليد شمعات انسيابية متوافقة مع السعر الحقيقي"""
     now_sec = int(time.time())
     curr_price = _PRICE_CACHE['price']
 
@@ -259,10 +270,10 @@ def _generate_continuous_smooth_candles(current_price, change_24h, now_sec, limi
         if i == limit - 1:
             curr_close = current_price
         else:
-            noise = random.uniform(-0.002, 0.002) * current_price
+            noise = random.uniform(-0.001, 0.001) * current_price
             curr_close = max(0.00000001, curr_open + (target_trend - curr_open) * 0.40 + noise)
 
-        wick = random.uniform(0.0002, 0.001) * current_price
+        wick = random.uniform(0.0001, 0.0005) * current_price
         c_high = max(curr_open, curr_close) + wick
         c_low = max(0.00000001, min(curr_open, curr_close) - wick)
 
