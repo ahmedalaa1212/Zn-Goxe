@@ -1,71 +1,148 @@
 # -*- coding: utf-8 -*-
 """
-بيانات التطبيق الرئيسية مع ربط موديول ZNX Wallet وقاعدة البيانات
+بيانات التطبيق الرئيسية مع ربط Supabase (PostgreSQL) عبر Transaction Pooler
 نظام الأمان ومنع تعدد الحسابات والأجهزة (Multi-Accounting System)
 """
 import json
 import os
 import math
 import sys
-from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, firestore
+import time
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+from contextlib import contextmanager
 
-# ==================== Firebase Core Engine ====================
-db = None
+import psycopg2
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor, Json
 
-def initialize_firebase():
-    """تهيئة الاتصال بقاعدة بيانات Firebase Firestore بشكل آمن"""
-    global db
-    if not firebase_admin._apps:
-        firebase_creds_json = os.environ.get("FIREBASE_CREDENTIALS")
+# ==================== Supabase / PostgreSQL Connection Pool ====================
+db_pool = None
+
+def get_database_url():
+    """استخراج وتنظيف رابط DATABASE_URL الخاص بـ Supabase من متغيرات البيئة"""
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise ValueError("❌ لم يتم العثور على المتغير البيئي DATABASE_URL! يرجى التأكد من إضافته في Railway.")
+    
+    # تحويل postgres:// إلى postgresql:// إذا وُجدت لتتوافق مع psycopg2
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    
+    return db_url
+
+
+def init_db_pool():
+    """تهيئة بركة اتصالات خفيفة وسريعة (ThreadedConnectionPool) تعمل بكفاءة مع Transaction Pooler"""
+    global db_pool
+    if db_pool is None or db_pool.closed:
         try:
-            if firebase_creds_json:
-                try:
-                    creds_dict = json.loads(firebase_creds_json)
-                except Exception:
-                    # معالجة الـ Escape Characters في البيئات السحابية مثل Railway
-                    cleaned_json = firebase_creds_json.replace("\\n", "\n")
-                    creds_dict = json.loads(cleaned_json)
-
-                if isinstance(creds_dict, dict) and "private_key" in creds_dict:
-                    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-
-                cred = credentials.Certificate(creds_dict)
-            else:
-                if os.path.exists("firebase-adminsdk.json"):
-                    cred = credentials.Certificate("firebase-adminsdk.json")
-                else:
-                    raise FileNotFoundError("❌ لم يتم العثور على بيانات اعتماد Firebase (سواء متغير بيئي أو ملف محلي)!")
-
-            firebase_admin.initialize_app(cred)
-            print("✅ تم الاتصال بـ Firebase بنجاح!")
+            db_url = get_database_url()
+            # إعداد البركة لتدعم من 1 إلى 20 اتصال متزامن
+            db_pool = pool.ThreadedConnectionPool(
+                minconn=1,
+                maxconn=20,
+                dsn=db_url
+            )
+            print("✅ تم الاتصال بـ Supabase (Transaction Pooler) وتأسيس Connection Pool بنجاح!")
+            _auto_create_tables()
         except Exception as e:
-            print(f"❌ خطأ حرِج أثناء تهيئة Firebase: {e}")
+            print(f"❌ خطأ حرِج أثناء التهيئة للاتصال بـ Supabase: {e}")
             raise e
+    return db_pool
 
-    if db is None:
-        db = firestore.client()
-    return db
+
+@contextmanager
+def get_db_connection():
+    """Context Manager لإدارة أخذ وإعادة الاتصالات لبركة الاتصالات تلقائياً وبأمان"""
+    pool_obj = init_db_pool()
+    conn = pool_obj.getconn()
+    try:
+        yield conn
+    finally:
+        pool_obj.putconn(conn)
 
 
 def get_db():
-    """الحصول على كائن قاعدة البيانات Firestore مع ضمان التهيئة"""
-    global db
-    if db is None:
-        db = initialize_firebase()
-    return db
+    """دالة توافقية مع بقية الموديولات لإعادة الاتصال الحركي"""
+    return init_db_pool()
+
+
+def _auto_create_tables():
+    """إنشاء كافة الجداول والفهارس المتقدمة تلقائياً في Supabase عند التشغيل لأول مرة"""
+    create_tables_sql = """
+    -- 1. جدول المستخدمين
+    CREATE TABLE IF NOT EXISTS users (
+        tg_id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(128),
+        telegram_id VARCHAR(128),
+        first_name VARCHAR(100) DEFAULT 'لاعب',
+        balance DOUBLE PRECISION DEFAULT 0.0,
+        usd_balance DOUBLE PRECISION DEFAULT 0.0,
+        znx_balance DOUBLE PRECISION DEFAULT 0.0,
+        ref_by VARCHAR(128),
+        referrals_count INT DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        interactions INT DEFAULT 1,
+        last_withdraw_date TIMESTAMPTZ,
+        withdraw_count INT DEFAULT 0,
+        is_banned BOOLEAN DEFAULT FALSE,
+        ban_reason TEXT,
+        banned_at TIMESTAMPTZ,
+        farm_level INT DEFAULT 1,
+        storage_level INT DEFAULT 1,
+        last_harvest TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        device_id VARCHAR(256),
+        fingerprint_hash VARCHAR(256),
+        extra_data JSONB DEFAULT '{}'::jsonb
+    );
+
+    -- 2. جدول الأجهزة المرتبطة
+    CREATE TABLE IF NOT EXISTS devices (
+        device_id VARCHAR(256) PRIMARY KEY,
+        primary_user_id VARCHAR(128),
+        users JSONB DEFAULT '[]'::jsonb,
+        fingerprint_hash VARCHAR(256),
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        is_banned BOOLEAN DEFAULT FALSE,
+        ban_reason TEXT,
+        banned_at TIMESTAMPTZ
+    );
+
+    -- 3. جدول الأجهزة المحظورة (القائمة السوداء)
+    CREATE TABLE IF NOT EXISTS banned_devices (
+        device_id VARCHAR(256) PRIMARY KEY,
+        reason TEXT,
+        banned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        associated_users JSONB DEFAULT '[]'::jsonb,
+        fingerprint_hash VARCHAR(256)
+    );
+
+    -- تسريع الاستعلامات وعمليات الترتيب باستخدام الفهارس (Indexes)
+    CREATE INDEX IF NOT EXISTS idx_users_balance ON users(balance DESC);
+    CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by);
+    CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices(fingerprint_hash);
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(create_tables_sql)
+            conn.commit()
+            print("⚡ تم التحقق من هيكل الجداول والفهارس وتنفيذ التحديثات تلقائياً في Supabase!")
+    except Exception as e:
+        print(f"⚠️ خطأ أثناء التحقق من جداول Supabase تلقائياً: {e}")
 
 
 # ==================== Initial Auto Connection ====================
 try:
-    initialize_firebase()
+    init_db_pool()
 except Exception as e:
-    print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Firebase: {e}")
+    print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Supabase: {e}")
 
 
 # ==================== Safe Import of ZNX Wallet Module ====================
-# استيراد موديول ZNX Wallet DB الجديد وتوفير الدوال كـ Safe Exports
 try:
     from znx_wallet.znx_wallet_db import (
         get_leaderboard_data as znx_get_leaderboard_data,
@@ -104,7 +181,7 @@ def get_global_stats():
 # ==================== Security & Input Helpers ====================
 
 def _sanitize_telegram_id(telegram_id):
-    """تطهير والتحقق من صحة معرف التليجرام لمنع ثغرات Injection وانكسار Firestore"""
+    """تطهير والتحقق من صحة معرف التليجرام لمنع ثغرات Injection"""
     if telegram_id is None:
         return None
     s_id = str(telegram_id).strip()
@@ -117,12 +194,10 @@ def _sanitize_telegram_id(telegram_id):
     return s_id
 
 
-# ==================== Data Serialization Helper (حل مشكلة SERVER_TIMESTAMP و JSON 500) ====================
-
 def sanitize_firestore_data(data):
     """
-    تحويل كافة عناصر Firestore غير القابلة للترميز بـ JSON (مثل DatetimeWithNanoseconds أو SERVER_TIMESTAMP)
-    إلى صيغ نصوص ISO 8601 لمنع أخطاء 500 Internal Server Error في Flask.
+    تحويل عناصر البيانات غير القابلة للترميز بـ JSON إلى صيغ نصوص ISO 8601
+    لمنع أخطاء 500 Internal Server Error عند إرجاع الاستجابات في Flask.
     """
     if data is None:
         return None
@@ -132,7 +207,7 @@ def sanitize_firestore_data(data):
         return [sanitize_firestore_data(v) for v in data]
     elif isinstance(data, datetime):
         return data.isoformat()
-    elif hasattr(data, 'isoformat') and callable(getattr(data, 'isoformat')):  # يشمل DatetimeWithNanoseconds في Firestore
+    elif hasattr(data, 'isoformat') and callable(getattr(data, 'isoformat')):
         return data.isoformat()
     elif hasattr(data, '__dict__'):
         return str(data)
@@ -144,60 +219,67 @@ def sanitize_firestore_data(data):
 
 def ban_user_and_device(telegram_id, device_id=None, reason="تعدد حسابات غير مصرح به", fingerprint_hash=None):
     """
-    حظر المستخدم والجهاز وإدراجهما في القائمة السوداء لمنع الدخول مستقبلاً.
+    حظر المستخدم والجهاز وإدراجهما في القائمة السوداء في Supabase لمنع الدخول مستقبلاً.
     """
     user_id_str = _sanitize_telegram_id(telegram_id)
-    firestore_db = get_db()
-    now_ts = firestore.SERVER_TIMESTAMP
+    now_dt = datetime.now(timezone.utc)
 
-    # 1. حظر حساب المستخدم في مجموعة users
-    if user_id_str:
-        try:
-            firestore_db.collection('users').document(user_id_str).set({
-                'is_banned': True,
-                'ban_reason': reason,
-                'banned_at': now_ts
-            }, merge=True)
-            print(f"🚫 تم حظر المستخدم {user_id_str} | السبب: {reason}")
-        except Exception as e:
-            print(f"❌ خطأ حظر المستخدم {user_id_str}: {e}")
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. حظر حساب المستخدم
+                if user_id_str:
+                    cur.execute("""
+                        UPDATE users 
+                        SET is_banned = TRUE, ban_reason = %s, banned_at = %s 
+                        WHERE tg_id = %s
+                    """, (reason, now_dt, user_id_str))
+                    print(f"🚫 تم حظر المستخدم {user_id_str} | السبب: {reason}")
 
-    # 2. حظر الجهاز في مجموعة banned_devices و devices
-    if device_id and str(device_id).strip() and str(device_id).lower() not in ('none', 'null', 'undefined'):
-        clean_device_id = str(device_id).strip()
-        try:
-            # تحديث/إضافة إلى قائمة الأجهزة المحظورة
-            banned_dev_ref = firestore_db.collection('banned_devices').document(clean_device_id)
-            ban_payload = {
-                'device_id': clean_device_id,
-                'reason': reason,
-                'banned_at': now_ts,
-            }
-            if user_id_str:
-                ban_payload['associated_users'] = firestore.ArrayUnion([user_id_str])
-            if fingerprint_hash:
-                ban_payload['fingerprint_hash'] = str(fingerprint_hash).strip()
+                # 2. حظر الجهاز في جدول banned_devices و devices
+                if device_id and str(device_id).strip() and str(device_id).lower() not in ('none', 'null', 'undefined'):
+                    clean_device_id = str(device_id).strip()
+                    clean_fp = str(fingerprint_hash).strip() if fingerprint_hash else None
 
-            banned_dev_ref.set(ban_payload, merge=True)
+                    # إضافة/تحديث جدول banned_devices
+                    cur.execute("""
+                        INSERT INTO banned_devices (device_id, reason, banned_at, associated_users, fingerprint_hash)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (device_id) DO UPDATE SET
+                            reason = EXCLUDED.reason,
+                            banned_at = EXCLUDED.banned_at,
+                            associated_users = CASE 
+                                WHEN %s IS NOT NULL THEN banned_devices.associated_users || %s
+                                ELSE banned_devices.associated_users
+                            END,
+                            fingerprint_hash = COALESCE(EXCLUDED.fingerprint_hash, banned_devices.fingerprint_hash)
+                    """, (
+                        clean_device_id, reason, now_dt, Json([user_id_str] if user_id_str else []), clean_fp,
+                        user_id_str, Json([user_id_str] if user_id_str else [])
+                    ))
 
-            # تحديث حالة الجهاز في مجموعة devices
-            firestore_db.collection('devices').document(clean_device_id).set({
-                'is_banned': True,
-                'ban_reason': reason,
-                'banned_at': now_ts
-            }, merge=True)
+                    # تحديث حالة الجهاز في جدول devices
+                    cur.execute("""
+                        INSERT INTO devices (device_id, is_banned, ban_reason, banned_at)
+                        VALUES (%s, TRUE, %s, %s)
+                        ON CONFLICT (device_id) DO UPDATE SET
+                            is_banned = TRUE,
+                            ban_reason = EXCLUDED.ban_reason,
+                            banned_at = EXCLUDED.banned_at
+                    """, (clean_device_id, reason, now_dt))
 
-            print(f"🚫 تم حظر الجهاز {clean_device_id} وإدراجه في banned_devices | السبب: {reason}")
-        except Exception as e:
-            print(f"❌ خطأ حظر الجهاز {clean_device_id}: {e}")
-
-    return True
+                    print(f"🚫 تم حظر الجهاز {clean_device_id} وإدراجه في banned_devices | السبب: {reason}")
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"❌ خطأ حظر المستخدم/الجهاز {user_id_str}/{device_id}: {e}")
+        return False
 
 
 def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
     """
-    فحص حظر متعدد الحسابات والأجهزة:
-    1. التأكد من عدم حظر المستخدم أو الجهاز في banned_devices.
+    فحص حظر متعدد الحسابات والأجهزة على Supabase:
+    1. التأكد من عدم حظر المستخدم أو الجهاز.
     2. ربط الجهاز بأول حساب يدخل منه (primary_user_id).
     3. إذا حاول حساب مختلف الدخول بنفس الجهاز -> حظر الحسابين والجهاز فوراً.
     """
@@ -208,135 +290,134 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
     clean_device_id = str(device_id or '').strip()
     clean_fingerprint = str(fingerprint_hash or '').strip()
 
-    # إذا لم يتم تمرير معرّف جهاز، نكتفي بفحص الحظر العام للمستخدم
     if not clean_device_id or clean_device_id.lower() in ('none', 'null', 'undefined', 'false', 'true'):
         if is_user_banned(user_id_str):
             return {"allowed": False, "banned": True, "reason": "حسابك محظور من استخدام التطبيق."}
         return {"allowed": True}
 
-    firestore_db = get_db()
-
-    # أ. فحص ما إذا كان المستخدم محظوراً مسبقاً
     if is_user_banned(user_id_str):
         return {"allowed": False, "banned": True, "reason": "حسابك محظور من استخدام التطبيق."}
 
     try:
-        # ب. فحص القائمة السوداء للأجهزة (banned_devices)
-        banned_doc = firestore_db.collection('banned_devices').document(clean_device_id).get()
-        if banned_doc.exists:
-            # حظر الحساب الحالي فوراً محاولة استخدام جهاز محظور
-            ban_user_and_device(user_id_str, clean_device_id, "محاولة استخدام جهاز محظور مسبقاً", clean_fingerprint)
-            return {
-                "allowed": False,
-                "banned": True,
-                "reason": "تم حظر هذا الجهاز وحسابك نهائياً بسبب انتهاك سياسة منع تعدد الحسابات."
-            }
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # أ. فحص ما إذا كان الجهاز في قائمة الحظر
+                cur.execute("SELECT * FROM banned_devices WHERE device_id = %s", (clean_device_id,))
+                banned_dev = cur.fetchone()
+                if banned_dev:
+                    ban_user_and_device(user_id_str, clean_device_id, "محاولة استخدام جهاز محظور مسبقاً", clean_fingerprint)
+                    return {
+                        "allowed": False,
+                        "banned": True,
+                        "reason": "تم حظر هذا الجهاز وحسابك نهائياً بسبب انتهاك سياسة منع تعدد الحسابات."
+                    }
 
-        # ج. فحص سجل الجهاز في مجموعة devices
-        device_ref = firestore_db.collection('devices').document(clean_device_id)
-        device_doc = device_ref.get()
+                # ب. فحص سجل الجهاز في جدول devices
+                cur.execute("SELECT * FROM devices WHERE device_id = %s", (clean_device_id,))
+                dev_data = cur.fetchone()
 
-        if device_doc.exists:
-            dev_data = device_doc.to_dict() or {}
-
-            # هل الجهاز معلم كـ محظور؟
-            if dev_data.get('is_banned', False):
-                ban_user_and_device(user_id_str, clean_device_id, dev_data.get('ban_reason', 'جهاز محظور'), clean_fingerprint)
-                return {
-                    "allowed": False,
-                    "banned": True,
-                    "reason": "تم حظر هذا الجهاز وحسابك بسبب انتهاك شروط الاستخدام."
-                }
-
-            primary_user_id = str(dev_data.get('primary_user_id', '')).strip()
-            associated_users = dev_data.get('users', [])
-
-            # اكتشاف تعدد الحسابات (حساب آخر مختلف يحاول استخدام نفس الجهاز)
-            if primary_user_id and primary_user_id != user_id_str:
-                reason_msg = f"اكتشاف تعدد حسابات على نفس الجهاز ({clean_device_id}). الحساب الرئيسي: {primary_user_id}، الحساب الجديد: {user_id_str}"
-                print(f"🚨 ALERT: Multi-account detected! Primary: {primary_user_id}, Current: {user_id_str}")
-
-                # 1. حظر الحساب الحالي
-                ban_user_and_device(user_id_str, clean_device_id, reason_msg, clean_fingerprint)
-                # 2. حظر الحساب الأساسي الذي ارتبط بالجهاز أول مرة
-                ban_user_and_device(primary_user_id, clean_device_id, reason_msg, clean_fingerprint)
-                # 3. حظر أي حسابات أخرى ارتبطت بنفس الجهاز
-                for assoc_uid in associated_users:
-                    if assoc_uid and assoc_uid not in (user_id_str, primary_user_id):
-                        ban_user_and_device(assoc_uid, clean_device_id, reason_msg, clean_fingerprint)
-
-                return {
-                    "allowed": False,
-                    "banned": True,
-                    "reason": "تم حظر حسابك وجميع الحسابات المرتبطة بهذا الجهاز فوراً بسبب كشف استخدام أكثر من حساب على نفس الجهاز."
-                }
-
-            # الجهاز مرتبط بنجاح بنفس المستخدم -> تحديث آخير للدخول
-            device_ref.set({
-                'last_seen': firestore.SERVER_TIMESTAMP,
-                'users': firestore.ArrayUnion([user_id_str])
-            }, merge=True)
-
-            return {"allowed": True}
-
-        else:
-            # د. الجهاز جديد كلياً ولم يُسجل من قبل
-            # فحص إضافي عبر البصمة (fingerprint_hash) للتحقق من عدم وجود جهاز آخر بنفس البصمة مرتبط بحساب مختلف
-            if clean_fingerprint:
-                fp_matches = firestore_db.collection('devices').where('fingerprint_hash', '==', clean_fingerprint).limit(5).stream()
-                for match in fp_matches:
-                    match_data = match.to_dict() or {}
-                    other_primary = str(match_data.get('primary_user_id', '')).strip()
-                    if other_primary and other_primary != user_id_str:
-                        reason_msg = f"اكتشاف تطابق بصمة الجهاز ({clean_fingerprint}) مع حساب آخر ({other_primary})"
-                        print(f"🚨 ALERT: Multi-account detected via Fingerprint! Existing: {other_primary}, Current: {user_id_str}")
-                        ban_user_and_device(user_id_str, clean_device_id, reason_msg, clean_fingerprint)
-                        ban_user_and_device(other_primary, match.id, reason_msg, clean_fingerprint)
+                if dev_data:
+                    if dev_data.get('is_banned'):
+                        ban_user_and_device(user_id_str, clean_device_id, dev_data.get('ban_reason', 'جهاز محظور'), clean_fingerprint)
                         return {
                             "allowed": False,
                             "banned": True,
-                            "reason": "تم حظر الحساب والجهاز فوراً بسبب تطابق بصمة الجهاز مع حساب آخر مسجل."
+                            "reason": "تم حظر هذا الجهاز وحسابك بسبب انتهاك شروط الاستخدام."
                         }
 
-            # تسجيل الجهاز الجديد وربطه بالحساب الحالي كـ primary_user_id
-            device_ref.set({
-                'device_id': clean_device_id,
-                'primary_user_id': user_id_str,
-                'users': [user_id_str],
-                'fingerprint_hash': clean_fingerprint if clean_fingerprint else None,
-                'created_at': firestore.SERVER_TIMESTAMP,
-                'last_seen': firestore.SERVER_TIMESTAMP,
-                'is_banned': False
-            }, merge=True)
+                    primary_user_id = str(dev_data.get('primary_user_id', '')).strip()
+                    assoc_users = dev_data.get('users') or []
+                    if isinstance(assoc_users, str):
+                        try: assoc_users = json.loads(assoc_users)
+                        except Exception: assoc_users = []
 
-            # تحديث مستند المستخدم بمعرف الجهاز والبصمة
-            firestore_db.collection('users').document(user_id_str).set({
-                'device_id': clean_device_id,
-                'fingerprint_hash': clean_fingerprint if clean_fingerprint else None
-            }, merge=True)
+                    # اكتشاف تعدد الحسابات
+                    if primary_user_id and primary_user_id != user_id_str:
+                        reason_msg = f"اكتشاف تعدد حسابات على نفس الجهاز ({clean_device_id}). الحساب الرئيسي: {primary_user_id}، الحساب الجديد: {user_id_str}"
+                        print(f"🚨 ALERT: Multi-account detected! Primary: {primary_user_id}, Current: {user_id_str}")
 
-            print(f"✅ تم ربط الجهاز الجديد {clean_device_id} بالحساب الأساسي {user_id_str}")
-            return {"allowed": True}
+                        ban_user_and_device(user_id_str, clean_device_id, reason_msg, clean_fingerprint)
+                        ban_user_and_device(primary_user_id, clean_device_id, reason_msg, clean_fingerprint)
+                        for assoc_uid in assoc_users:
+                            if assoc_uid and assoc_uid not in (user_id_str, primary_user_id):
+                                ban_user_and_device(assoc_uid, clean_device_id, reason_msg, clean_fingerprint)
+
+                        return {
+                            "allowed": False,
+                            "banned": True,
+                            "reason": "تم حظر حسابك وجميع الحسابات المرتبطة بهذا الجهاز فوراً بسبب كشف استخدام أكثر من حساب على نفس الجهاز."
+                        }
+
+                    # تحديث سجل الجهاز
+                    now_dt = datetime.now(timezone.utc)
+                    if user_id_str not in assoc_users:
+                        assoc_users.append(user_id_str)
+
+                    cur.execute("""
+                        UPDATE devices 
+                        SET last_seen = %s, users = %s 
+                        WHERE device_id = %s
+                    """, (now_dt, Json(assoc_users), clean_device_id))
+                    conn.commit()
+
+                    return {"allowed": True}
+
+                else:
+                    # ج. جهاز جديد كلياً -> فحص البصمة (fingerprint_hash)
+                    if clean_fingerprint:
+                        cur.execute("SELECT * FROM devices WHERE fingerprint_hash = %s LIMIT 5", (clean_fingerprint,))
+                        fp_matches = cur.fetchall()
+                        for match in fp_matches:
+                            other_primary = str(match.get('primary_user_id', '')).strip()
+                            if other_primary and other_primary != user_id_str:
+                                reason_msg = f"اكتشاف تطابق بصمة الجهاز ({clean_fingerprint}) مع حساب آخر ({other_primary})"
+                                print(f"🚨 ALERT: Multi-account detected via Fingerprint! Existing: {other_primary}, Current: {user_id_str}")
+                                ban_user_and_device(user_id_str, clean_device_id, reason_msg, clean_fingerprint)
+                                ban_user_and_device(other_primary, match.get('device_id'), reason_msg, clean_fingerprint)
+                                return {
+                                    "allowed": False,
+                                    "banned": True,
+                                    "reason": "تم حظر الحساب والجهاز فوراً بسبب تطابق بصمة الجهاز مع حساب آخر مسجل."
+                                }
+
+                    # تسجيل الجهاز الجديد
+                    now_dt = datetime.now(timezone.utc)
+                    cur.execute("""
+                        INSERT INTO devices (device_id, primary_user_id, users, fingerprint_hash, created_at, last_seen, is_banned)
+                        VALUES (%s, %s, %s, %s, %s, %s, FALSE)
+                    """, (clean_device_id, user_id_str, Json([user_id_str]), clean_fingerprint if clean_fingerprint else None, now_dt, now_dt))
+
+                    cur.execute("""
+                        UPDATE users SET device_id = %s, fingerprint_hash = %s WHERE tg_id = %s
+                    """, (clean_device_id, clean_fingerprint if clean_fingerprint else None, user_id_str))
+
+                    conn.commit()
+                    print(f"✅ تم ربط الجهاز الجديد {clean_device_id} بالحساب الأساسي {user_id_str}")
+                    return {"allowed": True}
 
     except Exception as e:
         print(f"❌ خطأ في فحص الجهاز وتعدد الحسابات للمستخدم {user_id_str}: {e}")
         return {"allowed": True}
 
 
-# ==================== Core User Operations (ضمان إنشاء وقراءة المستخدم) ====================
+# ==================== Core User Operations ====================
 
 def get_user(telegram_id):
-    """جلب بيانات المستخدم مباشرة من Firestore مع تنظيف التواريخ لتوافق JSON"""
+    """جلب بيانات المستخدم مباشرة من Supabase مع تحويل البيانات إلى صيغ آمنة"""
     user_id_str = _sanitize_telegram_id(telegram_id)
     if not user_id_str:
         return None
     try:
-        firestore_db = get_db()
-        doc_ref = firestore_db.collection('users').document(user_id_str)
-        doc = doc_ref.get()
-        if doc.exists:
-            return sanitize_firestore_data(doc.to_dict())
-        return None
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM users WHERE tg_id = %s", (user_id_str,))
+                user_row = cur.fetchone()
+                if user_row:
+                    user_dict = dict(user_row)
+                    user_dict['user_id'] = user_dict.get('user_id') or user_id_str
+                    user_dict['telegram_id'] = user_dict.get('telegram_id') or user_id_str
+                    return sanitize_firestore_data(user_dict)
+                return None
     except Exception as e:
         print(f"❌ خطأ قراءة بيانات المستخدم {telegram_id}: {e}")
         return None
@@ -344,63 +425,45 @@ def get_user(telegram_id):
 
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
     """
-    إنشاء مستند المستخدم قسرياً في Firestore إن لم يكن موجوداً ومعالجة نظام الإحالات
-    مع تحويل كافة التواريخ إلى صيغ آمنة تمنع انهيار السيرفر 500 عند إرجاع JSON.
+    إنشاء حساب المستخدم قسرياً في Supabase إن لم يكن موجوداً ومعالجة نظام الإحالات
     """
     user_id_str = _sanitize_telegram_id(telegram_id)
     if not user_id_str:
         return {}
 
     try:
-        firestore_db = get_db()
-        doc_ref = firestore_db.collection('users').document(user_id_str)
-        doc = doc_ref.get()
-
         clean_first_name = str(first_name or 'لاعب').strip()[:50]
+        existing_user = get_user(user_id_str)
 
-        if not doc.exists:
+        if not existing_user:
             clean_ref = _sanitize_telegram_id(ref_id)
-            # منع الإحالة الذاتية (Self-referral protection)
             if clean_ref == user_id_str:
                 clean_ref = None
 
-            new_user_data = {
-                'user_id': user_id_str,
-                'telegram_id': user_id_str,
-                'first_name': clean_first_name,
-                'balance': 0.0,
-                'usd_balance': 0.0,
-                'znx_balance': 0.0,
-                'ref_by': clean_ref,
-                'referrals_count': 0,
-                'created_at': firestore.SERVER_TIMESTAMP,
-                'last_active_at': firestore.SERVER_TIMESTAMP,
-                'interactions': 1,
-                'last_withdraw_date': None,
-                'withdraw_count': 0,
-                'is_banned': False,
-                'farm_level': 1,
-                'storage_level': 1,
-                'last_harvest': firestore.SERVER_TIMESTAMP
-            }
-            doc_ref.set(new_user_data, merge=True)
-            print(f"✅ تم إنشاء مستند جديد للمستخدم {user_id_str} بنجاح في Firebase!")
-            
-            # زيادة عداد الإحالات للمُحيل إن وجد
-            if clean_ref:
-                try:
-                    ref_doc_ref = firestore_db.collection('users').document(clean_ref)
-                    if ref_doc_ref.get().exists:
-                        ref_doc_ref.update({
-                            'referrals_count': firestore.Increment(1)
-                        })
-                except Exception as ref_err:
-                    print(f"⚠️ خطأ تحديث عداد الإحالة للمُحيل {clean_ref}: {ref_err}")
+            now_dt = datetime.now(timezone.utc)
 
-            doc = doc_ref.get()
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO users (
+                            tg_id, user_id, telegram_id, first_name, balance, usd_balance, znx_balance,
+                            ref_by, referrals_count, created_at, last_active_at, interactions,
+                            is_banned, farm_level, storage_level, last_harvest
+                        ) VALUES (%s, %s, %s, %s, 0.0, 0.0, 0.0, %s, 0, %s, %s, 1, FALSE, 1, 1, %s)
+                        ON CONFLICT (tg_id) DO NOTHING
+                    """, (user_id_str, user_id_str, user_id_str, clean_first_name, clean_ref, now_dt, now_dt, now_dt))
 
-        user_dict = doc.to_dict() if doc.exists else {}
-        return sanitize_firestore_data(user_dict)
+                    # زيادة عداد الإحالة للمُحيل
+                    if clean_ref:
+                        cur.execute("""
+                            UPDATE users SET referrals_count = referrals_count + 1 WHERE tg_id = %s
+                        """, (clean_ref,))
+                conn.commit()
+
+            print(f"✅ تم إنشاء مستند جديد للمستخدم {user_id_str} بنجاح في Supabase!")
+            return get_user(user_id_str) or {}
+
+        return existing_user
     except Exception as e:
         print(f"❌ خطأ أثناء إنشاء/تهيئة حساب المستخدم {telegram_id}: {e}")
         return {}
@@ -415,7 +478,7 @@ def is_user_banned(telegram_id):
 
 
 def update_user(telegram_id, updates_dict):
-    """تحديث بيانات مستند المستخدم مع التحقق من الأمان وتصفية المدخلات"""
+    """تحديث بيانات مستند المستخدم مع التحقق من الأمان ودعم حقول PostgreSQL"""
     user_id_str = _sanitize_telegram_id(telegram_id)
     if not user_id_str or not isinstance(updates_dict, dict):
         return False
@@ -429,9 +492,23 @@ def update_user(telegram_id, updates_dict):
         return False
 
     try:
-        firestore_db = get_db()
-        doc_ref = firestore_db.collection('users').document(user_id_str)
-        doc_ref.update(sanitized_updates)
+        set_clauses = []
+        values = []
+
+        for field, val in sanitized_updates.items():
+            set_clauses.append(f"{field} = %s")
+            if isinstance(val, (dict, list)):
+                values.append(Json(val))
+            else:
+                values.append(val)
+
+        values.append(user_id_str)
+        sql = f"UPDATE users SET {', '.join(set_clauses)} WHERE tg_id = %s"
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, values)
+            conn.commit()
         return True
     except Exception as e:
         print(f"❌ خطأ تحديث مستند المستخدم {user_id_str}: {e}")
@@ -439,21 +516,21 @@ def update_user(telegram_id, updates_dict):
 
 
 def update_user_last_active(user_id):
-    """
-    تحديث وقت آخر نشاط للمستخدم (last_active_at) وزيادة عدد التفاعلات (interactions)
-    تُستدعى تلقائياً عند قيام المستخدم بالـ Ping أو فتح تطبيق الويب.
-    """
+    """تحديث وقت آخر نشاط وزيادة عدد التفاعلات بشكل آمن وسريع"""
     user_id_str = _sanitize_telegram_id(user_id)
     if not user_id_str:
         return False
 
     try:
-        firestore_db = get_db()
-        doc_ref = firestore_db.collection('users').document(user_id_str)
-        doc_ref.set({
-            'last_active_at': firestore.SERVER_TIMESTAMP,
-            'interactions': firestore.Increment(1)
-        }, merge=True)
+        now_dt = datetime.now(timezone.utc)
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE users 
+                    SET last_active_at = %s, interactions = interactions + 1 
+                    WHERE tg_id = %s
+                """, (now_dt, user_id_str))
+            conn.commit()
         return True
     except Exception as e:
         print(f"❌ خطأ في تحديث نشاط المستخدم {user_id_str}: {e}")
@@ -464,8 +541,8 @@ def update_user_last_active(user_id):
 
 def atomic_update_balance(telegram_id, amount_change, is_usd=False):
     """
-    تحديث رصيد المستخدم معاملاتيًا (Atomic Transaction) لمنع ثغرات Race Condition والتلاعب بالرصيد.
-    يدعم تحديث رصيد (العادي / الدولار / عملة ZNX).
+    تحديث رصيد المستخدم معاملاتيًا باستخدام PostgreSQL Transactions وقفل السجل (FOR UPDATE)
+    لمنع ثغرات Race Condition والتلاعب بالرصيد.
     """
     user_id_str = _sanitize_telegram_id(telegram_id)
     if not user_id_str:
@@ -478,10 +555,7 @@ def atomic_update_balance(telegram_id, amount_change, is_usd=False):
     except (ValueError, TypeError):
         return False, "المبلغ يجب أن يكون رقماً صحيحاً أو عشرياً"
 
-    firestore_db = get_db()
-    doc_ref = firestore_db.collection('users').document(user_id_str)
-
-    # مرونة اختيار الحقل للتوافق مع العملة المطلوبة
+    # مرونة اختيار حقل الرصيد المطلوب
     if is_usd is True or str(is_usd).lower() in ('usd', 'usd_balance'):
         field_name = 'usd_balance'
     elif str(is_usd).lower() in ('znx', 'znx_balance'):
@@ -489,26 +563,28 @@ def atomic_update_balance(telegram_id, amount_change, is_usd=False):
     else:
         field_name = 'balance'
 
-    @firestore.transactional
-    def update_in_transaction(transaction, doc_ref):
-        snapshot = doc_ref.get(transaction=transaction)
-        if not snapshot.exists:
-            return False, "المستخدم غير موجود"
-        
-        user_data = snapshot.to_dict()
-        current_balance = float(user_data.get(field_name, 0.0))
-        new_balance = round(current_balance + amount, 6)
-
-        if new_balance < 0:
-            return False, "الرصيد غير كافٍ"
-
-        transaction.update(doc_ref, {field_name: new_balance})
-        return True, new_balance
-
     try:
-        transaction = firestore_db.transaction()
-        success, result = update_in_transaction(transaction, doc_ref)
-        return success, result
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. قفل السجل المعني داخل المعاملة (Row-level Lock)
+                cur.execute(f"SELECT {field_name} FROM users WHERE tg_id = %s FOR UPDATE", (user_id_str,))
+                row = cur.fetchone()
+                if not row:
+                    conn.rollback()
+                    return False, "المستخدم غير موجود"
+
+                current_balance = float(row.get(field_name) or 0.0)
+                new_balance = round(current_balance + amount, 6)
+
+                if new_balance < 0:
+                    conn.rollback()
+                    return False, "الرصيد غير كافٍ"
+
+                # 2. تحديث الرصيد وحفظ المعاملة
+                cur.execute(f"UPDATE users SET {field_name} = %s WHERE tg_id = %s", (new_balance, user_id_str))
+            conn.commit()
+            return True, new_balance
+
     except Exception as e:
         print(f"❌ خطأ في معاملة تحديث الرصيد للمستخدم {user_id_str}: {e}")
         return False, str(e)
@@ -522,54 +598,55 @@ def get_leaderboard_rankings_legacy(limit=50):
 
 
 def _fallback_get_leaderboard_data(limit=50, user_id=None):
-    """
-    الآلية الاحتياطية الداخلية لجلب قائمة المتصدرين مباشرة من Firestore
-    في حال تعذر استدعائها من znx_wallet_db.py.
-    """
+    """جلب قائمة المتصدرين مباشرة بأقصى سرعة عبر SQL Query في Supabase"""
     try:
-        firestore_db = get_db()
-        users_ref = firestore_db.collection('users')
         safe_limit = max(1, min(int(limit or 50), 100))
-
-        query = users_ref.order_by('balance', direction=firestore.Query.DESCENDING).limit(safe_limit)
-        docs = query.stream()
-
-        leaderboard = []
-        rank = 1
-        user_rank = None
-        user_in_top = False
-
         target_user_id = _sanitize_telegram_id(user_id)
 
-        for doc in docs:
-            data = doc.to_dict()
-            u_id = str(data.get('user_id') or doc.id)
-            user_entry = {
-                'rank': rank,
-                'user_id': u_id,
-                'first_name': str(data.get('first_name', 'لاعب')),
-                'balance': float(data.get('balance', 0.0)),
-                'usd_balance': float(data.get('usd_balance', 0.0)),
-                'znx_balance': float(data.get('znx_balance', 0.0)),
-                'farm_level': data.get('farm_level', 1)
-            }
-            leaderboard.append(user_entry)
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT tg_id AS user_id, first_name, balance, usd_balance, znx_balance, farm_level
+                    FROM users
+                    ORDER BY balance DESC
+                    LIMIT %s
+                """, (safe_limit,))
+                rows = cur.fetchall()
 
-            if target_user_id and u_id == target_user_id:
-                user_rank = rank
-                user_in_top = True
+                leaderboard = []
+                rank = 1
+                user_rank = None
+                user_in_top = False
 
-            rank += 1
+                for row in rows:
+                    u_id = str(row.get('user_id'))
+                    user_entry = {
+                        'rank': rank,
+                        'user_id': u_id,
+                        'first_name': str(row.get('first_name') or 'لاعب'),
+                        'balance': float(row.get('balance') or 0.0),
+                        'usd_balance': float(row.get('usd_balance') or 0.0),
+                        'znx_balance': float(row.get('znx_balance') or 0.0),
+                        'farm_level': row.get('farm_level') or 1
+                    }
+                    leaderboard.append(user_entry)
 
-        # حساب ترتيب المستخدم الحالي إذا لم يكن ضمن أوائل القائمة
-        if target_user_id and not user_in_top:
-            target_doc = users_ref.document(target_user_id).get()
-            if target_doc.exists:
-                target_data = target_doc.to_dict()
-                target_balance = float(target_data.get('balance', 0.0))
-                higher_docs = users_ref.where('balance', '>', target_balance).stream()
-                higher_count = sum(1 for _ in higher_docs)
-                user_rank = higher_count + 1
+                    if target_user_id and u_id == target_user_id:
+                        user_rank = rank
+                        user_in_top = True
+
+                    rank += 1
+
+                # حساب ترتيب المستخدم إذا لم يكن ضمن القائمة الأولى
+                if target_user_id and not user_in_top:
+                    cur.execute("SELECT balance FROM users WHERE tg_id = %s", (target_user_id,))
+                    target_row = cur.fetchone()
+                    if target_row:
+                        target_bal = float(target_row.get('balance') or 0.0)
+                        cur.execute("SELECT COUNT(*) AS higher_count FROM users WHERE balance > %s", (target_bal,))
+                        count_row = cur.fetchone()
+                        higher_count = count_row.get('higher_count') if count_row else 0
+                        user_rank = higher_count + 1
 
         return {
             'success': True,
@@ -577,7 +654,7 @@ def _fallback_get_leaderboard_data(limit=50, user_id=None):
             'my_rank': user_rank or "غير مصنف"
         }
     except Exception as e:
-        print(f"❌ خطأ أثناء جلب قائمة المتصدرين (الاحتياطي): {e}")
+        print(f"❌ خطأ أثناء جلب قائمة المتصدرين من Supabase: {e}")
         return {
             'success': False,
             'error': str(e),
@@ -587,10 +664,7 @@ def _fallback_get_leaderboard_data(limit=50, user_id=None):
 
 
 def get_leaderboard_data(limit=50, user_id=None):
-    """
-    دالة الجسر (Bridge Pattern) لربط طلبات بيانات الترتيب بموديول znx_wallet_db.py بشكل مباشر.
-    تضمن عدم انكسار أي موديول قديم يطلب البيانات من database.py.
-    """
+    """دالة الجسر (Bridge Pattern) لربط طلبات الترتيب"""
     if callable(znx_get_leaderboard_data):
         try:
             res = znx_get_leaderboard_data(limit=limit, user_id=user_id)
@@ -599,7 +673,6 @@ def get_leaderboard_data(limit=50, user_id=None):
         except Exception as e:
             print(f"⚠️ تعذر استدعاء المتصدرين عبر الجسر من znx_wallet_db: {e}")
 
-    # الانتقال للحل الاحتياطي المباشر
     return _fallback_get_leaderboard_data(limit=limit, user_id=user_id)
 
 
@@ -673,7 +746,7 @@ try:
 except Exception as e:
     print(f"⚠️ خطأ في تحميل users_db: {e}")
 
-# 11. Wallet Module (يشمل المحفظة والأنشطة الفرعية)
+# 11. Wallet Module
 try:
     from wallet.wallet_db import *
     from wallet.deposit.deposit_db import *
