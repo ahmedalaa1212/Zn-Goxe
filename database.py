@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-بيانات التطبيق الرئيسية مع ربط Supabase (PostgreSQL) عبر Transaction Pooler
-النسخة فائقة السرعة المحسنة - حل مشاكل المهلة والاتصالات الميتة
+بيانات التطبيق الرئيسية مع ربط Supabase (PostgreSQL)
+نسخة الأداء الأقصى (Ultra-Low Latency Edition)
 """
 import json
 import os
 import math
 import sys
 import time
+import asyncio
 import threading
 from datetime import datetime, timezone
-from urllib.parse import urlparse
 from contextlib import contextmanager
 
 import psycopg2
@@ -35,24 +35,25 @@ def get_database_url():
 
 
 def init_db_pool():
-    """تهيئة بركة اتصالات سريعة مع إعدادات الشبكة المحسنة"""
+    """تهيئة بركة الاتصالات بسعة أكبر وإعدادات شبكة مباشرة"""
     global db_pool, _tables_initialized
     if db_pool is None or db_pool.closed:
         with _init_lock:
             if db_pool is None or db_pool.closed:
                 try:
                     db_url = get_database_url()
+                    # رفع maxconn إلى 30 لمنع الاختناق عند الضغط
                     db_pool = pool.ThreadedConnectionPool(
-                        minconn=1,
-                        maxconn=15,
+                        minconn=2,
+                        maxconn=30,
                         dsn=db_url,
-                        connect_timeout=3,
+                        connect_timeout=5,
                         keepalives=1,
-                        keepalives_idle=15,
-                        keepalives_interval=5,
-                        keepalives_count=3
+                        keepalives_idle=30,
+                        keepalives_interval=10,
+                        keepalives_count=5
                     )
-                    print("⚡ [Supabase Pool] تم تأسيس بركة الاتصالات بنجاح!")
+                    print("⚡ [Supabase Pool] تم تأسيس بركة الاتصالات عالية السعة بنجاح!")
                     
                     if not _tables_initialized:
                         _tables_initialized = True
@@ -66,37 +67,23 @@ def init_db_pool():
 
 @contextmanager
 def get_db_connection():
-    """Context Manager ذكي يفحص حية الاتصال ويمنع الانتظار على اتصالات ميتة"""
+    """Context Manager خفيف وسريع بدون استعلامات فحص إضافية"""
     pool_obj = init_db_pool()
     conn = None
     try:
         conn = pool_obj.getconn()
-        
-        # التأكد من أن الاتصال غير مقطوع من طرف Supabase Pooler
-        conn_valid = False
-        if conn and conn.closed == 0:
-            try:
-                with conn.cursor() as test_cur:
-                    test_cur.execute("SELECT 1;")
-                conn_valid = True
-            except Exception:
-                conn_valid = False
-
-        if not conn_valid:
-            if conn:
-                try: pool_obj.putconn(conn, close=True)
-                except Exception: pass
-            conn = pool_obj.getconn()
-
-        conn.autocommit = True  # تسريع الاستعلامات وتجنب تأخير المعاملات الزائدة
+        conn.autocommit = True
         yield conn
-
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        # إرجاع الاتصال الميت وإغلاقه واستبداله فوراً
         if conn:
             try: pool_obj.putconn(conn, close=True)
             except Exception: pass
             conn = None
-        raise e
+        # محاولة اتصال جديدة مرة واحدة
+        conn = pool_obj.getconn()
+        conn.autocommit = True
+        yield conn
     finally:
         if conn and conn.closed == 0:
             pool_obj.putconn(conn)
@@ -104,6 +91,11 @@ def get_db_connection():
 
 def get_db():
     return init_db_pool()
+
+
+async def run_async(func, *args, **kwargs):
+    """تشغيل الاستعلامات غير المتزامنة لعدم تجميد التلجرام"""
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 def _async_create_tables():
@@ -236,11 +228,11 @@ def sanitize_firestore_data(data):
         return data
 
 
-# ==================== Ultra-Fast Single Query Engine ====================
+# ==================== Fast Engine ====================
 
 def fast_login_check(telegram_id, device_id=None, fingerprint_hash=None):
     """
-    تسجيل الدخول الفائق: دمج جلب المستخدم والتحديث وفحص الجهاز في رحلة شبكة واحدة (Single Round-Trip)
+    تسجيل الدخول السريع: تقليل عدد الاستعلامات إلى أدنى حد ممكن
     """
     user_id_str = _sanitize_telegram_id(telegram_id)
     if not user_id_str:
@@ -250,88 +242,83 @@ def fast_login_check(telegram_id, device_id=None, fingerprint_hash=None):
     if clean_dev.lower() in ('none', 'null', 'undefined', 'false', 'true'):
         clean_dev = ''
     clean_fp = str(fingerprint_hash or '').strip() if fingerprint_hash else None
+
     now_dt = datetime.now(timezone.utc)
 
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # استعلام CTE موحد يجلب بيانات المستخدم وفحص الجهاز بنفس اللحظة
+                # 1. تحديث أو إنشاء المستخدم واسترجاع بياناته بضربة واحدة
                 cur.execute("""
-                    WITH u AS (
-                        INSERT INTO users (tg_id, user_id, telegram_id, first_name, created_at, last_active_at, interactions)
-                        VALUES (%s, %s, %s, 'لاعب', %s, %s, 1)
-                        ON CONFLICT (tg_id) DO UPDATE 
-                        SET last_active_at = EXCLUDED.last_active_at, interactions = users.interactions + 1
-                        RETURNING *
-                    ),
-                    bd AS (
-                        SELECT reason FROM banned_devices WHERE device_id = %s AND %s != ''
-                    ),
-                    d AS (
-                        SELECT primary_user_id, users, is_banned, ban_reason FROM devices WHERE device_id = %s AND %s != ''
-                    )
-                    SELECT 
-                        (SELECT row_to_json(u) FROM u) AS user_data,
-                        (SELECT reason FROM bd LIMIT 1) AS banned_dev_reason,
-                        (SELECT row_to_json(d) FROM d) AS device_data;
-                """, (user_id_str, user_id_str, user_id_str, now_dt, now_dt, clean_dev, clean_dev, clean_dev, clean_dev))
+                    INSERT INTO users (tg_id, user_id, telegram_id, first_name, created_at, last_active_at, interactions)
+                    VALUES (%s, %s, %s, 'لاعب', %s, %s, 1)
+                    ON CONFLICT (tg_id) DO UPDATE 
+                    SET last_active_at = EXCLUDED.last_active_at, interactions = users.interactions + 1
+                    RETURNING *;
+                """, (user_id_str, user_id_str, user_id_str, now_dt, now_dt))
+                
+                user_row = cur.fetchone()
 
-                res = cur.fetchone()
-                if not res:
-                    return {"allowed": True, "user": get_user(user_id_str)}
-
-                user_data = res.get('user_data')
-                banned_dev_reason = res.get('banned_dev_reason')
-                device_data = res.get('device_data')
-
-                # 1. فحص حظر المستخدم
-                if user_data and user_data.get('is_banned'):
+                if user_row and user_row.get('is_banned'):
                     return {
                         "allowed": False, 
-                        "reason": user_data.get('ban_reason') or "حسابك محظور.", 
-                        "user": sanitize_firestore_data(user_data)
+                        "reason": user_row.get('ban_reason') or "حسابك محظور.", 
+                        "user": sanitize_firestore_data(dict(user_row))
                     }
 
-                # 2. فحص حظر الجهاز
-                if banned_dev_reason or (device_data and device_data.get('is_banned')):
-                    reason_str = banned_dev_reason or (device_data and device_data.get('ban_reason')) or "جهاز محظور"
+                if not clean_dev:
+                    return {"allowed": True, "user": sanitize_firestore_data(dict(user_row))}
+
+                # 2. فحص الحظر وربط الجهاز في استعلام واحد مدمج
+                cur.execute("""
+                    SELECT 
+                        (SELECT reason FROM banned_devices WHERE device_id = %s) AS ban_reason,
+                        (SELECT row_to_json(d) FROM devices d WHERE device_id = %s) AS dev_data;
+                """, (clean_dev, clean_dev))
+                
+                chk = cur.fetchone()
+                
+                if chk and chk.get('ban_reason'):
                     cur.execute("UPDATE users SET is_banned = TRUE, ban_reason = %s, banned_at = %s WHERE tg_id = %s",
                                 ("استخدام جهاز محظور", now_dt, user_id_str))
-                    return {"allowed": False, "reason": f"تم حظر هذا الجهاز: {reason_str}", "user": None}
+                    return {"allowed": False, "reason": "تم حظر هذا الجهاز وحسابك.", "user": None}
 
-                # 3. ربط الجهاز والتحقق من تعدد الحسابات
-                if clean_dev:
-                    if device_data:
-                        primary_user = str(device_data.get('primary_user_id') or '').strip()
-                        if primary_user and primary_user != user_id_str:
-                            reason_msg = f"تعدد حسابات على الجهاز ({clean_dev})"
-                            cur.execute("UPDATE users SET is_banned = TRUE, ban_reason = %s, banned_at = %s WHERE tg_id IN (%s, %s)",
-                                        (reason_msg, now_dt, user_id_str, primary_user))
-                            cur.execute("""
-                                INSERT INTO banned_devices (device_id, reason, banned_at, associated_users)
-                                VALUES (%s, %s, %s, %s) ON CONFLICT (device_id) DO NOTHING;
-                            """, (clean_dev, reason_msg, now_dt, Json([user_id_str, primary_user])))
-                            return {"allowed": False, "reason": "تم حظر الحساب لتعدد الحسابات.", "user": None}
+                dev_data = chk.get('dev_data') if chk else None
 
-                        assoc_users = device_data.get('users') or []
-                        if isinstance(assoc_users, str):
-                            try: assoc_users = json.loads(assoc_users)
-                            except Exception: assoc_users = []
-                        if user_id_str not in assoc_users:
-                            assoc_users.append(user_id_str)
+                if dev_data:
+                    if dev_data.get('is_banned'):
+                        return {"allowed": False, "reason": "الجهاز محظور.", "user": None}
 
-                        cur.execute("UPDATE devices SET last_seen = %s, users = %s WHERE device_id = %s", (now_dt, Json(assoc_users), clean_dev))
-                    else:
+                    primary_user = str(dev_data.get('primary_user_id', '')).strip()
+                    if primary_user and primary_user != user_id_str:
+                        reason_msg = f"تعدد حسابات على الجهاز ({clean_dev})"
+                        cur.execute("UPDATE users SET is_banned = TRUE, ban_reason = %s, banned_at = %s WHERE tg_id IN (%s, %s)",
+                                    (reason_msg, now_dt, user_id_str, primary_user))
                         cur.execute("""
-                            INSERT INTO devices (device_id, primary_user_id, users, fingerprint_hash, created_at, last_seen, is_banned)
-                            VALUES (%s, %s, %s, %s, %s, %s, FALSE) ON CONFLICT (device_id) DO NOTHING;
-                        """, (clean_dev, user_id_str, Json([user_id_str]), clean_fp, now_dt, now_dt))
-                        cur.execute("UPDATE users SET device_id = %s, fingerprint_hash = %s WHERE tg_id = %s", (clean_dev, clean_fp, user_id_str))
+                            INSERT INTO banned_devices (device_id, reason, banned_at, associated_users)
+                            VALUES (%s, %s, %s, %s) ON CONFLICT (device_id) DO NOTHING;
+                        """, (clean_dev, reason_msg, now_dt, Json([user_id_str, primary_user])))
+                        return {"allowed": False, "reason": "تم حظر الحساب لتعدد الحسابات.", "user": None}
 
-                return {"allowed": True, "user": sanitize_firestore_data(user_data)}
+                    assoc_users = dev_data.get('users') or []
+                    if isinstance(assoc_users, str):
+                        try: assoc_users = json.loads(assoc_users)
+                        except Exception: assoc_users = []
+                    if user_id_str not in assoc_users:
+                        assoc_users.append(user_id_str)
+
+                    cur.execute("UPDATE devices SET last_seen = %s, users = %s WHERE device_id = %s", (now_dt, Json(assoc_users), clean_dev))
+                else:
+                    cur.execute("""
+                        INSERT INTO devices (device_id, primary_user_id, users, fingerprint_hash, created_at, last_seen, is_banned)
+                        VALUES (%s, %s, %s, %s, %s, %s, FALSE) ON CONFLICT (device_id) DO NOTHING;
+                    """, (clean_dev, user_id_str, Json([user_id_str]), clean_fp, now_dt, now_dt))
+                    cur.execute("UPDATE users SET device_id = %s, fingerprint_hash = %s WHERE tg_id = %s", (clean_dev, clean_fp, user_id_str))
+
+                return {"allowed": True, "user": sanitize_firestore_data(dict(user_row))}
 
     except Exception as e:
-        print(f"❌ خطأ تسجيل الدخول السريع: {e}")
+        print(f"❌ خطأ تسجيل الدخول: {e}")
         user_data = get_user(user_id_str)
         return {"allowed": True, "user": user_data}
 
@@ -360,6 +347,7 @@ def ban_user_and_device(telegram_id, device_id=None, reason="تعدد حسابا
                             reason = EXCLUDED.reason,
                             banned_at = EXCLUDED.banned_at;
                     """, (clean_device_id, reason, now_dt, Json([user_id_str] if user_id_str else []), fingerprint_hash))
+
             return True
     except Exception as e:
         print(f"❌ خطأ حظر: {e}")
@@ -576,7 +564,7 @@ def _fallback_get_leaderboard_data(limit=50, user_id=None):
                         target_bal = float(target_row.get('balance') or 0.0)
                         cur.execute("SELECT COUNT(*) AS higher_count FROM users WHERE balance > %s", (target_bal,))
                         count_row = cur.fetchone()
-                        higher_count = count_row.get('higher_count') if count_row else 0
+                        higher_count = count_row.get('higher_count') if count_row me else 0
                         user_rank = higher_count + 1
 
         return {
