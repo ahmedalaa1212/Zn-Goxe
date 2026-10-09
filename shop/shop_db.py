@@ -146,18 +146,25 @@ DEFAULT_STORAGE_CONFIG = {
 
 
 def _parse_json_field(field_val, default=None):
-    """تحليل حقول JSONB بأمان تام"""
+    """تحليل حقول JSONB بأمان تام مع معالجة التشفير المزدوج (Double-Encoded JSON)"""
     if default is None:
         default = {}
     if field_val is None:
         return default
-    if isinstance(field_val, (dict, list)):
-        return field_val
+    
     if isinstance(field_val, str):
         try:
-            return json.loads(field_val)
+            parsed = json.loads(field_val)
+            # معالجة حالة إذا كان النص مشفراً مرتين بسبب لوحة تحكم Supabase
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            return parsed if isinstance(parsed, (dict, list)) else default
         except Exception:
             return default
+            
+    if isinstance(field_val, (dict, list)):
+        return field_val
+        
     return default
 
 
@@ -177,48 +184,48 @@ def get_shop_catalog():
                     elif row['key'] == 'shop_settings':
                         shop_settings = _parse_json_field(row['value'], {})
 
-        # استخراج مستويات التعدين (الأولوية لبيانات الداتابيز، ثم القيم الافتراضية لمنع إرسال قيم فارغة)
-        mining_cfg = farm_settings.get("upgrade_config") or farm_settings.get("mining_config")
-        if not mining_cfg or not isinstance(mining_cfg, dict) or len(mining_cfg) == 0:
-            mining_cfg = DEFAULT_UPGRADE_CONFIG
-            
-        # استخراج مستويات المخزن
-        storage_cfg = farm_settings.get("storage_capacities") or farm_settings.get("storage_config")
-        if not storage_cfg or not isinstance(storage_cfg, dict) or len(storage_cfg) == 0:
-            storage_cfg = DEFAULT_STORAGE_CONFIG
-        
-        # استخراج الباقات
+        # 1. إعدادات التعدين العامة (فصل تام عن مستويات الترقية)
+        mining_cfg = farm_settings.get("mining_config", {})
+        if not isinstance(mining_cfg, dict):
+            mining_cfg = {}
+
+        # 2. مستويات التعدين (الترقيات)
+        upgrade_cfg = farm_settings.get("upgrade_config")
+        if not upgrade_cfg or not isinstance(upgrade_cfg, dict) or len(upgrade_cfg) == 0:
+            upgrade_cfg = DEFAULT_UPGRADE_CONFIG
+
+        # 3. سعات المخزن
+        storage_caps = farm_settings.get("storage_capacities") or farm_settings.get("storage_config")
+        if not storage_caps or not isinstance(storage_caps, dict) or len(storage_caps) == 0:
+            storage_caps = DEFAULT_STORAGE_CONFIG
+
+        # 4. باقات العروض المميزة
         usdt_pkgs = shop_settings.get("usdt_packages") or shop_settings.get("packages") or farm_settings.get("usdt_packages")
         if not usdt_pkgs or not isinstance(usdt_pkgs, dict) or len(usdt_pkgs) == 0:
             usdt_pkgs = DEFAULT_USDT_PACKAGES.copy()
 
-        # استخراج المحفظة وسعر الصرف بأمان
+        # 5. استخراج المحفظة وسعر الصرف بأمان
         ton_wallet = shop_settings.get("ton_wallet") or shop_settings.get("wallet_address") or ""
-        rate_val = shop_settings.get("ton_usdt_rate")
         try:
-            ton_usdt_rate = float(rate_val) if rate_val is not None else 5.5
+            ton_usdt_rate = float(shop_settings.get("ton_usdt_rate", 5.5))
         except (ValueError, TypeError):
             ton_usdt_rate = 5.5
 
-        # تنسيق المفاتيح كنصوص لتوافق أفضل مع الواجهة
-        mining_normalized = {str(k): v for k, v in mining_cfg.items()}
-        storage_normalized = {str(k): v for k, v in storage_cfg.items()}
-        pkgs_normalized = {str(k): v for k, v in usdt_pkgs.items()}
-
+        # تحويل المفاتيح إلى نصوص String Keys لضمان معالجتها صحيحة في الـ Frontend
         return {
-            "mining_config": mining_normalized,
-            "upgrade_config": mining_normalized,
-            "storage_config": storage_normalized,
-            "storage_capacities": storage_normalized,
-            "usdt_packages": pkgs_normalized,
-            "packages": pkgs_normalized, # نكرر المفتاح ليوافق جميع قراءات الواجهة
+            "mining_config": mining_cfg,
+            "upgrade_config": {str(k): v for k, v in upgrade_cfg.items()},
+            "storage_config": {str(k): v for k, v in storage_caps.items()},
+            "storage_capacities": {str(k): v for k, v in storage_caps.items()},
+            "usdt_packages": {str(k): v for k, v in usdt_pkgs.items()},
+            "packages": {str(k): v for k, v in usdt_pkgs.items()},
             "ton_wallet": ton_wallet,
             "ton_usdt_rate": ton_usdt_rate
         }
     except Exception as e:
         logger.error(f"❌ Error in get_shop_catalog: {e}")
         return {
-            "mining_config": DEFAULT_UPGRADE_CONFIG,
+            "mining_config": {},
             "upgrade_config": DEFAULT_UPGRADE_CONFIG,
             "storage_config": DEFAULT_STORAGE_CONFIG,
             "storage_capacities": DEFAULT_STORAGE_CONFIG,
