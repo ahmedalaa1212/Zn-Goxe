@@ -2,6 +2,7 @@
 """
 farm_db.py - موديول إدارة المزرعة والتعدين المربوط بـ Supabase (PostgreSQL)
 مُعالج من بطء الـ Cooldown ومشكلة تحميل بيانات المتجر والباقات ⚡
+تم تعديله لفصل الإعدادات (farm_settings و shop_settings) لتطابق هيكلة Firebase
 """
 import time
 import json
@@ -216,7 +217,7 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def get_game_settings(force_refresh=False):
-    """جلب إعدادات المزرعة والمتجر من Supabase وتلقيم قيم افتراضية كاملة لمنع التعليق"""
+    """جلب إعدادات المزرعة والمتجر من Supabase وتلقيم قيم افتراضية بشكل منفصل لمطابقة الفايربيس"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
@@ -230,27 +231,56 @@ def get_game_settings(force_refresh=False):
                 rows = cur.fetchall()
 
                 data = DEFAULT_GAME_SETTINGS.copy()
-                found_any = False
+                found_farm = False
+                found_shop = False
 
                 for row in rows:
                     if row and row.get('value'):
-                        found_any = True
+                        if row['key'] == 'farm_settings':
+                            found_farm = True
+                        elif row['key'] == 'shop_settings':
+                            found_shop = True
+                            
                         val = row['value']
                         if isinstance(val, str):
                             val = json.loads(val)
                         if isinstance(val, dict):
                             data.update(val)
 
-                # التأكد من ملء باقات المتجر لو لم تكن متواجدة بالسجل
+                # التأكد من ملء باقات المتجر لو لم تكن متواجدة بالسجل المدمج
                 if "usdt_packages" not in data or not data["usdt_packages"]:
                     data["usdt_packages"] = DEFAULT_USDT_PACKAGES.copy()
                     data["packages"] = DEFAULT_USDT_PACKAGES.copy()
 
-                if not found_any:
+                # إذا لم يكن ملف farm_settings موجوداً، قم بإنشائه منفرداً
+                if not found_farm:
+                    farm_defaults = {
+                        "daily_rewards": DEFAULT_GAME_SETTINGS["daily_rewards"],
+                        "mining_config": DEFAULT_GAME_SETTINGS["mining_config"],
+                        "storage_capacities": DEFAULT_GAME_SETTINGS["storage_capacities"],
+                        "storage_config": DEFAULT_GAME_SETTINGS["storage_config"],
+                        "upgrade_config": DEFAULT_GAME_SETTINGS["upgrade_config"]
+                    }
                     cur.execute("""
                         INSERT INTO settings (key, value) VALUES ('farm_settings', %s)
                         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                    """, (Json(DEFAULT_GAME_SETTINGS),))
+                    """, (Json(farm_defaults),))
+
+                # إذا لم يكن ملف shop_settings موجوداً، قم بإنشائه منفرداً
+                if not found_shop:
+                    shop_defaults = {
+                        "usdt_packages": DEFAULT_GAME_SETTINGS["usdt_packages"],
+                        "packages": DEFAULT_GAME_SETTINGS["packages"],
+                        "ton_usdt_rate": DEFAULT_GAME_SETTINGS["ton_usdt_rate"],
+                        "ton_wallet": DEFAULT_GAME_SETTINGS["ton_wallet"]
+                    }
+                    cur.execute("""
+                        INSERT INTO settings (key, value) VALUES ('shop_settings', %s)
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                    """, (Json(shop_defaults),))
+                    
+                if not found_farm or not found_shop:
+                    conn.commit()
 
                 _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
                 return data
