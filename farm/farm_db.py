@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 farm_db.py - موديول إدارة المزرعة والتعدين المربوط بـ Supabase (PostgreSQL)
-مُعالج من بطء الـ Cooldown ومعزز بتتبع تفصيلي لمكافآت السرعة والتسجيل اليومي للمسابقات ⚡
+مُعالج من بطء الـ Cooldown ومشكلة تحميل بيانات المتجر والباقات ⚡
 """
 import time
 import json
@@ -53,7 +53,115 @@ def safe_parse_datetime(dt_raw, default_dt=None):
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 30
 
-# ==================== الإعدادات الافتراضية الاقتصادية ====================
+# ==================== باقات العروض المميزة الافتراضية ====================
+DEFAULT_USDT_PACKAGES = {
+    "VIP0": {
+        "title": "باقة VIP0 (2 يوم)",
+        "usdt": 2.0,
+        "duration_days": 2,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2",
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    },
+    "VIP1": {
+        "title": "باقة VIP1 (7 أيام)",
+        "usdt": 2.5,
+        "duration_days": 7,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.0,
+            "ref_min_upgrades": 0,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2"
+        ]
+    },
+    "VIP2": {
+        "title": "باقة VIP2 (7 أيام)",
+        "usdt": 2.0,
+        "duration_days": 7,
+        "features": {
+            "auto_bot": False,
+            "double_storage": False,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    },
+    "VIP3": {
+        "title": "باقة VIP3 (30 يوم)",
+        "usdt": 5.5,
+        "duration_days": 30,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.0,
+            "ref_min_upgrades": 0,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2"
+        ]
+    },
+    "VIP4": {
+        "title": "باقة VIP4 (30 يوم)",
+        "usdt": 6.0,
+        "duration_days": 30,
+        "features": {
+            "auto_bot": False,
+            "double_storage": False,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    },
+    "VIP5": {
+        "title": "باقة VIP5 (30 يوم)",
+        "usdt": 9.99,
+        "duration_days": 30,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2",
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    }
+}
+
+# ==================== الإعدادات الافتراضية الشاملة (مزرعة ومتجر) ====================
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.20, 1.50, 2.00,
@@ -79,6 +187,17 @@ DEFAULT_GAME_SETTINGS = {
         "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00},
         "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00}
     },
+    "storage_config": {
+        "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},
+        "1": {"capacity": 1.5, "cost_zn": 50.0, "cost_usd": 0.0},
+        "2": {"capacity": 4.0, "cost_zn": 200.0, "cost_usd": 0.20},
+        "3": {"capacity": 10.0, "cost_zn": 800.0, "cost_usd": 0.50},
+        "4": {"capacity": 25.0, "cost_zn": 2500.0, "cost_usd": 1.00},
+        "5": {"capacity": 60.0, "cost_zn": 7000.0, "cost_usd": 2.50},
+        "6": {"capacity": 150.0, "cost_zn": 20000.0, "cost_usd": 5.00},
+        "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00},
+        "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00}
+    },
     "upgrade_config": {
         "1": {"cost_zn": 100.0, "cost_usd": 0.0, "rate_bonus": 0.20},
         "2": {"cost_zn": 400.0, "cost_usd": 0.25, "rate_bonus": 0.50},
@@ -88,12 +207,16 @@ DEFAULT_GAME_SETTINGS = {
         "6": {"cost_zn": 40000.0, "cost_usd": 6.00, "rate_bonus": 14.00},
         "7": {"cost_zn": 100000.0, "cost_usd": 12.00, "rate_bonus": 30.00},
         "8": {"cost_zn": 250000.0, "cost_usd": 25.00, "rate_bonus": 70.00}
-    }
+    },
+    "usdt_packages": DEFAULT_USDT_PACKAGES,
+    "packages": DEFAULT_USDT_PACKAGES,
+    "ton_usdt_rate": 5.5,
+    "ton_wallet": ""
 }
 
 
 def get_game_settings(force_refresh=False):
-    """جلب إعدادات المزرعة من Supabase أو إنشاء الجداول الافتراضية"""
+    """جلب إعدادات المزرعة والمتجر من Supabase وتلقيم قيم افتراضية كاملة لمنع التعليق"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
@@ -103,23 +226,37 @@ def get_game_settings(force_refresh=False):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT value FROM settings WHERE key = 'farm_settings'")
-                row = cur.fetchone()
-                if row and row.get('value'):
-                    data = row['value']
-                    if isinstance(data, str):
-                        data = json.loads(data)
-                    _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
-                    return data
-                else:
+                cur.execute("SELECT key, value FROM settings WHERE key IN ('farm_settings', 'shop_settings')")
+                rows = cur.fetchall()
+
+                data = DEFAULT_GAME_SETTINGS.copy()
+                found_any = False
+
+                for row in rows:
+                    if row and row.get('value'):
+                        found_any = True
+                        val = row['value']
+                        if isinstance(val, str):
+                            val = json.loads(val)
+                        if isinstance(val, dict):
+                            data.update(val)
+
+                # التأكد من ملء باقات المتجر لو لم تكن متواجدة بالسجل
+                if "usdt_packages" not in data or not data["usdt_packages"]:
+                    data["usdt_packages"] = DEFAULT_USDT_PACKAGES.copy()
+                    data["packages"] = DEFAULT_USDT_PACKAGES.copy()
+
+                if not found_any:
                     cur.execute("""
                         INSERT INTO settings (key, value) VALUES ('farm_settings', %s)
                         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
                     """, (Json(DEFAULT_GAME_SETTINGS),))
-                    _SETTINGS_CACHE = {"data": DEFAULT_GAME_SETTINGS, "timestamp": now_ts}
-                    return DEFAULT_GAME_SETTINGS
+
+                _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
+                return data
+
     except Exception as e:
-        print(f"⚠️ خطأ جلب إعدادات المزرعة من Supabase: {e}")
+        print(f"⚠️ خطأ جلب إعدادات المزرعة والمتجر من Supabase: {e}")
 
     return _SETTINGS_CACHE["data"] or DEFAULT_GAME_SETTINGS
 
@@ -139,7 +276,7 @@ def get_base_storage_capacity(storage_level, settings=None):
         lvl = 0
     lvl = max(0, min(lvl, 8))
 
-    caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    caps = settings.get("storage_capacities") or settings.get("storage_config") or DEFAULT_GAME_SETTINGS["storage_capacities"]
     val = caps.get(str(lvl)) or caps.get(lvl)
 
     if isinstance(val, dict):
@@ -333,7 +470,6 @@ def get_or_create_user_farm_data(user_id_str):
         user_data["daily_day"] = effective_daily_day
         user_data["daily_streak"] = effective_daily_day
 
-        # تحويل كافة التواريخ إلى نمط ISO لقياسي لفك أي تعليق في متصفح الآيفون
         for k, v in list(user_data.items()):
             if isinstance(v, datetime):
                 user_data[k] = format_iso(v)
@@ -558,7 +694,6 @@ def buy_storage_db(user_id_str):
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية وتسجيل السجل والعدد الإجمالي للمسابقات"""
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
     parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
@@ -597,7 +732,6 @@ def claim_daily_reward_db(user_id_str):
                 new_balance = round(min(current_balance + reward_amount, MAX_SAFE_BALANCE), 8)
                 new_ads_watched = int(user_data.get("ads_watched", 0) or 0) + 1
 
-                # تسجيل وتحديث سجل المسابقات والتسجيل اليومي
                 daily_claims_count = int(user_data.get("daily_claims_count", 0) or 0) + 1
                 daily_history = user_data.get("daily_history") or []
                 if isinstance(daily_history, str):
@@ -646,7 +780,6 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل مكافأة السرعة وتسجيل التاريخ والساعة والعداد للمسابقات"""
     str_uid = str(user_id_str)
 
     try:
@@ -671,7 +804,6 @@ def claim_daily_boost_db(user_id_str):
                             rem_mins = int((10800 - elapsed_seconds) // 60)
                             return {"success": False, "error": f"الرجاء الانتظار {rem_mins} دقيقة قبل تفعيل المعزز مجدداً"}
 
-                # تسجيل وتحديث سجل مكافأة السرعة للمسابقات
                 boost_claims_count = int(user_data.get("boost_claims_count", 0) or 0) + 1
                 boost_history = user_data.get("boost_history") or []
                 if isinstance(boost_history, str):
