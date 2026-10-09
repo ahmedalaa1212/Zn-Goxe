@@ -11,7 +11,7 @@ from database import get_db_connection, format_iso
 
 logger = logging.getLogger(__name__)
 
-# قائمة الباقات الافتراضية للربط المرن والسريع (VIP0 -> VIP5)
+# قائمة الباقات الافتراضية الشاملة تماماً مثل الفيربيس (VIP0 -> VIP5)
 DEFAULT_USDT_PACKAGES = {
     "VIP0": {
         "title": "باقة VIP0 (2 يوم)",
@@ -121,7 +121,7 @@ DEFAULT_USDT_PACKAGES = {
 
 
 def _parse_json_field(field_val, default=None):
-    """تحليل حقول JSONB بأمان"""
+    """تحليل حقول JSONB بأمان تام"""
     if default is None:
         default = {}
     if field_val is None:
@@ -137,7 +137,7 @@ def _parse_json_field(field_val, default=None):
 
 
 def get_shop_catalog():
-    """جلب قائمة مستويات التعدين والتخزين والباقات من جدول الإعدادات في Supabase"""
+    """جلب كتالوج التعدين والمخزن والباقات من جدول settings في Supabase (مثل مستندات فيربيس)"""
     try:
         farm_settings = {}
         shop_settings = {}
@@ -152,9 +152,12 @@ def get_shop_catalog():
                     elif row['key'] == 'shop_settings':
                         shop_settings = _parse_json_field(row['value'], {})
 
+        # استخراج مستويات التعدين والمخزن من إعدادات المزرعة
         mining_cfg = farm_settings.get("upgrade_config", {}) or farm_settings.get("mining_config", {})
         storage_cfg = farm_settings.get("storage_capacities", {}) or farm_settings.get("storage_config", {})
-        usdt_pkgs = shop_settings.get("usdt_packages", {}) or farm_settings.get("usdt_packages", {})
+        
+        # استخراج الباقات من إعدادات المتجر أو المزرعة
+        usdt_pkgs = shop_settings.get("usdt_packages", {}) or shop_settings.get("packages", {}) or farm_settings.get("usdt_packages", {})
 
         mining_normalized = {str(k): v for k, v in mining_cfg.items()} if isinstance(mining_cfg, dict) else {}
         storage_normalized = {str(k): v for k, v in storage_cfg.items()} if isinstance(storage_cfg, dict) else {}
@@ -185,7 +188,7 @@ def get_shop_catalog():
 
 
 def get_shop_settings():
-    """جلب إعدادات المتجر الكاملة شاملة عنوان المحفظة والباقات وسعر TON اللحظي"""
+    """جلب إعدادات المتجر الكاملة (عنوان محفظة TON، سعر الصرف، والباقات) لتظهر فوراً في الواجهة"""
     try:
         shop_settings = {}
         with get_db_connection() as conn:
@@ -196,10 +199,11 @@ def get_shop_settings():
                     shop_settings = _parse_json_field(row['value'], {})
 
         catalog = get_shop_catalog()
+        usdt_pkgs = shop_settings.get("usdt_packages") or shop_settings.get("packages") or catalog.get("usdt_packages", DEFAULT_USDT_PACKAGES.copy())
 
         return {
             "ton_wallet": shop_settings.get("ton_wallet") or shop_settings.get("wallet_address", ""),
-            "usdt_packages": catalog.get("usdt_packages", DEFAULT_USDT_PACKAGES.copy()),
+            "usdt_packages": usdt_pkgs,
             "mining_config": catalog.get("mining_config", {}),
             "storage_config": catalog.get("storage_config", {}),
             "ton_usdt_rate": float(shop_settings.get("ton_usdt_rate", 5.5))
@@ -217,7 +221,7 @@ def get_shop_settings():
 
 
 def get_user_vip_status(user_id):
-    """التحقق من حالة اشتراك VIP للمستخدم وتاريخ انتهائه ودقة الميزات المفعّلة تلقائياً"""
+    """التحقق من حالة اشتراك VIP للمستخدم وتاريخ انتهائه ودقة الميزات المفعّلة"""
     try:
         if not user_id:
             return {"is_active": False, "package_id": None, "remaining_seconds": 0}
@@ -265,7 +269,7 @@ def get_user_vip_status(user_id):
 
 
 def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0, tx_hash=None, details=None):
-    """تسجيل المعاملة المالية في سجل المشتريات المعتمد في Supabase لمنع التكرار والتدقيق المالي"""
+    """تسجيل المعاملة المالية في جدول purchase_history و processed_txs لمنع التكرار"""
     try:
         str_uid = str(tg_id)
         tx_h = str(tx_hash).strip() if tx_hash else None
@@ -273,13 +277,11 @@ def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0,
 
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # 1. إضافة إلى سجل مشتريات المستخدم العام
                 cur.execute("""
                     INSERT INTO purchase_history (tg_id, type, item_id, cost_zn, cost_usd, tx_hash, details)
                     VALUES (%s, %s, %s, %s, %s, %s, %s);
                 """, (str_uid, str(tx_type), str(item_id), float(cost_zn), float(cost_usd), tx_h, Json(details_obj)))
 
-                # 2. التسجيل في جدول المعاملات المعالجة لمنع تكرار المعاملة إن وجد الـ Hash
                 if tx_h:
                     cur.execute("""
                         INSERT INTO processed_txs (tx_hash, tg_id, type, cost_zn, cost_usd, details)
@@ -294,7 +296,7 @@ def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0,
 
 
 def buy_mining_upgrade(tg_id, upgrade_level):
-    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن (FOR UPDATE) من الرصيدين (ZN + USD) وتسجيل العملية"""
+    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن (FOR UPDATE)"""
     try:
         if not tg_id or upgrade_level is None:
             return False, "بيانات الترقية غير صالحة", {}
@@ -398,7 +400,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
 
 
 def upgrade_storage_capacity(tg_id):
-    """ترقية المخزن وزيادة السعة بنظام معاملات آمن مع التحقق من الرصيدين وحالة الباقة النشطة"""
+    """ترقية المخزن وزيادة السعة بنظام معاملات آمن"""
     try:
         if not tg_id:
             return False, "معرف غير صالح", {}
@@ -457,7 +459,6 @@ def upgrade_storage_capacity(tg_id):
                 new_balance = round(current_balance - cost_zn, 4)
                 new_usd_balance = round(current_usd_balance - cost_usd, 4)
 
-                # التحقق مما إذا كان لدى المستخدم باقة نشطة بها double_storage
                 vip_status = _parse_json_field(user_data.get("vip_status"), {})
                 is_double_active = False
                 if isinstance(vip_status, dict) and vip_status.get("double_storage"):
@@ -506,7 +507,7 @@ def upgrade_storage_capacity(tg_id):
 
 
 def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
-    """دالة عامة موحدة لمعالجة شراء الترقيات (تعدين أو مخزن) بأسلوب آمن ومعاملاتي"""
+    """دالة عامة موحدة لمعالجة شراء الترقيات"""
     if str(upgrade_type).lower() in ["mining", "card"]:
         return buy_mining_upgrade(tg_id, upgrade_id)
     elif str(upgrade_type).lower() in ["storage", "capacity"]:
@@ -516,7 +517,7 @@ def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
 
 
 def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
-    """معالجة وتفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase مع تمديد الاشتراك ومضاعفة السعة"""
+    """تفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase"""
     try:
         if not tg_id or not package_id:
             return False, "بيانات غير صالحة", {}
@@ -549,7 +550,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 1. منع تكرار نفس المعاملة المعالجة سابقاً
                 if tx_identifier:
                     cur.execute("SELECT 1 FROM processed_txs WHERE tx_hash = %s", (tx_identifier,))
                     if cur.fetchone():
@@ -572,7 +572,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
 
                 now_dt = datetime.now(timezone.utc)
 
-                # 2. حساب تمديد فترة الاشتراك (Extension)
                 existing_vip = _parse_json_field(user_data.get("vip_status"), {})
                 existing_expires_str = existing_vip.get("expires_at")
                 is_currently_active = False
@@ -594,7 +593,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                 else:
                     new_expires_dt = now_dt + timedelta(days=duration_days)
 
-                # 3. حساب تجميع التعدين المعلق قبل تعديل السعة/السرعة
                 pending_mined = 0.0
                 if last_claim_raw:
                     try:
@@ -607,7 +605,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                     except Exception:
                         pending_mined = 0.0
 
-                # 4. حساب مضاعفة السعة (Double Storage)
                 was_double_active = is_currently_active and bool(existing_vip.get("double_storage", False))
                 new_max_cap = current_max_cap
                 if double_storage and not was_double_active:
@@ -678,7 +675,7 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
 
 
 def get_user_purchase_history(tg_id, limit=20):
-    """جلب سجل المشتريات المكتملة للمستخدم من Supabase"""
+    """جلب سجل المشتريات للمستخدم من Supabase"""
     try:
         if not tg_id:
             return []
