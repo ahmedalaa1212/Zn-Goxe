@@ -1,13 +1,33 @@
 # -*- coding: utf-8 -*-
 """
-database.py - النسخة النموذجية المجردة والخفيفة جداً
-هدفها: تجربة الاتصال السريع بـ Supabase وإنشاء الجداول فقط بدون أي موديولات إضافية
+database.py - النسخة النموذجية المحدثة لإدارة قاعدة بيانات Supabase (PostgreSQL)
+مُجهزة بأعمدة وسجلات تتبع المسابقات والمكافآت والتواريخ القياسية ⚡
 """
 import os
+from datetime import datetime, timezone
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
+
+# ==================== Helper Formatting Function ====================
+def format_iso(dt):
+    """تحويل أي كائن تاريخ إلى نمط ISO-8601 القياسي (UTC) المتوافق مع iOS/Android"""
+    if dt is None:
+        return None
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+    if isinstance(dt, (int, float)):
+        return datetime.fromtimestamp(dt, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    s = str(dt).strip().replace(' ', 'T')
+    if s.endswith('+00:00'):
+        s = s[:-6] + 'Z'
+    return s
+
 
 # ==================== Supabase PostgreSQL Pool ====================
 db_pool = None
@@ -90,7 +110,7 @@ def init_db_pool():
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
 
-                    -- تحديث جدول users ليكون جاهزاً لكافة بيانات التعدين والمزرعة
+                    -- تحديث جدول users ليكون جاهزاً لكافة بيانات التعدين والمزرعة والمسابقات
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION DEFAULT 0.10;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS mined_points DOUBLE PRECISION DEFAULT 0.0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS total_mined DOUBLE PRECISION DEFAULT 0.0;
@@ -106,8 +126,14 @@ def init_db_pool():
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS ads_watched INT DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT FALSE;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_expires_at TIMESTAMPTZ;
+
+                    -- أعمدة تتبع مكافأة السرعة والتسجيل اليومي للمسابقات
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS boost_claims_count INT DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS boost_history JSONB DEFAULT '[]'::jsonb;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_claims_count INT DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_history JSONB DEFAULT '[]'::jsonb;
                 """)
-            print("⚡ [Supabase Setup] تم إنشاء الجداول الأساسية وتحديث مخطط البيانات بنجاح وفوراً!")
+            print("⚡ [Supabase Setup] تم إنشاء الجداول الأساسية وتحديث مخطط المسابقات والمكافآت بنجاح!")
         except Exception as e:
             print(f"⚠️ خطأ أثناء إنشاء/تحديث الجداول: {e}")
         finally:
@@ -133,7 +159,7 @@ def get_db():
     return init_db_pool()
 
 
-# ==================== Core Minimal Functions (لمنع كسر Flask) ====================
+# ==================== Core Minimal Functions ====================
 
 def _sanitize_id(sid):
     if not sid or str(sid).lower() in ("none", "null", "undefined"):
@@ -152,8 +178,9 @@ def get_user(telegram_id):
                 row = cur.fetchone()
                 if row:
                     d = dict(row)
-                    if d.get('created_at'): d['created_at'] = str(d['created_at'])
-                    if d.get('last_active_at'): d['last_active_at'] = str(d['last_active_at'])
+                    for k, v in list(d.items()):
+                        if isinstance(v, datetime):
+                            d[k] = format_iso(v)
                     return d
                 return None
     except Exception as e:
