@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 farm_db.py - موديول إدارة المزرعة والتعدين المربوط بـ Supabase (PostgreSQL)
-نسخة الأداء الأقصى مع المعاملات الآمنة ضد التزامن والتكرار اللحظي
+مُعالج من بطء الـ Cooldown ومعزز بتتبع تفصيلي لمكافآت السرعة والتسجيل اليومي للمسابقات ⚡
 """
 import time
 import json
 from datetime import datetime, timezone, timedelta
 from psycopg2.extras import RealDictCursor, Json
-from database import get_db_connection
+from database import get_db_connection, format_iso
 
 # ==================== ثوابت وحدود الأمان القصوى (Sanity Checks Limits) ====================
 MAX_SAFE_BALANCE = 1000000000.0     # الحد الأقصى المسموح به للرصيد (1 مليار ZN)
@@ -40,7 +40,7 @@ def safe_parse_datetime(dt_raw, default_dt=None):
                 return dt_raw.replace(tzinfo=timezone.utc)
             return dt_raw.astimezone(timezone.utc)
         else:
-            s = str(dt_raw).strip().replace('Z', '+00:00')
+            s = str(dt_raw).strip().replace(' ', 'T').replace('Z', '+00:00')
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
@@ -125,14 +125,12 @@ def get_game_settings(force_refresh=False):
 
 
 def parse_daily_rewards(rewards_data):
-    """تحليل قائمة المكافآت اليومية بأمان"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
         return [max(0.0, min(float(x), 1000.0)) for x in rewards_data]
     return [float(x) for x in DEFAULT_GAME_SETTINGS["daily_rewards"]]
 
 
 def get_base_storage_capacity(storage_level, settings=None):
-    """حساب السعة التخزينية الأساسية للمخزن"""
     if not settings:
         settings = get_game_settings()
     try:
@@ -286,6 +284,21 @@ def get_or_create_user_farm_data(user_id_str):
         elif not user_data.get("upgrades"):
             user_data["upgrades"] = {}
 
+        if isinstance(user_data.get("boost_history"), str):
+            try: user_data["boost_history"] = json.loads(user_data["boost_history"])
+            except Exception: user_data["boost_history"] = []
+        elif not user_data.get("boost_history"):
+            user_data["boost_history"] = []
+
+        if isinstance(user_data.get("daily_history"), str):
+            try: user_data["daily_history"] = json.loads(user_data["daily_history"])
+            except Exception: user_data["daily_history"] = []
+        elif not user_data.get("daily_history"):
+            user_data["daily_history"] = []
+
+        user_data["boost_claims_count"] = int(user_data.get("boost_claims_count", 0) or 0)
+        user_data["daily_claims_count"] = int(user_data.get("daily_claims_count", 0) or 0)
+
         user_data = calculate_user_effective_stats(user_data, game_settings, now)
         expected_max_cap = calculate_user_max_cap(user_data, game_settings)
         user_data["max_cap"] = expected_max_cap
@@ -295,7 +308,6 @@ def get_or_create_user_farm_data(user_id_str):
             last_claim_dt = now
 
         hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
-        last_boost_str = user_data.get("last_boost_time")
 
         unclaimed_val = calculate_accrued_mined(user_data, now, expected_max_cap)
         user_data["unclaimed"] = unclaimed_val
@@ -320,6 +332,11 @@ def get_or_create_user_farm_data(user_id_str):
 
         user_data["daily_day"] = effective_daily_day
         user_data["daily_streak"] = effective_daily_day
+
+        # تحويل كافة التواريخ إلى نمط ISO لقياسي لفك أي تعليق في متصفح الآيفون
+        for k, v in list(user_data.items()):
+            if isinstance(v, datetime):
+                user_data[k] = format_iso(v)
 
         return user_data, game_settings, now
 
@@ -352,8 +369,9 @@ def claim_mined_tokens_db(user_id_str):
                     last_claim = safe_parse_datetime(last_claim_str)
                     if last_claim:
                         seconds_passed = (now - last_claim).total_seconds()
-                        if seconds_passed < cooldown_seconds:
-                            return {"success": False, "error": f"الرجاء الانتظار {cooldown_seconds} ثانية قبل التجميع مجدداً"}
+                        if 0 <= seconds_passed < cooldown_seconds:
+                            rem = int(cooldown_seconds - seconds_passed) + 1
+                            return {"success": False, "error": f"الرجاء الانتظار {rem} ثانية قبل التجميع مجدداً", "cooldown_remaining": rem}
 
                 max_cap = calculate_user_max_cap(user_data, game_settings)
                 mined_amount = calculate_accrued_mined(user_data, now, max_cap)
@@ -366,7 +384,7 @@ def claim_mined_tokens_db(user_id_str):
 
                 new_balance = round(min(current_balance + mined_amount, MAX_SAFE_BALANCE), 8)
                 new_mined_points = round(current_mined_points + mined_amount, 8)
-                now_iso = now.isoformat()
+                now_iso = format_iso(now)
 
                 cur.execute("""
                     UPDATE users SET
@@ -422,6 +440,7 @@ def buy_upgrade_db(user_id_str, level):
 
                 user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
+                now_iso = format_iso(now)
 
                 current_balance = float(user_data.get("balance", 0.0))
                 current_usd_balance = float(user_data.get("usd_balance", 0.0))
@@ -468,7 +487,7 @@ def buy_upgrade_db(user_id_str, level):
                     "new_hourly_rate": new_hourly_rate,
                     "upgrades": upgrades,
                     "upgrades_count": total_upgrades_count,
-                    "server_time": now.isoformat()
+                    "server_time": now_iso
                 }
 
     except Exception as e:
@@ -492,6 +511,7 @@ def buy_storage_db(user_id_str):
 
                 user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
+                now_iso = format_iso(now)
 
                 current_level = int(user_data.get("storage_level", 0))
                 next_level = current_level + 1
@@ -529,7 +549,7 @@ def buy_storage_db(user_id_str):
                     "new_balance": new_balance,
                     "new_usd_balance": new_usd_balance,
                     "storage_level": next_level,
-                    "server_time": now.isoformat()
+                    "server_time": now_iso
                 }
 
     except Exception as e:
@@ -538,6 +558,7 @@ def buy_storage_db(user_id_str):
 
 
 def claim_daily_reward_db(user_id_str):
+    """استلام المكافأة اليومية وتسجيل السجل والعدد الإجمالي للمسابقات"""
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
     parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
@@ -553,6 +574,7 @@ def claim_daily_reward_db(user_id_str):
 
                 user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
+                now_iso = format_iso(now)
                 today_str = now.strftime('%Y-%m-%d')
                 yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
 
@@ -575,15 +597,35 @@ def claim_daily_reward_db(user_id_str):
                 new_balance = round(min(current_balance + reward_amount, MAX_SAFE_BALANCE), 8)
                 new_ads_watched = int(user_data.get("ads_watched", 0) or 0) + 1
 
+                # تسجيل وتحديث سجل المسابقات والتسجيل اليومي
+                daily_claims_count = int(user_data.get("daily_claims_count", 0) or 0) + 1
+                daily_history = user_data.get("daily_history") or []
+                if isinstance(daily_history, str):
+                    try: daily_history = json.loads(daily_history)
+                    except Exception: daily_history = []
+                if not isinstance(daily_history, list):
+                    daily_history = []
+
+                new_daily_entry = {
+                    "timestamp": now_iso,
+                    "date": today_str,
+                    "time": now.strftime('%H:%M:%S'),
+                    "day": effective_daily_day,
+                    "reward_amount": reward_amount
+                }
+                daily_history.append(new_daily_entry)
+
                 cur.execute("""
                     UPDATE users SET
                         balance = %s,
                         daily_day = %s,
                         daily_streak = %s,
                         last_daily_claim_date = %s,
-                        ads_watched = %s
+                        ads_watched = %s,
+                        daily_claims_count = %s,
+                        daily_history = %s
                     WHERE tg_id = %s
-                """, (new_balance, effective_daily_day, effective_daily_day, today_str, new_ads_watched, str_uid))
+                """, (new_balance, effective_daily_day, effective_daily_day, today_str, new_ads_watched, daily_claims_count, Json(daily_history), str_uid))
 
                 return {
                     "success": True,
@@ -594,7 +636,8 @@ def claim_daily_reward_db(user_id_str):
                     "daily_streak": effective_daily_day,
                     "last_daily_claim_date": today_str,
                     "ads_watched": new_ads_watched,
-                    "server_time": now.isoformat()
+                    "daily_claims_count": daily_claims_count,
+                    "server_time": now_iso
                 }
 
     except Exception as e:
@@ -603,6 +646,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
+    """تفعيل مكافأة السرعة وتسجيل التاريخ والساعة والعداد للمسابقات"""
     str_uid = str(user_id_str)
 
     try:
@@ -616,29 +660,49 @@ def claim_daily_boost_db(user_id_str):
 
                 user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
-                now_iso = now.isoformat()
+                now_iso = format_iso(now)
 
                 last_boost_str = user_data.get("last_boost_time")
                 if last_boost_str:
                     last_boost = safe_parse_datetime(last_boost_str)
                     if last_boost:
                         elapsed_seconds = (now - last_boost).total_seconds()
-                        if elapsed_seconds < 10800 and elapsed_seconds >= 0:
+                        if 0 <= elapsed_seconds < 10800:
                             rem_mins = int((10800 - elapsed_seconds) // 60)
                             return {"success": False, "error": f"الرجاء الانتظار {rem_mins} دقيقة قبل تفعيل المعزز مجدداً"}
+
+                # تسجيل وتحديث سجل مكافأة السرعة للمسابقات
+                boost_claims_count = int(user_data.get("boost_claims_count", 0) or 0) + 1
+                boost_history = user_data.get("boost_history") or []
+                if isinstance(boost_history, str):
+                    try: boost_history = json.loads(boost_history)
+                    except Exception: boost_history = []
+                if not isinstance(boost_history, list):
+                    boost_history = []
+
+                new_boost_entry = {
+                    "timestamp": now_iso,
+                    "date": now.strftime('%Y-%m-%d'),
+                    "time": now.strftime('%H:%M:%S'),
+                    "reward_rate": 0.10
+                }
+                boost_history.append(new_boost_entry)
 
                 cur.execute("""
                     UPDATE users SET
                         last_boost_time = %s,
-                        ads_watched = ads_watched + 1
+                        ads_watched = ads_watched + 1,
+                        boost_claims_count = %s,
+                        boost_history = %s
                     WHERE tg_id = %s
-                """, (now, str_uid))
+                """, (now, boost_claims_count, Json(boost_history), str_uid))
 
                 return {
                     "success": True,
                     "boost_rate_bonus": 0.10,
                     "boost_duration_hours": 2,
                     "last_boost_time": now_iso,
+                    "boost_claims_count": boost_claims_count,
                     "server_time": now_iso
                 }
 
