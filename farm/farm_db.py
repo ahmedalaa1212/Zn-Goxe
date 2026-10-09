@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-farm_db.py - موديول إدارة المزرعة والتعدين المربوط بـ Supabase (PostgreSQL)
-مُعالج من بطء الـ Cooldown ومشكلة تحميل بيانات المتجر والباقات ⚡
+farm/farm_db.py - وحدة إدارة التعدين والمزرعة المربوطة بـ Supabase (PostgreSQL)
+مُجهزة بمعاملات آمنة (Transactions) وتتبع دقيق للمسابقات وسجلات التجميع بالثانية ⚡
 """
 import time
-import json
 from datetime import datetime, timezone, timedelta
 from psycopg2.extras import RealDictCursor, Json
-from database import get_db_connection, format_iso
+from database import (
+    get_db_connection, 
+    get_setting, 
+    set_setting, 
+    get_user, 
+    init_user, 
+    format_iso, 
+    safe_parse_datetime
+)
 
-# ==================== ثوابت وحدود الأمان القصوى (Sanity Checks Limits) ====================
+# ==================== ثوابت وحدود الأمان القصوى ====================
 MAX_SAFE_BALANCE = 1000000000.0     # الحد الأقصى المسموح به للرصيد (1 مليار ZN)
 MAX_SAFE_HOURLY_RATE = 500.0        # الحد الأقصى لمعدل التعدين بالساعة (500 ZN/h)
 MAX_SAFE_STORAGE_CAP = 5000.0       # الحد الأقصى لسعة المخزن (5000 ZN)
@@ -20,148 +27,17 @@ def to_bool(val):
     if isinstance(val, bool):
         return val
     if isinstance(val, str):
-        return val.strip().lower() in ("true", "1", "yes")
+        return val.strip().lower() in ("true", "1", "yes", "t")
     if isinstance(val, (int, float)):
         return val != 0
     return False
 
 
-def safe_parse_datetime(dt_raw, default_dt=None):
-    """معالجة آمنة لتحويل أي تاريخ أو ختم زمني إلى UTC"""
-    if dt_raw is None:
-        return default_dt
-    try:
-        if isinstance(dt_raw, (int, float)):
-            if dt_raw < 0 or dt_raw > 4102444800:
-                return default_dt
-            return datetime.fromtimestamp(dt_raw, tz=timezone.utc)
-        elif isinstance(dt_raw, datetime):
-            if dt_raw.tzinfo is None:
-                return dt_raw.replace(tzinfo=timezone.utc)
-            return dt_raw.astimezone(timezone.utc)
-        else:
-            s = str(dt_raw).strip().replace(' ', 'T').replace('Z', '+00:00')
-            dt = datetime.fromisoformat(s)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-    except Exception:
-        return default_dt
-
-
-# ==================== الذاكرة المؤقتة للإعدادات ====================
+# ==================== Caching لتوفير الاتصالات ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
-CACHE_TTL_SECONDS = 30
+CACHE_TTL_SECONDS = 15
 
-# ==================== باقات العروض المميزة الافتراضية ====================
-DEFAULT_USDT_PACKAGES = {
-    "VIP0": {
-        "title": "باقة VIP0 (2 يوم)",
-        "usdt": 2.0,
-        "duration_days": 2,
-        "features": {
-            "auto_bot": True,
-            "double_storage": True,
-            "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
-            "ref_withdraw_fee": 0.0
-        },
-        "perks_text": [
-            "🤖 بوت تجميع تلقائي",
-            "📦 زيادة سعة المخزن الضعف ×2",
-            "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
-            "⚡ إعفاء كامل من رسوم السحب (0%)"
-        ]
-    },
-    "VIP1": {
-        "title": "باقة VIP1 (7 أيام)",
-        "usdt": 2.5,
-        "duration_days": 7,
-        "features": {
-            "auto_bot": True,
-            "double_storage": True,
-            "referral_rate": 0.0,
-            "ref_min_upgrades": 0,
-            "ref_withdraw_fee": 0.0
-        },
-        "perks_text": [
-            "🤖 بوت تجميع تلقائي",
-            "📦 زيادة سعة المخزن الضعف ×2"
-        ]
-    },
-    "VIP2": {
-        "title": "باقة VIP2 (7 أيام)",
-        "usdt": 2.0,
-        "duration_days": 7,
-        "features": {
-            "auto_bot": False,
-            "double_storage": False,
-            "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
-            "ref_withdraw_fee": 0.0
-        },
-        "perks_text": [
-            "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
-            "⚡ إعفاء كامل من رسوم السحب (0%)"
-        ]
-    },
-    "VIP3": {
-        "title": "باقة VIP3 (30 يوم)",
-        "usdt": 5.5,
-        "duration_days": 30,
-        "features": {
-            "auto_bot": True,
-            "double_storage": True,
-            "referral_rate": 0.0,
-            "ref_min_upgrades": 0,
-            "ref_withdraw_fee": 0.0
-        },
-        "perks_text": [
-            "🤖 بوت تجميع تلقائي",
-            "📦 زيادة سعة المخزن الضعف ×2"
-        ]
-    },
-    "VIP4": {
-        "title": "باقة VIP4 (30 يوم)",
-        "usdt": 6.0,
-        "duration_days": 30,
-        "features": {
-            "auto_bot": False,
-            "double_storage": False,
-            "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
-            "ref_withdraw_fee": 0.0
-        },
-        "perks_text": [
-            "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
-            "⚡ إعفاء كامل من رسوم السحب (0%)"
-        ]
-    },
-    "VIP5": {
-        "title": "باقة VIP5 (30 يوم)",
-        "usdt": 9.99,
-        "duration_days": 30,
-        "features": {
-            "auto_bot": True,
-            "double_storage": True,
-            "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
-            "ref_withdraw_fee": 0.0
-        },
-        "perks_text": [
-            "🤖 بوت تجميع تلقائي",
-            "📦 زيادة سعة المخزن الضعف ×2",
-            "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
-            "⚡ إعفاء كامل من رسوم السحب (0%)"
-        ]
-    }
-}
-
-# ==================== الإعدادات الافتراضية الشاملة (مزرعة ومتجر) ====================
+# ==================== الإعدادات الافتراضية الاقتصادية ====================
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.20, 1.50, 2.00,
@@ -187,17 +63,6 @@ DEFAULT_GAME_SETTINGS = {
         "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00},
         "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00}
     },
-    "storage_config": {
-        "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},
-        "1": {"capacity": 1.5, "cost_zn": 50.0, "cost_usd": 0.0},
-        "2": {"capacity": 4.0, "cost_zn": 200.0, "cost_usd": 0.20},
-        "3": {"capacity": 10.0, "cost_zn": 800.0, "cost_usd": 0.50},
-        "4": {"capacity": 25.0, "cost_zn": 2500.0, "cost_usd": 1.00},
-        "5": {"capacity": 60.0, "cost_zn": 7000.0, "cost_usd": 2.50},
-        "6": {"capacity": 150.0, "cost_zn": 20000.0, "cost_usd": 5.00},
-        "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00},
-        "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00}
-    },
     "upgrade_config": {
         "1": {"cost_zn": 100.0, "cost_usd": 0.0, "rate_bonus": 0.20},
         "2": {"cost_zn": 400.0, "cost_usd": 0.25, "rate_bonus": 0.50},
@@ -207,67 +72,89 @@ DEFAULT_GAME_SETTINGS = {
         "6": {"cost_zn": 40000.0, "cost_usd": 6.00, "rate_bonus": 14.00},
         "7": {"cost_zn": 100000.0, "cost_usd": 12.00, "rate_bonus": 30.00},
         "8": {"cost_zn": 250000.0, "cost_usd": 25.00, "rate_bonus": 70.00}
-    },
-    "usdt_packages": DEFAULT_USDT_PACKAGES,
-    "packages": DEFAULT_USDT_PACKAGES,
-    "ton_usdt_rate": 5.5,
-    "ton_wallet": ""
+    }
 }
 
 
 def get_game_settings(force_refresh=False):
-    """جلب إعدادات المزرعة والمتجر من Supabase وتلقيم قيم افتراضية كاملة لمنع التعليق"""
+    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Supabase إن لم تكن موجودة"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
     if not force_refresh and _SETTINGS_CACHE["data"] and (now_ts - _SETTINGS_CACHE["timestamp"] < CACHE_TTL_SECONDS):
         return _SETTINGS_CACHE["data"]
 
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT key, value FROM settings WHERE key IN ('farm_settings', 'shop_settings')")
-                rows = cur.fetchall()
+    data = get_setting("farm_settings")
+    if data and isinstance(data, dict):
+        _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
+        return data
 
-                data = DEFAULT_GAME_SETTINGS.copy()
-                found_any = False
+    # إنشاء الإعدادات الافتراضية لأول مرة في Supabase لتظهر في لوحة المنصة
+    set_setting("farm_settings", DEFAULT_GAME_SETTINGS)
+    _SETTINGS_CACHE = {"data": DEFAULT_GAME_SETTINGS, "timestamp": now_ts}
+    return DEFAULT_GAME_SETTINGS
 
-                for row in rows:
-                    if row and row.get('value'):
-                        found_any = True
-                        val = row['value']
-                        if isinstance(val, str):
-                            val = json.loads(val)
-                        if isinstance(val, dict):
-                            data.update(val)
 
-                # التأكد من ملء باقات المتجر لو لم تكن متواجدة بالسجل
-                if "usdt_packages" not in data or not data["usdt_packages"]:
-                    data["usdt_packages"] = DEFAULT_USDT_PACKAGES.copy()
-                    data["packages"] = DEFAULT_USDT_PACKAGES.copy()
-
-                if not found_any:
-                    cur.execute("""
-                        INSERT INTO settings (key, value) VALUES ('farm_settings', %s)
-                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                    """, (Json(DEFAULT_GAME_SETTINGS),))
-
-                _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
-                return data
-
-    except Exception as e:
-        print(f"⚠️ خطأ جلب إعدادات المزرعة والمتجر من Supabase: {e}")
-
-    return _SETTINGS_CACHE["data"] or DEFAULT_GAME_SETTINGS
+def create_default_user_data_dict(user_id_str, game_settings, now_dt):
+    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC"""
+    mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
+    base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
+    base_cap = get_base_storage_capacity(0, game_settings)
+    now_iso = format_iso(now_dt)
+    
+    return {
+        "tg_id": str(user_id_str),
+        "telegram_id": str(user_id_str),
+        "balance": 0.00000000,
+        "usd_balance": 0.00000000,
+        "total_mined": 0.00000000,
+        "mined_points": 0.00000000,
+        "hourly_rate": base_free_rate,
+        "daily_boost_rate": 0.00,
+        "base_unclaimed": 0.00000000,
+        "unclaimed": 0.00000000,
+        "storage_level": 0,
+        "extra_storage": 0.00,
+        "max_cap": base_cap,
+        "daily_day": 1,
+        "daily_streak": 1,
+        "last_claim_time": now_iso,
+        "last_daily_claim_date": None,
+        "last_boost_date": None,
+        "last_boost_time": None,
+        "last_claim_ad_date": None,
+        "ads_watched": 0,
+        "upgrades": {},
+        "upgrades_count": 0,
+        "welcome_seen": False,
+        "is_new_user": True,
+        "bot_active": False,
+        "boost_claims_count": 0,
+        "boost_history": [],
+        "daily_claims_count": 0,
+        "daily_history": []
+    }
 
 
 def parse_daily_rewards(rewards_data):
+    """تحليل قائمة المكافآت اليومية بأمان لدعم قيم الفلوت"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
         return [max(0.0, min(float(x), 1000.0)) for x in rewards_data]
+    if isinstance(rewards_data, dict):
+        res = []
+        for i in range(1, 31):
+            val = rewards_data.get(f"day_{i}")
+            if val is None:
+                val = rewards_data.get(str(i))
+            if val is None:
+                val = DEFAULT_GAME_SETTINGS["daily_rewards"][i-1]
+            res.append(max(0.0, min(float(val), 1000.0)))
+        return res
     return [float(x) for x in DEFAULT_GAME_SETTINGS["daily_rewards"]]
 
 
 def get_base_storage_capacity(storage_level, settings=None):
+    """حساب السعة التخزينية الأساسية للمخزن"""
     if not settings:
         settings = get_game_settings()
     try:
@@ -276,8 +163,11 @@ def get_base_storage_capacity(storage_level, settings=None):
         lvl = 0
     lvl = max(0, min(lvl, 8))
 
-    caps = settings.get("storage_capacities") or settings.get("storage_config") or DEFAULT_GAME_SETTINGS["storage_capacities"]
-    val = caps.get(str(lvl)) or caps.get(lvl)
+    caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+
+    val = caps.get(str(lvl))
+    if val is None:
+        val = caps.get(lvl)
 
     if isinstance(val, dict):
         return min(float(val.get("capacity", 0.5)), MAX_SAFE_STORAGE_CAP)
@@ -287,6 +177,7 @@ def get_base_storage_capacity(storage_level, settings=None):
 
 
 def calculate_user_max_cap(user_data, settings=None):
+    """حساب أقصى سعة للمخزن المؤقت للمستخدم مع تطبيق فحص الحدود القصوى"""
     if not settings:
         settings = get_game_settings()
     stg_lvl = user_data.get("storage_level", 0)
@@ -297,19 +188,21 @@ def calculate_user_max_cap(user_data, settings=None):
 
 
 def get_bot_expiration_dt(user_data):
+    """استخراج تاريخ ووقت انتهاء باقة البوت/VIP إن وجد بشكل دقيق مع حماية التاريخ"""
     vip_info = user_data.get("vip_status")
     expires_at_raw = None
 
     if isinstance(vip_info, dict):
-        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at")
+        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at") or vip_info.get("expire_date") or vip_info.get("expires_date")
     
     if not expires_at_raw:
-        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at")
+        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at") or user_data.get("vip_expire_date")
 
     return safe_parse_datetime(expires_at_raw)
 
 
 def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None):
+    """حساب الكمية المعدنة الدقيقة بين نقطتين زمنيتين مع معالجة التواريخ والسرعة الفائقة"""
     if not start_dt or not end_dt or end_dt <= start_dt:
         return 0.0
     
@@ -339,6 +232,7 @@ def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None
 
 
 def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
+    """حساب الكمية المعدنة الحالية بدقة مباشرة من تاريخ آخر تجميع حقيقي مع تطبيق سقف التخزين"""
     last_claim_str = user_data.get("last_claim_time")
     hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
 
@@ -357,27 +251,31 @@ def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
 
 
 def dismiss_welcome_db(user_id_str):
+    """تعيين حالة مشاهدة النافذة الترحيبية لمنع ظهورها مجدداً"""
     str_uid = str(user_id_str)
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE users SET welcome_seen = TRUE WHERE tg_id = %s", (str_uid,))
-        return {"success": True, "welcome_seen": True, "is_new_user": False}
-    except Exception as e:
-        print(f"❌ خطأ dismiss_welcome_db: {e}")
-        return {"success": False, "error": str(e)}
+    with get_db_connection() as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE users SET welcome_seen = TRUE WHERE tg_id = %s;
+            """, (str_uid,))
+    return {"success": True, "welcome_seen": True, "is_new_user": False}
 
 
 def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
+    """فحص وتحديث صلاحية اشتراك الباقة أو البوت وتحديث حالة bot_active"""
     if now_dt is None:
         now_dt = datetime.now(timezone.utc)
 
     raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", False)))
+    
     vip_info = user_data.get("vip_status")
     if isinstance(vip_info, dict):
-        raw_bot_flag = raw_bot_flag or to_bool(vip_info.get("auto_bot", False))
+        vip_bot = to_bool(vip_info.get("auto_bot", vip_info.get("bot_active", False)))
+        raw_bot_flag = raw_bot_flag or vip_bot
 
     exp_dt = get_bot_expiration_dt(user_data)
+
     is_active = False
     if raw_bot_flag:
         if exp_dt is None or exp_dt > now_dt:
@@ -393,129 +291,184 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
 
 
 def get_or_create_user_farm_data(user_id_str):
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتوليد الأرقام اللحظية بدون تعليق"""
     str_uid = str(user_id_str)
     now = datetime.now(timezone.utc)
     game_settings = get_game_settings()
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
 
-    try:
+    user_data = get_user(str_uid)
+    if not user_data:
+        user_data = init_user(str_uid)
+        if not user_data:
+            user_data = create_default_user_data_dict(str_uid, game_settings, now)
+
+    db_updates = {}
+    
+    if not user_data.get("welcome_seen"):
+        has_progress = bool(user_data.get("upgrades") or user_data.get("last_daily_claim_date") or user_data.get("last_boost_time"))
+        db_updates["welcome_seen"] = has_progress
+
+    current_hr = float(user_data.get("hourly_rate", 0.0))
+    if current_hr < base_free_rate and not user_data.get("upgrades"):
+        db_updates["hourly_rate"] = base_free_rate
+    elif current_hr > MAX_SAFE_HOURLY_RATE:
+        db_updates["hourly_rate"] = MAX_SAFE_HOURLY_RATE
+
+    if not user_data.get("last_claim_time"):
+        db_updates["last_claim_time"] = format_iso(now)
+
+    expected_max_cap = calculate_user_max_cap(user_data, game_settings)
+    if user_data.get("max_cap") != expected_max_cap:
+        db_updates["max_cap"] = expected_max_cap
+
+    if db_updates:
         with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s", (str_uid,))
-                user_row = cur.fetchone()
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                set_clauses = [f"{k} = %s" for k in db_updates.keys()]
+                params = list(db_updates.values())
+                params.append(str_uid)
+                cur.execute(f"UPDATE users SET {', '.join(set_clauses)} WHERE tg_id = %s", tuple(params))
+        user_data.update(db_updates)
 
-                if not user_row:
-                    cur.execute("""
-                        INSERT INTO users (tg_id, user_id, telegram_id, balance, usd_balance, hourly_rate, created_at, last_claim_time)
-                        VALUES (%s, %s, %s, 0.0, 0.0, %s, %s, %s)
-                        RETURNING *;
-                    """, (str_uid, str_uid, str_uid, base_free_rate, now, now))
-                    user_data = dict(cur.fetchone())
-                else:
-                    user_data = dict(user_row)
+    user_data = calculate_user_effective_stats(user_data, game_settings, now)
 
-        if isinstance(user_data.get("upgrades"), str):
-            try: user_data["upgrades"] = json.loads(user_data["upgrades"])
-            except Exception: user_data["upgrades"] = {}
-        elif not user_data.get("upgrades"):
-            user_data["upgrades"] = {}
+    expected_max_cap = calculate_user_max_cap(user_data, game_settings)
+    user_data["max_cap"] = expected_max_cap
+    user_data["balance"] = round(min(float(user_data.get("balance", 0.0)), MAX_SAFE_BALANCE), 8)
+    user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 8)
+    user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 8)
+    user_data["total_mined"] = user_data["mined_points"]
 
-        if isinstance(user_data.get("boost_history"), str):
-            try: user_data["boost_history"] = json.loads(user_data["boost_history"])
-            except Exception: user_data["boost_history"] = []
-        elif not user_data.get("boost_history"):
-            user_data["boost_history"] = []
+    last_claim_dt = safe_parse_datetime(user_data.get("last_claim_time"), now)
+    if not last_claim_dt or last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
+        last_claim_dt = now
 
-        if isinstance(user_data.get("daily_history"), str):
-            try: user_data["daily_history"] = json.loads(user_data["daily_history"])
-            except Exception: user_data["daily_history"] = []
-        elif not user_data.get("daily_history"):
-            user_data["daily_history"] = []
+    is_bot_active = user_data.get("bot_active", False)
+    exp_dt = get_bot_expiration_dt(user_data)
+    hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
+    last_boost_str = user_data.get("last_boost_time")
 
-        user_data["boost_claims_count"] = int(user_data.get("boost_claims_count", 0) or 0)
-        user_data["daily_claims_count"] = int(user_data.get("daily_claims_count", 0) or 0)
+    auto_claimed_amount = 0.0
+    auto_claim_updates = {}
 
-        user_data = calculate_user_effective_stats(user_data, game_settings, now)
-        expected_max_cap = calculate_user_max_cap(user_data, game_settings)
-        user_data["max_cap"] = expected_max_cap
+    if is_bot_active or (exp_dt and exp_dt > last_claim_dt):
+        bot_end_dt = min(now, exp_dt) if exp_dt else now
+        bot_mined = _calculate_interval_mined(hourly_rate, last_claim_dt, bot_end_dt, last_boost_str)
+        accumulated_offline = round(bot_mined, 8)
+        threshold_80 = round(expected_max_cap * 0.8, 8)
 
-        last_claim_dt = safe_parse_datetime(user_data.get("last_claim_time"), now)
-        if not last_claim_dt or last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
-            last_claim_dt = now
+        if accumulated_offline >= threshold_80:
+            auto_claimed_amount = accumulated_offline
+            user_data["balance"] = round(min(user_data["balance"] + auto_claimed_amount, MAX_SAFE_BALANCE), 8)
+            user_data["mined_points"] = round(user_data["mined_points"] + auto_claimed_amount, 8)
+            user_data["total_mined"] = user_data["mined_points"]
+            user_data["base_unclaimed"] = 0.0
+            user_data["unclaimed"] = 0.0
+            user_data["last_claim_time"] = format_iso(bot_end_dt)
 
-        hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
+            auto_claim_updates["balance"] = user_data["balance"]
+            auto_claim_updates["mined_points"] = user_data["mined_points"]
+            auto_claim_updates["total_mined"] = user_data["total_mined"]
+            auto_claim_updates["last_claim_time"] = user_data["last_claim_time"]
 
+            if bot_end_dt < now:
+                post_bot_mined = _calculate_interval_mined(hourly_rate, bot_end_dt, now, last_boost_str)
+                user_data["unclaimed"] = round(min(post_bot_mined, expected_max_cap), 8)
+                user_data["base_unclaimed"] = user_data["unclaimed"]
+        else:
+            total_mined_so_far = _calculate_interval_mined(hourly_rate, last_claim_dt, now, last_boost_str)
+            unclaimed_val = round(min(total_mined_so_far, expected_max_cap), 8)
+            user_data["unclaimed"] = unclaimed_val
+            user_data["base_unclaimed"] = unclaimed_val
+    else:
         unclaimed_val = calculate_accrued_mined(user_data, now, expected_max_cap)
         user_data["unclaimed"] = unclaimed_val
         user_data["base_unclaimed"] = unclaimed_val
-        user_data["auto_claimed_amount"] = 0.0
 
-        is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
-        user_data["welcome_seen"] = is_welcome_seen
-        user_data["is_new_user"] = not is_welcome_seen
+    if auto_claim_updates:
+        try:
+            with get_db_connection() as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE users SET balance = %s, mined_points = %s, total_mined = %s, last_claim_time = %s
+                        WHERE tg_id = %s;
+                    """, (user_data["balance"], user_data["mined_points"], user_data["total_mined"], user_data["last_claim_time"], str_uid))
+        except Exception as e:
+            print(f"⚠️ Error updating offline farm calculations: {e}")
 
-        today_str = now.strftime('%Y-%m-%d')
-        yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
-        last_daily_claim = user_data.get("last_daily_claim_date")
-        raw_daily_day = int(user_data.get("daily_day", 1) or 1)
+    user_data["auto_claimed_amount"] = auto_claimed_amount
 
-        if last_daily_claim == today_str:
-            effective_daily_day = raw_daily_day
-        elif last_daily_claim == yesterday_str:
-            effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
-        else:
-            effective_daily_day = 1
+    is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
+    user_data["welcome_seen"] = is_welcome_seen
+    user_data["is_new_user"] = not is_welcome_seen
 
-        user_data["daily_day"] = effective_daily_day
-        user_data["daily_streak"] = effective_daily_day
+    today_str = now.strftime('%Y-%m-%d')
+    yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+    last_daily_claim = user_data.get("last_daily_claim_date")
+    raw_daily_day = int(user_data.get("daily_day") or user_data.get("daily_streak") or 1)
 
-        for k, v in list(user_data.items()):
-            if isinstance(v, datetime):
-                user_data[k] = format_iso(v)
+    if last_daily_claim == today_str:
+        effective_daily_day = raw_daily_day
+    elif last_daily_claim == yesterday_str:
+        effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
+    else:
+        effective_daily_day = 1
 
-        return user_data, game_settings, now
+    user_data["daily_day"] = effective_daily_day
+    user_data["daily_streak"] = effective_daily_day
 
-    except Exception as e:
-        print(f"❌ خطأ get_or_create_user_farm_data: {e}")
-        return {}, game_settings, now
+    return user_data, game_settings, now
 
 
 def claim_mined_tokens_db(user_id_str):
+    """تجميع الرصيد المعدن مع حماية ACID لمنع السباق وقفل الصفوف FOR UPDATE مع إصلاح مشكلة الـ 15 ثانية"""
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
 
-    try:
-        with get_db_connection() as conn:
+    with get_db_connection() as conn:
+        conn.autocommit = False
+        try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE;", (str_uid,))
                 user_data = cur.fetchone()
-
-                if not user_data:
-                    return {"success": False, "error": "المستخدم غير موجود"}
-
-                user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
                 today_utc_str = now.strftime('%Y-%m-%d')
 
+                if not user_data:
+                    conn.rollback()
+                    return {"success": False, "error": "المستخدم غير موجود"}
+
+                user_data = dict(user_data)
                 last_claim_str = user_data.get("last_claim_time")
+                
                 if last_claim_str:
                     last_claim = safe_parse_datetime(last_claim_str)
                     if last_claim:
                         seconds_passed = (now - last_claim).total_seconds()
-                        if 0 <= seconds_passed < cooldown_seconds:
-                            rem = int(cooldown_seconds - seconds_passed) + 1
-                            return {"success": False, "error": f"الرجاء الانتظار {rem} ثانية قبل التجميع مجدداً", "cooldown_remaining": rem}
+                        if seconds_passed < cooldown_seconds:
+                            conn.rollback()
+                            rem = round(cooldown_seconds - seconds_passed, 1)
+                            return {
+                                "success": False, 
+                                "error": f"الرجاء الانتظار {cooldown_seconds} ثانية قبل التجميع مجدداً",
+                                "remaining_seconds": rem
+                            }
 
                 max_cap = calculate_user_max_cap(user_data, game_settings)
                 mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
                 if mined_amount <= 0:
+                    conn.rollback()
                     return {"success": False, "error": "المخزن فارغ حالياً"}
 
                 current_balance = float(user_data.get("balance", 0.0))
+                current_usd_balance = float(user_data.get("usd_balance", 0.0))
                 current_mined_points = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
 
                 new_balance = round(min(current_balance + mined_amount, MAX_SAFE_BALANCE), 8)
@@ -523,19 +476,17 @@ def claim_mined_tokens_db(user_id_str):
                 now_iso = format_iso(now)
 
                 cur.execute("""
-                    UPDATE users SET
-                        balance = %s,
-                        mined_points = %s,
-                        total_mined = %s,
-                        last_claim_time = %s,
-                        last_daily_claim_date = %s
-                    WHERE tg_id = %s
-                """, (new_balance, new_mined_points, new_mined_points, now, today_utc_str, str_uid))
+                    UPDATE users 
+                    SET balance = %s, mined_points = %s, total_mined = %s, last_claim_time = %s, last_claim_ad_date = %s
+                    WHERE tg_id = %s;
+                """, (new_balance, new_mined_points, new_mined_points, now_iso, today_utc_str, str_uid))
+
+                conn.commit()
 
                 return {
                     "success": True,
                     "new_balance": new_balance,
-                    "new_usd_balance": float(user_data.get("usd_balance", 0.0)),
+                    "new_usd_balance": round(current_usd_balance, 8),
                     "total_mined": new_mined_points,
                     "mined_points": new_mined_points,
                     "last_claim_time": now_iso,
@@ -545,13 +496,13 @@ def claim_mined_tokens_db(user_id_str):
                     "server_time": now_iso,
                     "claimed_amount": mined_amount
                 }
-
-    except Exception as e:
-        print(f"❌ خطأ claim_mined_tokens_db: {e}")
-        return {"success": False, "error": f"تعذر تنفيذ التجميع: {str(e)}"}
+        except Exception as e:
+            conn.rollback()
+            return {"success": False, "error": f"تعذر تنفيذ التجميع: {str(e)}"}
 
 
 def buy_upgrade_db(user_id_str, level):
+    """شراء ترقية سرعة التعدين مع فحص التدرج، حدود الرصيد والمعاملات الآمنة"""
     level_str = str(level).strip()
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
@@ -561,150 +512,188 @@ def buy_upgrade_db(user_id_str, level):
         return {"success": False, "error": "بيانات المستوى غير متوفرة"}
 
     level_cfg = upgrade_configs[level_str]
-    cost_zn = float(level_cfg.get("cost_zn", 0.0))
+    cost_zn = float(level_cfg.get("cost_zn", 0))
     cost_usd = float(level_cfg.get("cost_usd", 0.0))
-    rate_bonus = round(float(level_cfg.get("rate_bonus", 0.0)), 2)
+    rate_bonus = round(float(level_cfg.get("rate_bonus", 0)), 2)
 
-    try:
-        with get_db_connection() as conn:
+    with get_db_connection() as conn:
+        conn.autocommit = False
+        try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE;", (str_uid,))
                 user_data = cur.fetchone()
 
                 if not user_data:
+                    conn.rollback()
                     return {"success": False, "error": "المستخدم غير موجود"}
 
                 user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
-                now_iso = format_iso(now)
-
                 current_balance = float(user_data.get("balance", 0.0))
                 current_usd_balance = float(user_data.get("usd_balance", 0.0))
 
                 if current_balance < cost_zn:
+                    conn.rollback()
                     return {"success": False, "error": f"رصيد العملات غير كافٍ! سعر الترقية {cost_zn:,.0f} ZN"}
 
                 if cost_usd > 0 and current_usd_balance < cost_usd:
+                    conn.rollback()
                     return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
-                upgrades = user_data.get("upgrades") or {}
-                if isinstance(upgrades, str):
-                    try: upgrades = json.loads(upgrades)
-                    except Exception: upgrades = {}
+                upgrades = user_data.get("upgrades", {})
+                if not isinstance(upgrades, dict):
+                    upgrades = {}
 
                 lvl_key = f"lvl{level_str}"
                 current_count = int(upgrades.get(lvl_key, 0))
 
                 if current_count >= 15:
+                    conn.rollback()
                     return {"success": False, "error": "لقد وصلت للحد الأقصى للشراء لهذا المستوى (15/15)"}
+
+                if int(level_str) > 1:
+                    prev_lvl = str(int(level_str) - 1)
+                    prev_key = f"lvl{prev_lvl}"
+                    prev_count = int(upgrades.get(prev_key, 0))
+                    if prev_count == 0:
+                        conn.rollback()
+                        return {"success": False, "error": "يجب شراء المستوى السابق أولاً"}
+
+                max_cap = calculate_user_max_cap(user_data, game_settings)
 
                 new_balance = round(max(0.0, current_balance - cost_zn), 8)
                 new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
                 current_hourly_rate = float(user_data.get("hourly_rate", 0.10))
+                
                 new_hourly_rate = round(min(current_hourly_rate + rate_bonus, MAX_SAFE_HOURLY_RATE), 4)
 
                 upgrades[lvl_key] = current_count + 1
                 total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
+                last_claim_str = user_data.get("last_claim_time") or format_iso(now)
 
                 cur.execute("""
-                    UPDATE users SET
-                        balance = %s,
-                        usd_balance = %s,
-                        hourly_rate = %s,
-                        upgrades = %s,
-                        upgrades_count = %s
-                    WHERE tg_id = %s
+                    UPDATE users 
+                    SET balance = %s, usd_balance = %s, hourly_rate = %s, upgrades = %s, upgrades_count = %s
+                    WHERE tg_id = %s;
                 """, (new_balance, new_usd_balance, new_hourly_rate, Json(upgrades), total_upgrades_count, str_uid))
+
+                conn.commit()
+
+                user_data["hourly_rate"] = new_hourly_rate
+                updated_unclaimed = calculate_accrued_mined(user_data, now, max_cap)
 
                 return {
                     "success": True,
                     "new_balance": new_balance,
                     "new_usd_balance": new_usd_balance,
                     "new_hourly_rate": new_hourly_rate,
+                    "last_claim_time": last_claim_str,
+                    "base_unclaimed": updated_unclaimed,
+                    "unclaimed": updated_unclaimed,
                     "upgrades": upgrades,
                     "upgrades_count": total_upgrades_count,
-                    "server_time": now_iso
+                    "server_time": format_iso(now)
                 }
-
-    except Exception as e:
-        print(f"❌ خطأ buy_upgrade_db: {e}")
-        return {"success": False, "error": f"تعذر إتمام عملية الترقية: {str(e)}"}
+        except Exception as e:
+            conn.rollback()
+            return {"success": False, "error": f"تعذر تنفيذ عملية الترقية: {str(e)}"}
 
 
 def buy_storage_db(user_id_str):
+    """شراء ترقية سعة التخزين مع حماية المعاملات الآمنة"""
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
     storage_cfgs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
 
-    try:
-        with get_db_connection() as conn:
+    with get_db_connection() as conn:
+        conn.autocommit = False
+        try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE;", (str_uid,))
                 user_data = cur.fetchone()
 
                 if not user_data:
+                    conn.rollback()
                     return {"success": False, "error": "المستخدم غير موجود"}
 
                 user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
-                now_iso = format_iso(now)
 
                 current_level = int(user_data.get("storage_level", 0))
                 next_level = current_level + 1
 
                 if next_level > 8 or str(next_level) not in storage_cfgs:
+                    conn.rollback()
                     return {"success": False, "error": "المخزن في أقصى مستوى بالفعل (MAX)"}
 
                 next_cfg = storage_cfgs[str(next_level)]
-                cost_zn = float(next_cfg.get("cost_zn", 0.0)) if isinstance(next_cfg, dict) else 0.0
-                cost_usd = float(next_cfg.get("cost_usd", 0.0)) if isinstance(next_cfg, dict) else 0.0
-                new_capacity = float(next_cfg.get("capacity", 0.5)) if isinstance(next_cfg, dict) else float(next_cfg)
+                if isinstance(next_cfg, dict):
+                    cost_zn = float(next_cfg.get("cost_zn", 0.0))
+                    cost_usd = float(next_cfg.get("cost_usd", 0.0))
+                    new_capacity = float(next_cfg.get("capacity", 0.5))
+                else:
+                    cost_zn = 0.0
+                    cost_usd = 0.0
+                    new_capacity = float(next_cfg)
 
                 current_balance = float(user_data.get("balance", 0.0))
                 current_usd_balance = float(user_data.get("usd_balance", 0.0))
 
                 if current_balance < cost_zn:
+                    conn.rollback()
                     return {"success": False, "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost_zn:,.0f} ZN"}
 
                 if cost_usd > 0 and current_usd_balance < cost_usd:
+                    conn.rollback()
                     return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
+                extra_cap = float(user_data.get("extra_storage", 0.0))
+                new_max_cap = min(round(new_capacity + extra_cap, 4), MAX_SAFE_STORAGE_CAP)
                 new_balance = round(max(0.0, current_balance - cost_zn), 8)
                 new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
 
+                mined_amount = calculate_accrued_mined(user_data, now, new_max_cap)
+                last_claim_str = user_data.get("last_claim_time") or format_iso(now)
+
                 cur.execute("""
-                    UPDATE users SET
-                        balance = %s,
-                        usd_balance = %s,
-                        storage_level = %s
-                    WHERE tg_id = %s
-                """, (new_balance, new_usd_balance, next_level, str_uid))
+                    UPDATE users 
+                    SET balance = %s, usd_balance = %s, storage_level = %s, max_cap = %s
+                    WHERE tg_id = %s;
+                """, (new_balance, new_usd_balance, next_level, new_max_cap, str_uid))
+
+                conn.commit()
 
                 return {
                     "success": True,
                     "new_balance": new_balance,
                     "new_usd_balance": new_usd_balance,
                     "storage_level": next_level,
-                    "server_time": now_iso
+                    "max_cap": new_max_cap,
+                    "last_claim_time": last_claim_str,
+                    "base_unclaimed": mined_amount,
+                    "unclaimed": mined_amount,
+                    "server_time": format_iso(now)
                 }
-
-    except Exception as e:
-        print(f"❌ خطأ buy_storage_db: {e}")
-        return {"success": False, "error": f"تعذر إتمام ترقية المخزن: {str(e)}"}
+        except Exception as e:
+            conn.rollback()
+            return {"success": False, "error": f"تعذر إتمام ترقية المخزن: {str(e)}"}
 
 
 def claim_daily_reward_db(user_id_str):
+    """استلام المكافأة اليومية وتسجيل التاريخ والوقت بدقة وعداد المرات للمسابقات"""
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
     parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
-    try:
-        with get_db_connection() as conn:
+    with get_db_connection() as conn:
+        conn.autocommit = False
+        try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE;", (str_uid,))
                 user_data = cur.fetchone()
 
                 if not user_data:
+                    conn.rollback()
                     return {"success": False, "error": "المستخدم غير موجود"}
 
                 user_data = dict(user_data)
@@ -716,9 +705,10 @@ def claim_daily_reward_db(user_id_str):
                 last_daily_claim = user_data.get("last_daily_claim_date")
 
                 if last_daily_claim == today_str:
+                    conn.rollback()
                     return {"success": False, "error": "لقد قمت باستلام المكافأة اليوم بالفعل"}
 
-                raw_daily_day = int(user_data.get("daily_day", 1) or 1)
+                raw_daily_day = int(user_data.get("daily_day") or user_data.get("daily_streak") or 1)
 
                 if last_daily_claim == yesterday_str:
                     effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
@@ -729,146 +719,166 @@ def claim_daily_reward_db(user_id_str):
                 reward_amount = float(parsed_rewards[reward_index])
 
                 current_balance = float(user_data.get("balance", 0.0))
+                current_usd_balance = float(user_data.get("usd_balance", 0.0))
                 new_balance = round(min(current_balance + reward_amount, MAX_SAFE_BALANCE), 8)
-                new_ads_watched = int(user_data.get("ads_watched", 0) or 0) + 1
+                new_ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
-                daily_claims_count = int(user_data.get("daily_claims_count", 0) or 0) + 1
-                daily_history = user_data.get("daily_history") or []
-                if isinstance(daily_history, str):
-                    try: daily_history = json.loads(daily_history)
-                    except Exception: daily_history = []
-                if not isinstance(daily_history, list):
-                    daily_history = []
+                # تحديث عداد المكافآت اليومية وسجل التاريخ الكامل بالثانية للمسابقات
+                daily_claims_cnt = int(user_data.get("daily_claims_count", 0)) + 1
+                daily_hist = user_data.get("daily_history", [])
+                if not isinstance(daily_hist, list):
+                    daily_hist = []
 
-                new_daily_entry = {
-                    "timestamp": now_iso,
+                daily_hist.append({
+                    "claimed_at": now_iso,
                     "date": today_str,
-                    "time": now.strftime('%H:%M:%S'),
                     "day": effective_daily_day,
-                    "reward_amount": reward_amount
-                }
-                daily_history.append(new_daily_entry)
+                    "reward": reward_amount
+                })
 
                 cur.execute("""
-                    UPDATE users SET
-                        balance = %s,
-                        daily_day = %s,
-                        daily_streak = %s,
-                        last_daily_claim_date = %s,
-                        ads_watched = %s,
-                        daily_claims_count = %s,
-                        daily_history = %s
-                    WHERE tg_id = %s
-                """, (new_balance, effective_daily_day, effective_daily_day, today_str, new_ads_watched, daily_claims_count, Json(daily_history), str_uid))
+                    UPDATE users 
+                    SET balance = %s, daily_day = %s, daily_streak = %s, last_daily_claim_date = %s,
+                        ads_watched = %s, daily_claims_count = %s, daily_history = %s
+                    WHERE tg_id = %s;
+                """, (new_balance, effective_daily_day, effective_daily_day, today_str, new_ads_watched, daily_claims_cnt, Json(daily_hist), str_uid))
+
+                conn.commit()
 
                 return {
                     "success": True,
                     "new_balance": new_balance,
-                    "new_usd_balance": float(user_data.get("usd_balance", 0.0)),
+                    "new_usd_balance": round(current_usd_balance, 8),
                     "reward_amount": reward_amount,
                     "daily_day": effective_daily_day,
                     "daily_streak": effective_daily_day,
                     "last_daily_claim_date": today_str,
                     "ads_watched": new_ads_watched,
-                    "daily_claims_count": daily_claims_count,
+                    "daily_claims_count": daily_claims_cnt,
                     "server_time": now_iso
                 }
-
-    except Exception as e:
-        print(f"❌ خطأ claim_daily_reward_db: {e}")
-        return {"success": False, "error": f"تعذر استلام المكافأة اليومية: {str(e)}"}
+        except Exception as e:
+            conn.rollback()
+            return {"success": False, "error": f"تعذر استلام المكافأة اليومية: {str(e)}"}
 
 
 def claim_daily_boost_db(user_id_str):
+    """تفعيل المعزز اليومي مع تسجيل تاريخ وسجل الضغطات بالثانية والعداد للمسابقات"""
     str_uid = str(user_id_str)
+    game_settings = get_game_settings()
 
-    try:
-        with get_db_connection() as conn:
+    with get_db_connection() as conn:
+        conn.autocommit = False
+        try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE;", (str_uid,))
                 user_data = cur.fetchone()
 
                 if not user_data:
+                    conn.rollback()
                     return {"success": False, "error": "المستخدم غير موجود"}
 
                 user_data = dict(user_data)
                 now = datetime.now(timezone.utc)
                 now_iso = format_iso(now)
-
+                today_str = now.strftime('%Y-%m-%d')
                 last_boost_str = user_data.get("last_boost_time")
+
                 if last_boost_str:
                     last_boost = safe_parse_datetime(last_boost_str)
                     if last_boost:
                         elapsed_seconds = (now - last_boost).total_seconds()
-                        if 0 <= elapsed_seconds < 10800:
-                            rem_mins = int((10800 - elapsed_seconds) // 60)
-                            return {"success": False, "error": f"الرجاء الانتظار {rem_mins} دقيقة قبل تفعيل المعزز مجدداً"}
+                        cooldown_seconds = 3 * 3600  # 3 ساعات انتظار
+                        if elapsed_seconds < cooldown_seconds and elapsed_seconds >= 0:
+                            remaining_seconds = int(cooldown_seconds - elapsed_seconds)
+                            rem_hours = remaining_seconds // 3600
+                            rem_mins = (remaining_seconds % 3600) // 60
+                            time_str = f"{rem_hours} ساعة و {rem_mins} دقيقة" if rem_hours > 0 else f"{rem_mins} دقيقة"
+                            conn.rollback()
+                            return {
+                                "success": False,
+                                "error": f"الرجاء الانتظار {time_str} قبل تفعيل المعزز مجدداً",
+                                "remaining_seconds": remaining_seconds
+                            }
 
-                boost_claims_count = int(user_data.get("boost_claims_count", 0) or 0) + 1
-                boost_history = user_data.get("boost_history") or []
-                if isinstance(boost_history, str):
-                    try: boost_history = json.loads(boost_history)
-                    except Exception: boost_history = []
-                if not isinstance(boost_history, list):
-                    boost_history = []
+                max_cap = calculate_user_max_cap(user_data, game_settings)
+                
+                user_data_copy = dict(user_data)
+                user_data_copy["last_boost_time"] = now_iso
+                mined_amount = calculate_accrued_mined(user_data_copy, now, max_cap)
 
-                new_boost_entry = {
-                    "timestamp": now_iso,
-                    "date": now.strftime('%Y-%m-%d'),
-                    "time": now.strftime('%H:%M:%S'),
-                    "reward_rate": 0.10
-                }
-                boost_history.append(new_boost_entry)
+                current_balance = round(min(float(user_data.get("balance", 0.0)), MAX_SAFE_BALANCE), 8)
+                current_usd_balance = round(float(user_data.get("usd_balance", 0.0)), 8)
+                current_ads = int(user_data.get("ads_watched", 0) or 0)
+                new_ads = current_ads + 1
+
+                last_claim_str = user_data.get("last_claim_time") or now_iso
+
+                # تسجيل عدد مرات المعزز والسجل الزمني الدقيق
+                boost_claims_cnt = int(user_data.get("boost_claims_count", 0)) + 1
+                boost_hist = user_data.get("boost_history", [])
+                if not isinstance(boost_hist, list):
+                    boost_hist = []
+
+                boost_hist.append({
+                    "claimed_at": now_iso,
+                    "date": today_str
+                })
 
                 cur.execute("""
-                    UPDATE users SET
-                        last_boost_time = %s,
-                        ads_watched = ads_watched + 1,
-                        boost_claims_count = %s,
-                        boost_history = %s
-                    WHERE tg_id = %s
-                """, (now, boost_claims_count, Json(boost_history), str_uid))
+                    UPDATE users 
+                    SET last_boost_time = %s, ads_watched = %s, boost_claims_count = %s, boost_history = %s
+                    WHERE tg_id = %s;
+                """, (now_iso, new_ads, boost_claims_cnt, Json(boost_hist), str_uid))
+
+                conn.commit()
 
                 return {
                     "success": True,
+                    "type": "speed",
                     "boost_rate_bonus": 0.10,
                     "boost_duration_hours": 2,
+                    "cooldown_hours": 3,
                     "last_boost_time": now_iso,
-                    "boost_claims_count": boost_claims_count,
+                    "last_boost_date": today_str,
+                    "last_claim_time": last_claim_str,
+                    "base_unclaimed": mined_amount,
+                    "unclaimed": mined_amount,
+                    "new_balance": current_balance,
+                    "new_usd_balance": current_usd_balance,
+                    "boost_claims_count": boost_claims_cnt,
                     "server_time": now_iso
                 }
-
-    except Exception as e:
-        print(f"❌ خطأ claim_daily_boost_db: {e}")
-        return {"success": False, "error": f"تعذر تفعيل التعزيز: {str(e)}"}
+        except Exception as e:
+            conn.rollback()
+            return {"success": False, "error": f"تعذر تفعيل التعزيز: {str(e)}"}
 
 
 def get_mining_leaderboard_db(limit=10):
+    """جلب قائمة المتصدرين لأفضل المعدنين مباشرة من Supabase"""
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     SELECT tg_id, first_name, mined_points, total_mined, balance, hourly_rate
                     FROM users
-                    ORDER BY mined_points DESC
-                    LIMIT %s
+                    ORDER BY mined_points DESC, total_mined DESC
+                    LIMIT %s;
                 """, (limit,))
                 rows = cur.fetchall()
-
                 leaderboard = []
                 for rank, row in enumerate(rows, start=1):
-                    d = dict(row)
-                    total_m = float(d.get('mined_points') or d.get('total_mined') or 0.0)
+                    total_m = float(row.get("mined_points") or row.get("total_mined") or 0.0)
                     leaderboard.append({
                         "rank": rank,
-                        "tg_id": str(d.get('tg_id')),
-                        "name": str(d.get('first_name') or 'لاعب'),
-                        "total_mined": round(total_m, 8),
-                        "mined_points": round(total_m, 8),
-                        "balance": round(float(d.get('balance', 0.0)), 8),
-                        "hourly_rate": round(float(d.get('hourly_rate', 0.10)), 4)
+                        "tg_id": str(row["tg_id"]),
+                        "name": row.get("first_name") or f"المستخدم {str(row['tg_id'])[:4]}",
+                        "total_mined": round(min(total_m, MAX_SAFE_BALANCE), 8),
+                        "mined_points": round(min(total_m, MAX_SAFE_BALANCE), 8),
+                        "balance": round(min(float(row.get("balance", 0.0)), MAX_SAFE_BALANCE), 8),
+                        "hourly_rate": round(min(float(row.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE), 4)
                     })
                 return leaderboard
     except Exception as e:
-        print(f"❌ خطأ get_mining_leaderboard_db: {e}")
+        print(f"❌ Error getting leaderboard: {e}")
         return []
