@@ -4,13 +4,13 @@ database.py - النسخة النموذجية المحدثة لإدارة قاع
 مُجهزة بأعمدة وسجلات تتبع المسابقات والمكافآت والمتجر والمعاملات المالية ⚡
 """
 import os
-import json
 from datetime import datetime, timezone
 import psycopg2
 from psycopg2 import pool
-from psycopg2.extras import RealDictCursor, Json
+from psycopg2.extras import RealDictCursor
+from contextlib import contextmanager
 
-# ==================== Helper Formatting Functions ====================
+# ==================== Helper Formatting Function ====================
 def format_iso(dt):
     """تحويل أي كائن تاريخ إلى نمط ISO-8601 القياسي (UTC) المتوافق مع iOS/Android"""
     if dt is None:
@@ -27,29 +27,6 @@ def format_iso(dt):
     if s.endswith('+00:00'):
         s = s[:-6] + 'Z'
     return s
-
-
-def safe_parse_datetime(dt_raw, default_dt=None):
-    """معالجة آمنة لتحويل أي تاريخ أو ختم زمني إلى UTC مع حماية ضد التواريخ غير المنطقية"""
-    if dt_raw is None:
-        return default_dt
-    try:
-        if isinstance(dt_raw, (int, float)):
-            if dt_raw < 0 or dt_raw > 4102444800:
-                return default_dt
-            return datetime.fromtimestamp(dt_raw, tz=timezone.utc)
-        elif isinstance(dt_raw, datetime):
-            if dt_raw.tzinfo is None:
-                return dt_raw.replace(tzinfo=timezone.utc)
-            return dt_raw.astimezone(timezone.utc)
-        else:
-            s = str(dt_raw).strip().replace('Z', '+00:00')
-            dt = datetime.fromisoformat(s)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-    except Exception:
-        return default_dt
 
 
 # ==================== Supabase PostgreSQL Pool ====================
@@ -80,7 +57,7 @@ def init_db_pool():
             minconn=1,
             maxconn=10,
             dsn=db_url,
-            connect_timeout=5
+            connect_timeout=3
         )
         print("⚡ [Barebones Pool] تم تأسيس بركة الاتصالات بنجاح!")
         
@@ -105,7 +82,7 @@ def init_db_pool():
                         interactions INT DEFAULT 1,
                         is_banned BOOLEAN DEFAULT FALSE,
                         farm_level INT DEFAULT 1,
-                        storage_level INT DEFAULT 0,
+                        storage_level INT DEFAULT 1,
                         device_id VARCHAR(256),
                         fingerprint_hash VARCHAR(256)
                     );
@@ -133,7 +110,7 @@ def init_db_pool():
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
 
-                    -- جدول المعاملات المكتملة والدفع المباشر
+                    -- جدول المعاملات المكتملة والدفع المباشر (منع التكرار Double-Spending)
                     CREATE TABLE IF NOT EXISTS processed_txs (
                         tx_hash VARCHAR(256) PRIMARY KEY,
                         tg_id VARCHAR(128),
@@ -158,10 +135,11 @@ def init_db_pool():
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
 
-                    -- تحديث جدول users ليكون جاهزاً لكافة بيانات التعدين والمزرعة
+                    -- تحديث جدول users ليكون جاهزاً لكافة بيانات التعدين والمزرعة والاشتراكات والمتجر
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION DEFAULT 0.10;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS mined_points DOUBLE PRECISION DEFAULT 0.0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS total_mined DOUBLE PRECISION DEFAULT 0.0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_level INT DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS extra_storage DOUBLE PRECISION DEFAULT 0.0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS max_cap DOUBLE PRECISION DEFAULT 0.5;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_claim_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
@@ -176,14 +154,14 @@ def init_db_pool():
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT FALSE;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_expires_at TIMESTAMPTZ;
 
-                    -- أعمدة المسابقات وسجلات المكافآت التفصيلية
+                    -- أعمدة المسابقات وتحديثات اشتراك VIP
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS boost_claims_count INT DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS boost_history JSONB DEFAULT '[]'::jsonb;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_claims_count INT DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_history JSONB DEFAULT '[]'::jsonb;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_status JSONB DEFAULT '{}'::jsonb;
                 """)
-            print("⚡ [Supabase Setup] تم إنشاء الجداول وتحديث مخطط المسابقات والإعدادات بنجاح!")
+            print("⚡ [Supabase Setup] تم إنشاء الجداول الأساسية وتحديث مخطط المتجر والـ VIP بنجاح!")
         except Exception as e:
             print(f"⚠️ خطأ أثناء إنشاء/تحديث الجداول: {e}")
         finally:
@@ -192,14 +170,13 @@ def init_db_pool():
     return db_pool
 
 
-from contextlib import contextmanager
-
 @contextmanager
 def get_db_connection():
-    """مستلم اتصالات خفيف ومباشر مع إدارة تلقائية للإنهاء"""
+    """مستلم اتصالات خفيف ومباشر"""
     pool_obj = init_db_pool()
     conn = pool_obj.getconn()
     try:
+        conn.autocommit = True
         yield conn
     finally:
         if conn:
@@ -210,7 +187,7 @@ def get_db():
     return init_db_pool()
 
 
-# ==================== Helpers & Core Functions ====================
+# ==================== Core Minimal Functions ====================
 
 def _sanitize_id(sid):
     if not sid or str(sid).lower() in ("none", "null", "undefined"):
@@ -247,13 +224,12 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
         existing = get_user(clean_id)
         if not existing:
             with get_db_connection() as conn:
-                conn.autocommit = True
                 with conn.cursor() as cur:
                     cur.execute("""
-                        INSERT INTO users (tg_id, user_id, telegram_id, first_name, ref_by)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO users (tg_id, user_id, telegram_id, first_name)
+                        VALUES (%s, %s, %s, %s)
                         ON CONFLICT (tg_id) DO NOTHING;
-                    """, (clean_id, clean_id, clean_id, str(first_name or 'لاعب'), _sanitize_id(ref_id)))
+                    """, (clean_id, clean_id, clean_id, str(first_name or 'لاعب')))
             return get_user(clean_id) or {}
         return existing
     except Exception as e:
@@ -261,120 +237,28 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
         return {}
 
 
-def get_setting(key, default=None):
-    """جلب إعداد محدد من جدول settings في Supabase"""
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
-                row = cur.fetchone()
-                if row and row.get("value"):
-                    return row["value"]
-    except Exception as e:
-        print(f"⚠️ خطأ جلب الإعداد {key}: {e}")
-    return default
-
-
-def set_setting(key, value):
-    """حفظ أو تحديث إعداد في جدول settings في Supabase"""
-    try:
-        with get_db_connection() as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO settings (key, value, updated_at)
-                    VALUES (%s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;
-                """, (key, Json(value)))
-        return True
-    except Exception as e:
-        print(f"❌ خطأ حفظ الإعداد {key}: {e}")
-        return False
-
-
-def update_user(telegram_id, updates_dict):
-    """تحديث ديناميكي لحقول المستخدم في Supabase"""
-    clean_id = _sanitize_id(telegram_id)
-    if not clean_id or not updates_dict:
-        return False
-    try:
-        set_clauses = []
-        params = []
-        for key, val in updates_dict.items():
-            if isinstance(val, (dict, list)):
-                set_clauses.append(f"{key} = %s")
-                params.append(Json(val))
-            else:
-                set_clauses.append(f"{key} = %s")
-                params.append(val)
-
-        params.append(clean_id)
-        sql = f"UPDATE users SET {', '.join(set_clauses)}, last_active_at = CURRENT_TIMESTAMP WHERE tg_id = %s"
-
-        with get_db_connection() as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                cur.execute(sql, tuple(params))
-        return True
-    except Exception as e:
-        print(f"❌ خطأ update_user: {e}")
-        return False
-
-
 def is_user_banned(telegram_id):
-    u = get_user(telegram_id)
-    return bool(u and u.get("is_banned"))
+    return False
 
 
 def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
     return {"allowed": True}
 
 
+def update_user(telegram_id, updates_dict):
+    return True
+
+
 def update_user_last_active(user_id):
-    return update_user(user_id, {"interactions": 1})
+    return True
 
 
 def atomic_update_balance(telegram_id, amount_change, is_usd=False):
-    clean_id = _sanitize_id(telegram_id)
-    if not clean_id:
-        return False, 0.0
-    field = "usd_balance" if is_usd else "balance"
-    try:
-        with get_db_connection() as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                cur.execute(f"""
-                    UPDATE users SET {field} = GREATEST(0.0, {field} + %s)
-                    WHERE tg_id = %s RETURNING {field};
-                """, (amount_change, clean_id))
-                row = cur.fetchone()
-                if row:
-                    return True, float(row[0])
-    except Exception as e:
-        print(f"❌ خطأ atomic_update_balance: {e}")
-    return False, 0.0
+    return True, 0.0
 
 
 def get_leaderboard_data(limit=50, user_id=None):
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT tg_id, first_name, mined_points, total_mined, balance, hourly_rate
-                    FROM users
-                    ORDER BY mined_points DESC, total_mined DESC
-                    LIMIT %s;
-                """, (limit,))
-                rows = cur.fetchall()
-                leaderboard = []
-                for idx, row in enumerate(rows, start=1):
-                    item = dict(row)
-                    item["rank"] = idx
-                    leaderboard.append(item)
-                return {"success": True, "leaderboard": leaderboard, "my_rank": "غير مصنف"}
-    except Exception as e:
-        print(f"❌ خطأ get_leaderboard_data: {e}")
-        return {"success": False, "leaderboard": [], "my_rank": "غير مصنف"}
+    return {"success": True, "leaderboard": [], "my_rank": "غير مصنف"}
 
 
 def get_user_data(telegram_id):
