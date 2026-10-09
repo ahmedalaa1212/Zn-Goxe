@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 database.py - النسخة النموذجية المحدثة لإدارة قاعدة بيانات Supabase (PostgreSQL)
-مُجهزة بأعمدة وسجلات تتبع المسابقات والمكافآت والتواريخ القياسية ⚡
+مُجهزة بأعمدة وسجلات تتبع المسابقات والمكافآت والمتجر والمعاملات المالية ⚡
 """
 import os
 from datetime import datetime, timezone
@@ -103,18 +103,45 @@ def init_db_pool():
                         banned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
 
-                    -- جدول الإعدادات العامة (لحفظ إعدادات المزرعة، اليوميات، إلخ)
+                    -- جدول الإعدادات العامة (لحفظ إعدادات المزرعة، المتجر، إلخ)
                     CREATE TABLE IF NOT EXISTS settings (
                         key VARCHAR(128) PRIMARY KEY,
                         value JSONB DEFAULT '{}'::jsonb,
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
 
-                    -- تحديث جدول users ليكون جاهزاً لكافة بيانات التعدين والمزرعة والمسابقات
+                    -- جدول المعاملات المكتملة والدفع المباشر (منع التكرار Double-Spending)
+                    CREATE TABLE IF NOT EXISTS processed_txs (
+                        tx_hash VARCHAR(256) PRIMARY KEY,
+                        tg_id VARCHAR(128),
+                        package_id VARCHAR(64),
+                        type VARCHAR(64),
+                        cost_zn DOUBLE PRECISION DEFAULT 0.0,
+                        cost_usd DOUBLE PRECISION DEFAULT 0.0,
+                        details JSONB DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    -- جدول سجل المشتريات العام للتدقيق المالي
+                    CREATE TABLE IF NOT EXISTS purchase_history (
+                        id SERIAL PRIMARY KEY,
+                        tg_id VARCHAR(128),
+                        type VARCHAR(64),
+                        item_id VARCHAR(64),
+                        cost_zn DOUBLE PRECISION DEFAULT 0.0,
+                        cost_usd DOUBLE PRECISION DEFAULT 0.0,
+                        tx_hash VARCHAR(256),
+                        details JSONB DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    -- تحديث جدول users ليكون جاهزاً لكافة بيانات التعدين والمزرعة والاشتراكات والمتجر
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION DEFAULT 0.10;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS mined_points DOUBLE PRECISION DEFAULT 0.0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS total_mined DOUBLE PRECISION DEFAULT 0.0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_level INT DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS extra_storage DOUBLE PRECISION DEFAULT 0.0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS max_cap DOUBLE PRECISION DEFAULT 0.5;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_claim_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily_claim_date VARCHAR(32);
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_day INT DEFAULT 1;
@@ -127,13 +154,14 @@ def init_db_pool():
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT FALSE;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_expires_at TIMESTAMPTZ;
 
-                    -- أعمدة تتبع مكافأة السرعة والتسجيل اليومي للمسابقات
+                    -- أعمدة المسابقات وتحديثات اشتراك VIP
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS boost_claims_count INT DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS boost_history JSONB DEFAULT '[]'::jsonb;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_claims_count INT DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_history JSONB DEFAULT '[]'::jsonb;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_status JSONB DEFAULT '{}'::jsonb;
                 """)
-            print("⚡ [Supabase Setup] تم إنشاء الجداول الأساسية وتحديث مخطط المسابقات والمكافآت بنجاح!")
+            print("⚡ [Supabase Setup] تم إنشاء الجداول الأساسية وتحديث مخطط المتجر والـ VIP بنجاح!")
         except Exception as e:
             print(f"⚠️ خطأ أثناء إنشاء/تحديث الجداول: {e}")
         finally:
