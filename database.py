@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-بيانات التطبيق الرئيسية مع ربط Supabase (PostgreSQL)
-نسخة فائقة السرعة والأداء العالي (Ultra-Fast Edition)
+بيانات التطبيق الرئيسية - ربط Supabase (PostgreSQL) عبر Transaction Pooler (Port 6543)
+نسخة الأداء الأقصى والتأسيس المباشر للجداول ⚡
 """
 import json
 import os
@@ -16,9 +16,9 @@ import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor, Json
 
-# ==================== In-Memory Fast Caching (ذاكرة مؤقتة فائقة السرعة) ====================
+# ==================== In-Memory Fast Caching (ذاكرة سريعة للاستجابة المباشرة) ====================
 USER_CACHE = {}  # {user_id: (user_data, timestamp)}
-CACHE_TTL = 3    # الاحتفاظ بالبيانات لمدة 3 ثوانٍ لتسريع الاستجابة عند الضغط المتكرر
+CACHE_TTL = 3    # الاحتفاظ بالبيانات لمدة 3 ثوانٍ لتسريع الضغطات المتتالية
 
 def _get_cached_user(user_id):
     if user_id in USER_CACHE:
@@ -42,76 +42,28 @@ _tables_initialized = False
 _init_lock = threading.Lock()
 
 def get_database_url():
-    """استخراج وتنظيف رابط DATABASE_URL"""
+    """استخراج وتنظيف رابط DATABASE_URL وضمان نمط sslmode"""
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
-        raise ValueError("❌ لم يتم العثور على المتغير البيئي DATABASE_URL!")
+        raise ValueError("❌ لم يتم العثور على المتغير البيئي DATABASE_URL! تأكد من إضافته في Railway.")
     
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     
+    # إضافة sslmode=require إذا لم تكن موجودة لتفادي بطء المصافحة
+    if "sslmode" not in db_url:
+        separator = "&" if "?" in db_url else "?"
+        db_url += f"{separator}sslmode=require"
+        
     return db_url
 
 
-def init_db_pool():
-    """تهيئة بركة اتصالات خفيفة وسريعة"""
-    global db_pool, _tables_initialized
-    if db_pool is None or db_pool.closed:
-        with _init_lock:
-            if db_pool is None or db_pool.closed:
-                try:
-                    db_url = get_database_url()
-                    db_pool = pool.ThreadedConnectionPool(
-                        minconn=2,
-                        maxconn=20,
-                        dsn=db_url,
-                        connect_timeout=5,
-                        keepalives=1,
-                        keepalives_idle=30,
-                        keepalives_interval=10,
-                        keepalives_count=5
-                    )
-                    print("⚡ [Supabase Pool] تم تأسيس بركة الاتصالات بنجاح!")
-                    
-                    if not _tables_initialized:
-                        _tables_initialized = True
-                        threading.Thread(target=_async_create_tables, daemon=True).start()
+def _create_tables_sync(conn):
+    """إنشاء الجداول والفهارس فوراً وضمان جهوزيتها"""
+    global _tables_initialized
+    if _tables_initialized:
+        return
 
-                except Exception as e:
-                    print(f"❌ خطأ حرِج أثناء الاتصال بـ Supabase: {e}")
-                    raise e
-    return db_pool
-
-
-@contextmanager
-def get_db_connection():
-    """Context Manager ذكي يجلب الاتصال ويغلقه بصفاء بدون استعلامات شبكية مكررة"""
-    pool_obj = init_db_pool()
-    conn = None
-    is_broken = False
-    try:
-        conn = pool_obj.getconn()
-        conn.autocommit = True
-        yield conn
-    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-        is_broken = True
-        raise e
-    except Exception:
-        raise
-    finally:
-        if conn:
-            try:
-                pool_obj.putconn(conn, close=is_broken)
-            except Exception:
-                pass
-
-
-def get_db():
-    return init_db_pool()
-
-
-def _async_create_tables():
-    """إنشاء الهيكل الأساسي للجداول في الخلفية لعدم إعاقة بدء البوت"""
     create_tables_sql = """
     CREATE TABLE IF NOT EXISTS users (
         tg_id VARCHAR(128) PRIMARY KEY,
@@ -164,12 +116,73 @@ def _async_create_tables():
     CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices(fingerprint_hash);
     """
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(create_tables_sql)
-            print("⚡ تم التحقق من هيكل الجداول والفهارس بنجاح!")
+        with conn.cursor() as cur:
+            cur.execute(create_tables_sql)
+        _tables_initialized = True
+        print("⚡ [Supabase] تم إنشاء والتحقق من هيكل الجداول بنجاح!")
     except Exception as e:
         print(f"⚠️ تنبيه الجداول: {e}")
+
+
+def init_db_pool():
+    """تهيئة بركة اتصالات متوافقة مع Transaction Pooler"""
+    global db_pool
+    if db_pool is None or db_pool.closed:
+        with _init_lock:
+            if db_pool is None or db_pool.closed:
+                try:
+                    db_url = get_database_url()
+                    db_pool = pool.ThreadedConnectionPool(
+                        minconn=1,
+                        maxconn=20,
+                        dsn=db_url,
+                        connect_timeout=3,
+                        keepalives=1,
+                        keepalives_idle=30,
+                        keepalives_interval=10,
+                        keepalives_count=3
+                    )
+                    print("⚡ [Supabase Pool] تم تأسيس بركة الاتصالات بنجاح!")
+                    
+                    # إنشاء الجداول فورياً عند فتح أول اتصال
+                    temp_conn = db_pool.getconn()
+                    try:
+                        temp_conn.autocommit = True
+                        _create_tables_sync(temp_conn)
+                    finally:
+                        db_pool.putconn(temp_conn)
+
+                except Exception as e:
+                    print(f"❌ خطأ حرِج أثناء الاتصال بـ Supabase: {e}")
+                    raise e
+    return db_pool
+
+
+@contextmanager
+def get_db_connection():
+    """Context Manager خفيف جداً متوافق مع Supavisor / Transaction Pooler"""
+    pool_obj = init_db_pool()
+    conn = None
+    is_broken = False
+    try:
+        conn = pool_obj.getconn()
+        conn.autocommit = True
+        yield conn
+    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+        is_broken = True
+        raise e
+    except Exception:
+        raise
+    finally:
+        if conn:
+            try:
+                pool_obj.putconn(conn, close=is_broken)
+            except Exception:
+                pass
+
+
+def get_db():
+    return init_db_pool()
 
 
 # ==================== Safe Import of ZNX Wallet Module ====================
@@ -221,7 +234,6 @@ def _sanitize_telegram_id(telegram_id):
 
 
 def sanitize_firestore_data(data):
-    """دالة توفيق وتجهيز البيانات للتوافق مع JSON في Flask"""
     if data is None:
         return None
     if isinstance(data, dict):
@@ -360,7 +372,7 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
         return {"allowed": True}
 
 
-# ==================== Core User Operations (مع الذاكرة المؤقتة السريعة) ====================
+# ==================== Core User Operations ====================
 
 def get_user(telegram_id, force_refresh=False):
     user_id_str = _sanitize_telegram_id(telegram_id)
@@ -482,7 +494,7 @@ def update_user_last_active(user_id):
         return False
 
 
-# ==================== Atomic Transactions (منع التزامن والثغرات المالية) ====================
+# ==================== Atomic Transactions ====================
 
 def atomic_update_balance(telegram_id, amount_change, is_usd=False):
     user_id_str = _sanitize_telegram_id(telegram_id)
@@ -609,7 +621,7 @@ def get_leaderboard_data(limit=50, user_id=None):
     return _fallback_get_leaderboard_data(limit=limit, user_id=user_id)
 
 
-# ==================== Sub-Modules Re-exports (آمنة وبدون تجميد) ====================
+# ==================== Sub-Modules Re-exports ====================
 
 try: from admin_database import *
 except Exception: pass
@@ -625,7 +637,6 @@ except Exception: pass
 
 try:
     from games.games_db import *
-    # تم إلغاء init_all_games_db() التلقائية لمنع تجميد خادم التطبيق
 except Exception: pass
 
 try: from settings.settings_db import *
