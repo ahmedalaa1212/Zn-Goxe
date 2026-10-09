@@ -1,12 +1,13 @@
 # shop/shop_db.py
 # =================================================================
-# 🛒 ZN Goxe - Shop Backend Database Operations (Firebase Safe Sync)
+# 🛒 ZN Goxe - Shop Backend Database Operations (Supabase / PostgreSQL)
 # =================================================================
 
-from firebase_admin import firestore
-from datetime import datetime, timezone, timedelta
-import database
+import json
 import logging
+from datetime import datetime, timezone, timedelta
+from psycopg2.extras import RealDictCursor, Json
+from database import get_db_connection, format_iso
 
 logger = logging.getLogger(__name__)
 
@@ -119,16 +120,37 @@ DEFAULT_USDT_PACKAGES = {
 }
 
 
-def get_shop_catalog():
-    """جلب قائمة مستويات التعدين والتخزين والباقات من إعدادات الفيربيس مع تحويل المفاتيح لنصوص والحفاظ على الهيكلية الكاملة"""
-    try:
-        db = database.db
-        
-        farm_doc = db.collection('settings').document('farm_settings').get()
-        farm_settings = farm_doc.to_dict() if farm_doc.exists else {}
+def _parse_json_field(field_val, default=None):
+    """تحليل حقول JSONB بأمان"""
+    if default is None:
+        default = {}
+    if field_val is None:
+        return default
+    if isinstance(field_val, (dict, list)):
+        return field_val
+    if isinstance(field_val, str):
+        try:
+            return json.loads(field_val)
+        except Exception:
+            return default
+    return default
 
-        shop_doc = db.collection('settings').document('shop_settings').get()
-        shop_settings = shop_doc.to_dict() if shop_doc.exists else {}
+
+def get_shop_catalog():
+    """جلب قائمة مستويات التعدين والتخزين والباقات من جدول الإعدادات في Supabase"""
+    try:
+        farm_settings = {}
+        shop_settings = {}
+
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT key, value FROM settings WHERE key IN ('farm_settings', 'shop_settings')")
+                rows = cur.fetchall()
+                for row in rows:
+                    if row['key'] == 'farm_settings':
+                        farm_settings = _parse_json_field(row['value'], {})
+                    elif row['key'] == 'shop_settings':
+                        shop_settings = _parse_json_field(row['value'], {})
 
         mining_cfg = farm_settings.get("upgrade_config", {}) or farm_settings.get("mining_config", {})
         storage_cfg = farm_settings.get("storage_capacities", {}) or farm_settings.get("storage_config", {})
@@ -152,37 +174,26 @@ def get_shop_catalog():
         }
     except Exception as e:
         logger.error(f"❌ Error in get_shop_catalog: {e}")
-        try:
-            settings = database.get_game_settings() or {}
-            mining_cfg = settings.get("mining_config", {})
-            storage_cfg = settings.get("storage_config", {})
-            usdt_pkgs = settings.get("usdt_packages", {})
-            pkgs_normalized = {str(k): v for k, v in usdt_pkgs.items()} if isinstance(usdt_pkgs, dict) and usdt_pkgs else DEFAULT_USDT_PACKAGES.copy()
-            return {
-                "mining_config": {str(k): v for k, v in mining_cfg.items()} if isinstance(mining_cfg, dict) else {},
-                "upgrade_config": {str(k): v for k, v in mining_cfg.items()} if isinstance(mining_cfg, dict) else {},
-                "storage_config": {str(k): v for k, v in storage_cfg.items()} if isinstance(storage_cfg, dict) else {},
-                "storage_capacities": {str(k): v for k, v in storage_cfg.items()} if isinstance(storage_cfg, dict) else {},
-                "usdt_packages": pkgs_normalized,
-                "packages": pkgs_normalized
-            }
-        except Exception:
-            return {
-                "mining_config": {},
-                "upgrade_config": {},
-                "storage_config": {},
-                "storage_capacities": {},
-                "usdt_packages": DEFAULT_USDT_PACKAGES.copy(),
-                "packages": DEFAULT_USDT_PACKAGES.copy()
-            }
+        return {
+            "mining_config": {},
+            "upgrade_config": {},
+            "storage_config": {},
+            "storage_capacities": {},
+            "usdt_packages": DEFAULT_USDT_PACKAGES.copy(),
+            "packages": DEFAULT_USDT_PACKAGES.copy()
+        }
 
 
 def get_shop_settings():
     """جلب إعدادات المتجر الكاملة شاملة عنوان المحفظة والباقات وسعر TON اللحظي"""
     try:
-        db = database.db
-        shop_doc = db.collection('settings').document('shop_settings').get()
-        shop_settings = shop_doc.to_dict() if shop_doc.exists else {}
+        shop_settings = {}
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT value FROM settings WHERE key = 'shop_settings'")
+                row = cur.fetchone()
+                if row and row.get('value'):
+                    shop_settings = _parse_json_field(row['value'], {})
 
         catalog = get_shop_catalog()
 
@@ -211,65 +222,71 @@ def get_user_vip_status(user_id):
         if not user_id:
             return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
-        db = database.db
-        u_snap = db.collection('users').document(str(user_id)).get()
-        if not u_snap.exists:
-            return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+        str_uid = str(user_id)
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT vip_status FROM users WHERE tg_id = %s", (str_uid,))
+                row = cur.fetchone()
 
-        user_data = u_snap.to_dict() or {}
-        vip_status = user_data.get("vip_status", {})
-        if not isinstance(vip_status, dict) or not vip_status:
-            return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+                if not row or not row.get('vip_status'):
+                    return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
-        expires_at_str = vip_status.get("expires_at")
-        if not expires_at_str:
-            return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+                vip_status = _parse_json_field(row['vip_status'], {})
+                if not isinstance(vip_status, dict) or not vip_status:
+                    return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
-        now_dt = datetime.now(timezone.utc)
-        expires_dt = datetime.fromisoformat(str(expires_at_str).replace('Z', '+00:00'))
+                expires_at_str = vip_status.get("expires_at")
+                if not expires_at_str:
+                    return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
-        remaining_seconds = max(0, int((expires_dt - now_dt).total_seconds()))
-        is_active = remaining_seconds > 0
+                now_dt = datetime.now(timezone.utc)
+                clean_exp_str = str(expires_at_str).replace(' ', 'T').replace('Z', '+00:00')
+                expires_dt = datetime.fromisoformat(clean_exp_str)
+                if expires_dt.tzinfo is None:
+                    expires_dt = expires_dt.replace(tzinfo=timezone.utc)
 
-        return {
-            "is_active": is_active,
-            "package_id": vip_status.get("package_id"),
-            "expires_at": expires_at_str,
-            "remaining_seconds": remaining_seconds,
-            "auto_bot": bool(vip_status.get("auto_bot", False)) if is_active else False,
-            "double_storage": bool(vip_status.get("double_storage", False)) if is_active else False,
-            "referral_rate": float(vip_status.get("referral_rate", 0.0)) if is_active else 0.0,
-            "ref_min_upgrades": int(vip_status.get("ref_min_upgrades", 0)) if is_active else 0,
-            "ref_withdraw_fee": float(vip_status.get("ref_withdraw_fee", 0.0)) if is_active else 0.0
-        }
+                remaining_seconds = max(0, int((expires_dt - now_dt).total_seconds()))
+                is_active = remaining_seconds > 0
+
+                return {
+                    "is_active": is_active,
+                    "package_id": vip_status.get("package_id"),
+                    "expires_at": format_iso(expires_dt),
+                    "remaining_seconds": remaining_seconds,
+                    "auto_bot": bool(vip_status.get("auto_bot", False)) if is_active else False,
+                    "double_storage": bool(vip_status.get("double_storage", False)) if is_active else False,
+                    "referral_rate": float(vip_status.get("referral_rate", 0.0)) if is_active else 0.0,
+                    "ref_min_upgrades": int(vip_status.get("ref_min_upgrades", 0)) if is_active else 0,
+                    "ref_withdraw_fee": float(vip_status.get("ref_withdraw_fee", 0.0)) if is_active else 0.0
+                }
     except Exception as e:
         logger.error(f"❌ Error in get_user_vip_status: {e}")
         return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
 
 def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0, tx_hash=None, details=None):
-    """تسجيل المعاملة المالية في سجل المشتريات المعتمد للتدقيق المالي ومنع التكرار"""
+    """تسجيل المعاملة المالية في سجل المشتريات المعتمد في Supabase لمنع التكرار والتدقيق المالي"""
     try:
-        db = database.db
-        log_data = {
-            "tg_id": str(tg_id),
-            "type": str(tx_type),
-            "item_id": str(item_id),
-            "cost_zn": float(cost_zn),
-            "cost_usd": float(cost_usd),
-            "tx_hash": tx_hash or "",
-            "details": details or {},
-            "timestamp": firestore.SERVER_TIMESTAMP
-        }
-        
-        # 1. التسجيل في مجموعة المشتريات المعالجة العامة
-        if tx_hash:
-            db.collection('processed_txs').document(str(tx_hash)).set(log_data, merge=True)
-        else:
-            db.collection('processed_txs').add(log_data)
-            
-        # 2. إضافة إلى سجل مشتريات المستخدم الخاص
-        db.collection('users').document(str(tg_id)).collection('purchase_history').add(log_data)
+        str_uid = str(tg_id)
+        tx_h = str(tx_hash).strip() if tx_hash else None
+        details_obj = details if isinstance(details, dict) else {}
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. إضافة إلى سجل مشتريات المستخدم العام
+                cur.execute("""
+                    INSERT INTO purchase_history (tg_id, type, item_id, cost_zn, cost_usd, tx_hash, details)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s);
+                """, (str_uid, str(tx_type), str(item_id), float(cost_zn), float(cost_usd), tx_h, Json(details_obj)))
+
+                # 2. التسجيل في جدول المعاملات المعالجة لمنع تكرار المعاملة إن وجد الـ Hash
+                if tx_h:
+                    cur.execute("""
+                        INSERT INTO processed_txs (tx_hash, tg_id, type, cost_zn, cost_usd, details)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (tx_hash) DO NOTHING;
+                    """, (tx_h, str_uid, str(tx_type), float(cost_zn), float(cost_usd), Json(details_obj)))
+
         return True
     except Exception as e:
         logger.error(f"⚠️ Failed to log purchase transaction: {e}")
@@ -277,7 +294,7 @@ def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0,
 
 
 def buy_mining_upgrade(tg_id, upgrade_level):
-    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن (Transaction) من الرصيدين (ZN + USD) وتسجيل العملية"""
+    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن (FOR UPDATE) من الرصيدين (ZN + USD) وتسجيل العملية"""
     try:
         if not tg_id or upgrade_level is None:
             return False, "بيانات الترقية غير صالحة", {}
@@ -295,76 +312,85 @@ def buy_mining_upgrade(tg_id, upgrade_level):
         rate_bonus = float(item_info.get("rate_bonus", item_info.get("rate", 0.0)))
         max_purchases = int(item_info.get("max", item_info.get("max_limit", 15)))
 
-        db = database.db
-        user_ref = db.collection('users').document(str(tg_id))
-        transaction = db.transaction()
+        str_uid = str(tg_id)
 
-        @firestore.transactional
-        def _buy_tx(tx, u_ref):
-            u_snap = tx.get(u_ref)
-            if not u_snap.exists:
-                raise Exception("المستخدم غير موجود")
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                user_data = cur.fetchone()
 
-            user_data = u_snap.to_dict() or {}
+                if not user_data:
+                    return False, "المستخدم غير موجود", {}
 
-            user_upgrades = user_data.get("upgrades", {})
-            if not isinstance(user_upgrades, dict):
-                user_upgrades = {}
+                user_data = dict(user_data)
+                user_upgrades = _parse_json_field(user_data.get("upgrades"), {})
 
-            current_owned = int(user_upgrades.get(f"lvl{lvl_str}", user_upgrades.get(lvl_str, 0)))
+                current_owned = int(user_upgrades.get(f"lvl{lvl_str}", user_upgrades.get(lvl_str, 0)))
 
-            if current_owned >= max_purchases:
-                raise Exception("وصلت للحد الأقصى لشراء هذه الترقية")
+                if current_owned >= max_purchases:
+                    return False, "وصلت للحد الأقصى لشراء هذه الترقية", {}
 
-            current_balance = float(user_data.get("balance", 0.0) or 0.0)
-            current_usd_balance = float(user_data.get("usd_balance", user_data.get("balance_usd", 0.0)) or 0.0)
+                current_balance = float(user_data.get("balance", 0.0) or 0.0)
+                current_usd_balance = float(user_data.get("usd_balance", 0.0) or 0.0)
 
-            if current_balance < cost_zn:
-                raise Exception(f"رصيد ZN غير كافٍ! تحتاج {cost_zn:g} ZN")
+                if current_balance < cost_zn:
+                    return False, f"رصيد ZN غير كافٍ! تحتاج {cost_zn:g} ZN", {}
 
-            if current_usd_balance < cost_usd:
-                raise Exception(f"رصيد الدولار غير كافٍ! تحتاج ${cost_usd:g}")
+                if current_usd_balance < cost_usd:
+                    return False, f"رصيد الدولار غير كافٍ! تحتاج ${cost_usd:g}", {}
 
-            last_claim_str = user_data.get('last_claim_time')
-            now_dt = datetime.now(timezone.utc)
-            old_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
-            old_cap = float(user_data.get("max_cap", 100.0) or 100.0)
-            
-            pending_mined = 0.0
-            if last_claim_str:
-                try:
-                    last_claim_dt = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
-                    time_elapsed = max(0.0, now_dt.timestamp() - last_claim_dt.timestamp())
-                    pending_mined = min(time_elapsed * (old_rate / 3600.0), old_cap)
-                except Exception:
-                    pending_mined = 0.0
+                last_claim_raw = user_data.get('last_claim_time')
+                now_dt = datetime.now(timezone.utc)
+                old_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
+                old_cap = float(user_data.get("max_cap", 100.0) or 100.0)
 
-            new_balance = round(current_balance - cost_zn, 4)
-            new_usd_balance = round(current_usd_balance - cost_usd, 4)
-            new_hourly_rate = round(old_rate + rate_bonus, 4)
+                pending_mined = 0.0
+                if last_claim_raw:
+                    try:
+                        clean_str = str(last_claim_raw).replace(' ', 'T').replace('Z', '+00:00')
+                        last_claim_dt = datetime.fromisoformat(clean_str)
+                        if last_claim_dt.tzinfo is None:
+                            last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
+                        time_elapsed = max(0.0, (now_dt - last_claim_dt).total_seconds())
+                        pending_mined = min(time_elapsed * (old_rate / 3600.0), old_cap)
+                    except Exception:
+                        pending_mined = 0.0
 
-            if new_hourly_rate > 0:
-                time_needed = pending_mined / (new_hourly_rate / 3600.0)
-                new_last_claim = (now_dt - timedelta(seconds=time_needed)).isoformat()
-            else:
-                new_last_claim = now_dt.isoformat()
+                new_balance = round(current_balance - cost_zn, 4)
+                new_usd_balance = round(current_usd_balance - cost_usd, 4)
+                new_hourly_rate = round(old_rate + rate_bonus, 4)
 
-            user_upgrades[f"lvl{lvl_str}"] = current_owned + 1
+                if new_hourly_rate > 0:
+                    time_needed = pending_mined / (new_hourly_rate / 3600.0)
+                    new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
+                else:
+                    new_last_claim_dt = now_dt
 
-            updated_fields = {
-                "balance": new_balance,
-                "usd_balance": new_usd_balance,
-                "hourly_rate": new_hourly_rate,
-                "upgrades": user_upgrades,
-                "last_claim_time": new_last_claim
-            }
+                user_upgrades[f"lvl{lvl_str}"] = current_owned + 1
+                total_upgrades_cnt = sum(int(v) for v in user_upgrades.values() if isinstance(v, (int, float)))
 
-            tx.update(u_ref, updated_fields)
-            return updated_fields
+                cur.execute("""
+                    UPDATE users SET
+                        balance = %s,
+                        usd_balance = %s,
+                        hourly_rate = %s,
+                        upgrades = %s,
+                        upgrades_count = %s,
+                        last_claim_time = %s
+                    WHERE tg_id = %s
+                """, (new_balance, new_usd_balance, new_hourly_rate, Json(user_upgrades), total_upgrades_cnt, new_last_claim_dt, str_uid))
 
-        updated_data = _buy_tx(transaction, user_ref)
+                updated_fields = {
+                    "balance": new_balance,
+                    "usd_balance": new_usd_balance,
+                    "hourly_rate": new_hourly_rate,
+                    "upgrades": user_upgrades,
+                    "upgrades_count": total_upgrades_cnt,
+                    "last_claim_time": format_iso(new_last_claim_dt)
+                }
+
         log_purchase_transaction(tg_id, "mining_upgrade", lvl_str, cost_zn, cost_usd)
-        return True, f"تم شراء الترقية مستوى {lvl_str} بنجاح!", updated_data
+        return True, f"تم شراء الترقية مستوى {lvl_str} بنجاح!", updated_fields
 
     except Exception as e:
         logger.error(f"❌ Error buying mining upgrade: {e}")
@@ -379,92 +405,100 @@ def upgrade_storage_capacity(tg_id):
 
         catalog = get_shop_catalog()
         storage_cfg = catalog.get("storage_config", {})
+        str_uid = str(tg_id)
 
-        db = database.db
-        user_ref = db.collection('users').document(str(tg_id))
-        transaction = db.transaction()
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                user_data = cur.fetchone()
 
-        @firestore.transactional
-        def _storage_tx(tx, u_ref):
-            u_snap = tx.get(u_ref)
-            if not u_snap.exists:
-                raise Exception("المستخدم غير موجود")
+                if not user_data:
+                    return False, "المستخدم غير موجود", {}
 
-            user_data = u_snap.to_dict() or {}
-            current_lvl = int(user_data.get("storage_level", 0))
-            next_lvl_str = str(current_lvl + 1)
+                user_data = dict(user_data)
+                current_lvl = int(user_data.get("storage_level", 0))
+                next_lvl_str = str(current_lvl + 1)
 
-            if next_lvl_str not in storage_cfg:
-                raise Exception("وصلت لأعلى مستوى مخزن حالياً!")
+                if next_lvl_str not in storage_cfg:
+                    return False, "وصلت لأعلى مستوى مخزن حالياً!", {}
 
-            next_info = storage_cfg[next_lvl_str]
-            cost_zn = float(next_info.get("cost_zn", next_info.get("price", 0.0)))
-            cost_usd = float(next_info.get("cost_usd", next_info.get("usd_cost", 0.0)))
-            new_base_capacity = float(next_info.get("capacity", next_info.get("cap", 100.0)))
-            extra_storage = float(user_data.get("extra_storage", 0.0))
+                next_info = storage_cfg[next_lvl_str]
+                cost_zn = float(next_info.get("cost_zn", next_info.get("price", 0.0)))
+                cost_usd = float(next_info.get("cost_usd", next_info.get("usd_cost", 0.0)))
+                new_base_capacity = float(next_info.get("capacity", next_info.get("cap", 100.0)))
+                extra_storage = float(user_data.get("extra_storage", 0.0) or 0.0)
 
-            current_balance = float(user_data.get("balance", 0.0) or 0.0)
-            current_usd_balance = float(user_data.get("usd_balance", user_data.get("balance_usd", 0.0)) or 0.0)
+                current_balance = float(user_data.get("balance", 0.0) or 0.0)
+                current_usd_balance = float(user_data.get("usd_balance", 0.0) or 0.0)
 
-            if current_balance < cost_zn:
-                raise Exception(f"رصيدك من ZN غير كافٍ لترقية المخزن! تحتاج {cost_zn:g} ZN")
+                if current_balance < cost_zn:
+                    return False, f"رصيدك من ZN غير كافٍ لترقية المخزن! تحتاج {cost_zn:g} ZN", {}
 
-            if current_usd_balance < cost_usd:
-                raise Exception(f"رصيدك من الدولار غير كافٍ لترقية المخزن! تحتاج ${cost_usd:g}")
+                if current_usd_balance < cost_usd:
+                    return False, f"رصيدك من الدولار غير كافٍ لترقية المخزن! تحتاج ${cost_usd:g}", {}
 
-            last_claim_str = user_data.get('last_claim_time')
-            now_dt = datetime.now(timezone.utc)
-            hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
-            old_cap = float(user_data.get("max_cap", 100.0) or 100.0)
+                last_claim_raw = user_data.get('last_claim_time')
+                now_dt = datetime.now(timezone.utc)
+                hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
+                old_cap = float(user_data.get("max_cap", 100.0) or 100.0)
 
-            pending_mined = 0.0
-            if last_claim_str:
-                try:
-                    last_claim_dt = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
-                    time_elapsed = max(0.0, now_dt.timestamp() - last_claim_dt.timestamp())
-                    pending_mined = min(time_elapsed * (hourly_rate / 3600.0), old_cap)
-                except Exception:
-                    pending_mined = 0.0
-
-            new_balance = round(current_balance - cost_zn, 4)
-            new_usd_balance = round(current_usd_balance - cost_usd, 4)
-            
-            # التحقق مما إذا كان لدى المستخدم باقة نشطة بها double_storage
-            vip_status = user_data.get("vip_status", {})
-            is_double_active = False
-            if isinstance(vip_status, dict) and vip_status.get("double_storage"):
-                exp_str = vip_status.get("expires_at")
-                if exp_str:
+                pending_mined = 0.0
+                if last_claim_raw:
                     try:
-                        exp_dt = datetime.fromisoformat(str(exp_str).replace('Z', '+00:00'))
-                        if exp_dt > now_dt:
-                            is_double_active = True
+                        clean_str = str(last_claim_raw).replace(' ', 'T').replace('Z', '+00:00')
+                        last_claim_dt = datetime.fromisoformat(clean_str)
+                        if last_claim_dt.tzinfo is None:
+                            last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
+                        time_elapsed = max(0.0, (now_dt - last_claim_dt).total_seconds())
+                        pending_mined = min(time_elapsed * (hourly_rate / 3600.0), old_cap)
                     except Exception:
-                        pass
+                        pending_mined = 0.0
 
-            raw_cap = new_base_capacity + extra_storage
-            new_max_cap = round(raw_cap * 2.0 if is_double_active else raw_cap, 4)
+                new_balance = round(current_balance - cost_zn, 4)
+                new_usd_balance = round(current_usd_balance - cost_usd, 4)
 
-            if hourly_rate > 0:
-                time_needed = pending_mined / (hourly_rate / 3600.0)
-                new_last_claim = (now_dt - timedelta(seconds=time_needed)).isoformat()
-            else:
-                new_last_claim = now_dt.isoformat()
+                # التحقق مما إذا كان لدى المستخدم باقة نشطة بها double_storage
+                vip_status = _parse_json_field(user_data.get("vip_status"), {})
+                is_double_active = False
+                if isinstance(vip_status, dict) and vip_status.get("double_storage"):
+                    exp_str = vip_status.get("expires_at")
+                    if exp_str:
+                        try:
+                            clean_exp = str(exp_str).replace(' ', 'T').replace('Z', '+00:00')
+                            exp_dt = datetime.fromisoformat(clean_exp)
+                            if exp_dt.tzinfo is None: exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                            if exp_dt > now_dt: is_double_active = True
+                        except Exception: pass
 
-            updated_fields = {
-                "balance": new_balance,
-                "usd_balance": new_usd_balance,
-                "storage_level": int(next_lvl_str),
-                "max_cap": new_max_cap,
-                "last_claim_time": new_last_claim
-            }
+                raw_cap = new_base_capacity + extra_storage
+                new_max_cap = round(raw_cap * 2.0 if is_double_active else raw_cap, 4)
 
-            tx.update(u_ref, updated_fields)
-            return updated_fields, next_lvl_str, new_max_cap, cost_zn, cost_usd
+                if hourly_rate > 0:
+                    time_needed = pending_mined / (hourly_rate / 3600.0)
+                    new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
+                else:
+                    new_last_claim_dt = now_dt
 
-        updated_data, next_lvl, new_cap, cost_zn, cost_usd = _storage_tx(transaction, user_ref)
-        log_purchase_transaction(tg_id, "storage_upgrade", next_lvl, cost_zn, cost_usd)
-        return True, f"تم ترقية المخزن إلى المستوى {next_lvl} (سعة: {new_cap:g}) بنجاح!", updated_data
+                cur.execute("""
+                    UPDATE users SET
+                        balance = %s,
+                        usd_balance = %s,
+                        storage_level = %s,
+                        max_cap = %s,
+                        last_claim_time = %s
+                    WHERE tg_id = %s
+                """, (new_balance, new_usd_balance, int(next_lvl_str), new_max_cap, new_last_claim_dt, str_uid))
+
+                updated_fields = {
+                    "balance": new_balance,
+                    "usd_balance": new_usd_balance,
+                    "storage_level": int(next_lvl_str),
+                    "max_cap": new_max_cap,
+                    "last_claim_time": format_iso(new_last_claim_dt)
+                }
+
+        log_purchase_transaction(tg_id, "storage_upgrade", next_lvl_str, cost_zn, cost_usd)
+        return True, f"تم ترقية المخزن إلى المستوى {next_lvl_str} (سعة: {new_max_cap:g}) بنجاح!", updated_fields
 
     except Exception as e:
         logger.error(f"❌ Error upgrading storage: {e}")
@@ -482,7 +516,7 @@ def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
 
 
 def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
-    """معالجة وتفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها مع مراعاة تمديد فترة الاشتراك ومضاعفة السعة"""
+    """معالجة وتفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase مع تمديد الاشتراك ومضاعفة السعة"""
     try:
         if not tg_id or not package_id:
             return False, "بيانات غير صالحة", {}
@@ -495,10 +529,9 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
             return False, "الباقة غير موجودة في المتجر", {}
 
         pkg_info = pkgs[pkg_key]
-        
         duration_days = int(pkg_info.get("duration_days", 30))
         features = pkg_info.get("features", {}) if isinstance(pkg_info.get("features"), dict) else {}
-        
+
         auto_bot = bool(features.get("auto_bot", False))
         double_storage = bool(features.get("double_storage", False))
         referral_rate = float(features.get("referral_rate", 0.0))
@@ -511,125 +544,133 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
         usd_add = float(pkg_info.get("usd_add", 0.0))
         pkg_price_usd = float(pkg_info.get("usdt", 0.0))
 
-        tx_identifier = str(boc or tx_hash or "")
+        tx_identifier = str(boc or tx_hash or "").strip()
+        str_uid = str(tg_id)
 
-        db = database.db
-        user_ref = db.collection('users').document(str(tg_id))
-        transaction = db.transaction()
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. منع تكرار نفس المعاملة المعالجة سابقاً
+                if tx_identifier:
+                    cur.execute("SELECT 1 FROM processed_txs WHERE tx_hash = %s", (tx_identifier,))
+                    if cur.fetchone():
+                        return False, "تمت معالجة هذه العملية سابقاً!", {}
 
-        @firestore.transactional
-        def _pkg_tx(tx, u_ref):
-            u_snap = tx.get(u_ref)
-            if not u_snap.exists:
-                raise Exception("المستخدم غير موجود")
+                cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
+                user_data = cur.fetchone()
 
-            user_data = u_snap.to_dict() or {}
+                if not user_data:
+                    return False, "المستخدم غير موجود", {}
 
-            # منع تكرار نفس المعاملة المعالجة سابقاً
-            if tx_identifier:
-                tx_ref = db.collection('processed_txs').document(tx_identifier)
-                tx_snap = tx.get(tx_ref)
-                if tx_snap.exists:
-                    raise Exception("تمت معالجة هذه العملية سابقاً!")
-                tx.set(tx_ref, {
-                    "tg_id": str(tg_id),
+                user_data = dict(user_data)
+
+                current_balance = float(user_data.get("balance", 0.0) or 0.0)
+                current_usd = float(user_data.get("usd_balance", 0.0) or 0.0)
+                current_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
+                current_extra_storage = float(user_data.get("extra_storage", 0.0) or 0.0)
+                current_max_cap = float(user_data.get("max_cap", 100.0) or 100.0)
+                last_claim_raw = user_data.get('last_claim_time')
+
+                now_dt = datetime.now(timezone.utc)
+
+                # 2. حساب تمديد فترة الاشتراك (Extension)
+                existing_vip = _parse_json_field(user_data.get("vip_status"), {})
+                existing_expires_str = existing_vip.get("expires_at")
+                is_currently_active = False
+                existing_expires_dt = None
+
+                if existing_expires_str:
+                    try:
+                        clean_exp = str(existing_expires_str).replace(' ', 'T').replace('Z', '+00:00')
+                        existing_expires_dt = datetime.fromisoformat(clean_exp)
+                        if existing_expires_dt.tzinfo is None:
+                            existing_expires_dt = existing_expires_dt.replace(tzinfo=timezone.utc)
+                        if existing_expires_dt > now_dt:
+                            is_currently_active = True
+                    except Exception:
+                        is_currently_active = False
+
+                if is_currently_active and existing_expires_dt:
+                    new_expires_dt = existing_expires_dt + timedelta(days=duration_days)
+                else:
+                    new_expires_dt = now_dt + timedelta(days=duration_days)
+
+                # 3. حساب تجميع التعدين المعلق قبل تعديل السعة/السرعة
+                pending_mined = 0.0
+                if last_claim_raw:
+                    try:
+                        clean_str = str(last_claim_raw).replace(' ', 'T').replace('Z', '+00:00')
+                        last_claim_dt = datetime.fromisoformat(clean_str)
+                        if last_claim_dt.tzinfo is None:
+                            last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
+                        time_elapsed = max(0.0, (now_dt - last_claim_dt).total_seconds())
+                        pending_mined = min(time_elapsed * (current_rate / 3600.0), current_max_cap)
+                    except Exception:
+                        pending_mined = 0.0
+
+                # 4. حساب مضاعفة السعة (Double Storage)
+                was_double_active = is_currently_active and bool(existing_vip.get("double_storage", False))
+                new_max_cap = current_max_cap
+                if double_storage and not was_double_active:
+                    new_max_cap = current_max_cap * 2.0
+                elif not double_storage and was_double_active:
+                    new_max_cap = max(100.0, current_max_cap / 2.0)
+
+                new_balance = round(current_balance + zn_add, 4)
+                new_usd = round(current_usd + usd_add, 4)
+                new_rate = round(current_rate + rate_add, 4)
+                new_extra_storage = round(current_extra_storage + storage_add, 4)
+                new_max_cap = round(new_max_cap + storage_add, 4)
+
+                if new_rate > 0:
+                    time_needed = pending_mined / (new_rate / 3600.0)
+                    new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
+                else:
+                    new_last_claim_dt = now_dt
+
+                new_vip_status = {
                     "package_id": pkg_key,
-                    "tx_hash": tx_identifier,
-                    "timestamp": firestore.SERVER_TIMESTAMP
-                })
+                    "expires_at": format_iso(new_expires_dt),
+                    "auto_bot": auto_bot,
+                    "double_storage": double_storage,
+                    "referral_rate": referral_rate,
+                    "ref_min_upgrades": ref_min_upgrades,
+                    "ref_withdraw_fee": ref_withdraw_fee,
+                    "updated_at": format_iso(now_dt)
+                }
 
-            current_balance = float(user_data.get("balance", 0.0) or 0.0)
-            current_usd = float(user_data.get("usd_balance", user_data.get("balance_usd", 0.0)) or 0.0)
-            current_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
-            current_extra_storage = float(user_data.get("extra_storage", 0.0) or 0.0)
-            current_max_cap = float(user_data.get("max_cap", 100.0) or 100.0)
-            last_claim_str = user_data.get('last_claim_time')
+                cur.execute("""
+                    UPDATE users SET
+                        balance = %s,
+                        usd_balance = %s,
+                        hourly_rate = %s,
+                        extra_storage = %s,
+                        max_cap = %s,
+                        last_claim_time = %s,
+                        vip_status = %s,
+                        bot_active = %s,
+                        bot_expires_at = %s
+                    WHERE tg_id = %s
+                """, (new_balance, new_usd, new_rate, new_extra_storage, new_max_cap, new_last_claim_dt, Json(new_vip_status), auto_bot, new_expires_dt, str_uid))
 
-            now_dt = datetime.now(timezone.utc)
+                if tx_identifier:
+                    cur.execute("""
+                        INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd)
+                        VALUES (%s, %s, %s, 'vip_package', %s)
+                        ON CONFLICT (tx_hash) DO NOTHING;
+                    """, (tx_identifier, str_uid, pkg_key, pkg_price_usd))
 
-            # 1. حساب تمديد فترة الاشتراك (Extension)
-            existing_vip = user_data.get("vip_status", {})
-            if not isinstance(existing_vip, dict):
-                existing_vip = {}
+                updated_fields = {
+                    "balance": new_balance,
+                    "usd_balance": new_usd,
+                    "hourly_rate": new_rate,
+                    "extra_storage": new_extra_storage,
+                    "max_cap": new_max_cap,
+                    "last_claim_time": format_iso(new_last_claim_dt),
+                    "vip_status": new_vip_status
+                }
 
-            existing_expires_str = existing_vip.get("expires_at")
-            is_currently_active = False
-            existing_expires_dt = None
-
-            if existing_expires_str:
-                try:
-                    existing_expires_dt = datetime.fromisoformat(str(existing_expires_str).replace('Z', '+00:00'))
-                    if existing_expires_dt > now_dt:
-                        is_currently_active = True
-                except Exception:
-                    is_currently_active = False
-
-            if is_currently_active and existing_expires_dt:
-                new_expires_dt = existing_expires_dt + timedelta(days=duration_days)
-            else:
-                new_expires_dt = now_dt + timedelta(days=duration_days)
-
-            # 2. حساب تجميع التعدين المعلق قبل تعديل السعة/السرعة
-            pending_mined = 0.0
-            if last_claim_str:
-                try:
-                    last_claim_dt = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
-                    time_elapsed = max(0.0, now_dt.timestamp() - last_claim_dt.timestamp())
-                    pending_mined = min(time_elapsed * (current_rate / 3600.0), current_max_cap)
-                except Exception:
-                    pending_mined = 0.0
-
-            # 3. حساب مضاعفة السعة (Double Storage)
-            was_double_active = is_currently_active and bool(existing_vip.get("double_storage", False))
-            
-            new_max_cap = current_max_cap
-            if double_storage and not was_double_active:
-                new_max_cap = current_max_cap * 2.0
-            elif not double_storage and was_double_active:
-                new_max_cap = max(100.0, current_max_cap / 2.0)
-
-            # إضافة الزيادات الإضافية إن وجدت
-            new_balance = round(current_balance + zn_add, 4)
-            new_usd = round(current_usd + usd_add, 4)
-            new_rate = round(current_rate + rate_add, 4)
-            new_extra_storage = round(current_extra_storage + storage_add, 4)
-            new_max_cap = round(new_max_cap + storage_add, 4)
-
-            # تحديث وقت أخر المطالبة للحفاظ على الأرباح المعلقة
-            if new_rate > 0:
-                time_needed = pending_mined / (new_rate / 3600.0)
-                new_last_claim = (now_dt - timedelta(seconds=time_needed)).isoformat()
-            else:
-                new_last_claim = now_dt.isoformat()
-
-            # 4. تجهيز كائن حالة الـ VIP الجديد
-            new_vip_status = {
-                "package_id": pkg_key,
-                "expires_at": new_expires_dt.isoformat(),
-                "auto_bot": auto_bot,
-                "double_storage": double_storage,
-                "referral_rate": referral_rate,
-                "ref_min_upgrades": ref_min_upgrades,
-                "ref_withdraw_fee": ref_withdraw_fee,
-                "updated_at": now_dt.isoformat()
-            }
-
-            updated_fields = {
-                "balance": new_balance,
-                "usd_balance": new_usd,
-                "hourly_rate": new_rate,
-                "extra_storage": new_extra_storage,
-                "max_cap": new_max_cap,
-                "last_claim_time": new_last_claim,
-                "vip_status": new_vip_status
-            }
-
-            tx.update(u_ref, updated_fields)
-            return updated_fields
-
-        updated_data = _pkg_tx(transaction, user_ref)
         log_purchase_transaction(tg_id, "vip_package", pkg_key, 0.0, pkg_price_usd, tx_identifier)
-        return True, "تم تفعيل الباقة بنجاح!", updated_data
+        return True, "تم تفعيل الباقة بنجاح!", updated_fields
 
     except Exception as e:
         logger.error(f"❌ Error applying package: {e}")
@@ -637,22 +678,32 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
 
 
 def get_user_purchase_history(tg_id, limit=20):
-    """جلب سجل المشتريات المكتملة للمستخدم"""
+    """جلب سجل المشتريات المكتملة للمستخدم من Supabase"""
     try:
         if not tg_id:
             return []
 
-        db = database.db
-        docs = db.collection('users').document(str(tg_id)).collection('purchase_history')\
-            .order_by('timestamp', direction=firestore.Query.DESCENDING).limit(limit).get()
+        str_uid = str(tg_id)
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, type, item_id, cost_zn, cost_usd, tx_hash, details, created_at
+                    FROM purchase_history
+                    WHERE tg_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, (str_uid, limit))
+                rows = cur.fetchall()
 
-        history = []
-        for doc in docs:
-            item = doc.to_dict()
-            item["id"] = doc.id
-            history.append(item)
+                history = []
+                for row in rows:
+                    item = dict(row)
+                    item["details"] = _parse_json_field(item.get("details"), {})
+                    if item.get("created_at"):
+                        item["created_at"] = format_iso(item["created_at"])
+                    history.append(item)
 
-        return history
+                return history
     except Exception as e:
         logger.error(f"❌ Error fetching user purchase history: {e}")
         return []
