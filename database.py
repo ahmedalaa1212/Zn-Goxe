@@ -41,7 +41,7 @@ def init_db_pool():
         )
         print("⚡ [Barebones Pool] تم تأسيس بركة الاتصالات بنجاح!")
         
-        # إنشاء الجداول فوراً وبطريقة مباشرة بدون Threads
+        # إنشاء الجداول وتعديل المخطط فوراً وبطريقة مباشرة
         conn = db_pool.getconn()
         try:
             conn.autocommit = True
@@ -82,10 +82,34 @@ def init_db_pool():
                         reason TEXT,
                         banned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
+
+                    -- جدول الإعدادات العامة (لحفظ إعدادات المزرعة، اليوميات، إلخ)
+                    CREATE TABLE IF NOT EXISTS settings (
+                        key VARCHAR(128) PRIMARY KEY,
+                        value JSONB DEFAULT '{}'::jsonb,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    -- تحديث جدول users ليكون جاهزاً لكافة بيانات التعدين والمزرعة
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION DEFAULT 0.10;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS mined_points DOUBLE PRECISION DEFAULT 0.0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS total_mined DOUBLE PRECISION DEFAULT 0.0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_level INT DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_claim_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily_claim_date VARCHAR(32);
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_day INT DEFAULT 1;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_streak INT DEFAULT 1;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_boost_time TIMESTAMPTZ;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS upgrades JSONB DEFAULT '{}'::jsonb;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS upgrades_count INT DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS welcome_seen BOOLEAN DEFAULT FALSE;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS ads_watched INT DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT FALSE;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_expires_at TIMESTAMPTZ;
                 """)
-            print("⚡ [Supabase Setup] تم إنشاء الجداول الأساسية بنجاح وفوراً!")
+            print("⚡ [Supabase Setup] تم إنشاء الجداول الأساسية وتحديث مخطط البيانات بنجاح وفوراً!")
         except Exception as e:
-            print(f"⚠️ خطأ أثناء إنشاء الجداول: {e}")
+            print(f"⚠️ خطأ أثناء إنشاء/تحديث الجداول: {e}")
         finally:
             db_pool.putconn(conn)
 
