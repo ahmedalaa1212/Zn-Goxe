@@ -6,12 +6,8 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, jsonify, request
 
-# 🚀 تم إزالة Firebase (firestore) بالكامل لأننا انتقلنا إلى Supabase
-
 from core.security import get_authenticated_user
 from core.ton_price import get_live_ton_price
-
-# 🚀 استيراد دوال قاعدة البيانات Supabase من ملف shop_db
 from shop.shop_db import (
     get_shop_catalog,
     process_upgrade_purchase,
@@ -21,22 +17,18 @@ from shop.shop_db import (
 shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
-TON_SAFETY_MARGIN = 1.06  # هامش حماية 6% لمنع الخسائر من تقلبات سعر TON
+TON_SAFETY_MARGIN = 1.06  
 
-# ==================== Server-Side RAM Caching Systems ====================
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
-CACHE_TTL_TON = 60      # كاش 60 ثانية لسعر عملة TON
+CACHE_TTL_TON = 60      
 
 def invalidate_shop_cache():
-    """تفريغ التخزين المؤقت لإجبار السيرفر على تحديث السعر"""
     _TON_PRICE_CACHE["price"] = 0.0
     _TON_PRICE_CACHE["timestamp"] = 0
 
 def fetch_multi_source_ton_price():
-    """جلب سعر TON من عدة منصات عالمية لضمان الدقة والسرعة"""
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {'User-Agent': 'Mozilla/5.0'}
 
-    # 1. Binance API
     try:
         req = urllib.request.Request("https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT", headers=headers)
         with urllib.request.urlopen(req, timeout=3) as resp:
@@ -45,7 +37,6 @@ def fetch_multi_source_ton_price():
             if price > 0: return price
     except Exception: pass
 
-    # 2. OKX API
     try:
         req = urllib.request.Request("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", headers=headers)
         with urllib.request.urlopen(req, timeout=3) as resp:
@@ -54,7 +45,6 @@ def fetch_multi_source_ton_price():
             if price > 0: return price
     except Exception: pass
 
-    # 3. Bybit API
     try:
         req = urllib.request.Request("https://api.bybit.com/v5/market/tickers?category=spot&symbol=TONUSDT", headers=headers)
         with urllib.request.urlopen(req, timeout=3) as resp:
@@ -63,7 +53,6 @@ def fetch_multi_source_ton_price():
             if price > 0: return price
     except Exception: pass
 
-    # 4. دالة المشروع الأساسية كاحتياطي أخيرة
     try:
         price = get_live_ton_price()
         if price and float(price) > 0:
@@ -73,7 +62,6 @@ def fetch_multi_source_ton_price():
     return 0.0
 
 def get_cached_ton_price():
-    """استرجاع سعر TON مع نظام التخزين المؤقت"""
     now = time.time()
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
         return _TON_PRICE_CACHE["price"]
@@ -87,11 +75,9 @@ def get_cached_ton_price():
     return price
 
 def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=None):
-    """التحقق الفعلي من شبكة TON (On-Chain Verification) عبر APIs مثل TonCenter / TonAPI"""
     headers = {'User-Agent': 'Mozilla/5.0'}
     min_nano_ton = int(min_nano_ton)
 
-    # 1. TonCenter v2 API
     try:
         url = f"https://toncenter.com/api/v2/getTransactions?address={PROJECT_TON_WALLET}&limit=30"
         req = urllib.request.Request(url, headers=headers)
@@ -113,7 +99,6 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
     except Exception as e:
         print(f"⚠️ [TonCenter Verification Warning]: {e}")
 
-    # في حالة تأخر الفهرس وكان هناك Hash أو BOC معتمد تم تمريره من المحفظة
     if tx_hash or boc:
         verified_hash = tx_hash or hashlib.sha256(boc.encode('utf-8')).hexdigest()
         return True, verified_hash
@@ -123,19 +108,15 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    """مسار جلب باقات العرض والأسعار بالدولار والـ TON اللحظي (Supabase)"""
+    """مسار جلب باقات العرض والأسعار بالدولار والـ TON اللحظي"""
     try:
-        # جلب الإعدادات من Supabase مباشرة
         settings = get_shop_catalog() 
         raw_ton_price = get_cached_ton_price()
-
-        # احتساب سعر TON المعدل بعد هامش الأمان
         effective_ton_price = round(raw_ton_price / TON_SAFETY_MARGIN, 4) if raw_ton_price > 0 else round(5.50 / TON_SAFETY_MARGIN, 4)
 
         usdt_pkgs = settings.get('packages', {})
         packages_with_ton = {}
 
-        # ترتيب الباقات حسب السعر
         sorted_pkgs = sorted(usdt_pkgs.items(), key=lambda x: float(x[1].get('usdt', 0) if isinstance(x[1], dict) else 0))
 
         for pkg_id, pkg_info in sorted_pkgs:
@@ -143,7 +124,6 @@ def get_config():
                 continue
             usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
             
-            # كمية TON المطلوبة للباقة
             ton_needed = round(usd_val / effective_ton_price, 4) if effective_ton_price > 0 else round(usd_val / 5.1887, 4)
 
             packages_with_ton[str(pkg_id)] = {
@@ -158,12 +138,19 @@ def get_config():
                 "zn_add": float(pkg_info.get('zn_add', 0))
             }
 
-        return jsonify({
+        response = jsonify({
             "success": True,
             "settings": settings,
             "ton_price_usd": effective_ton_price,
             "packages": packages_with_ton
-        }), 200
+        })
+        
+        # 🚀 إضافة أوامر صارمة لمنع التخزين المؤقت (No-Cache) من طرف السيرفر أو Cloudflare
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        
+        return response, 200
     except Exception as e:
         print(f"❌ [Shop get_config Error]: {e}")
         return jsonify({
@@ -173,7 +160,6 @@ def get_config():
 
 @shop_bp.route('/prepare_ton_pay', methods=['POST'])
 def prepare_ton_pay():
-    """تجهيز أمر الدفع لشبكة TON"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -190,13 +176,11 @@ def prepare_ton_pay():
 
         pkg_info = packages[pkg_id]
         ton_price = get_cached_ton_price()
-
         usd_val = float(pkg_info.get('usdt', 0.0))
         
         base_ton = (usd_val / ton_price) if ton_price > 0 else (usd_val / 5.5)
         ton_amount = round(base_ton * TON_SAFETY_MARGIN, 4)
         nano_ton = int(ton_amount * 1000000000)
-
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
 
         return jsonify({
@@ -214,7 +198,6 @@ def prepare_ton_pay():
 
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
-    """تفعيل الباقة للمستخدم مع التحقق الفعلي On-Chain"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -241,7 +224,6 @@ def verify_and_apply_package():
         expected_ton = (usd_val / ton_price) * TON_SAFETY_MARGIN if ton_price > 0 else (usd_val / 5.5)
         expected_nano = int(expected_ton * 1000000000)
 
-        # 1. التحقق الفعلي On-Chain من شبكة TON
         verified_ok, confirmed_tx_hash = verify_ton_transaction_onchain(
             tx_hash=tx_hash,
             boc=raw_boc,
@@ -252,7 +234,6 @@ def verify_and_apply_package():
         if not verified_ok:
             return jsonify({"success": False, "error": "تعذر التأكد من وصول المعاملة على شبكة TON. يرجى المحاولة لاحقاً."}), 200
 
-        # 2. تفعيل الباقة من Supabase عبر الدالة المخصصة
         apply_success, message, result_data = db_verify_and_apply_package(
             tg_id=user_id,
             package_id=pkg_key,
@@ -276,7 +257,6 @@ def verify_and_apply_package():
 
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
-    """شراء ترقيات سرعة التعدين أو سعة المخزن العادية (عبر Supabase)"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -289,7 +269,6 @@ def buy_upgrade():
         if not upgrade_type or not level_num:
             return jsonify({"success": False, "error": "بيانات الطلب غير مكتملة."}), 200
 
-        # تنفيذ عملية الشراء بالاعتماد الكامل على Supabase عبر shop_db.py
         apply_success, message, result_data = process_upgrade_purchase(
             tg_id=user_id,
             upgrade_type=upgrade_type,
@@ -311,7 +290,6 @@ def buy_upgrade():
 
 @shop_bp.route('/clear_cache', methods=['POST'])
 def clear_cache():
-    """تفريغ التخزين المؤقت يدوياً"""
     try:
         invalidate_shop_cache()
         return jsonify({"success": True, "message": "تم تفريغ كاش المتجر بنجاح."}), 200
