@@ -119,6 +119,31 @@ DEFAULT_USDT_PACKAGES = {
     }
 }
 
+# قيم افتراضية لترقيات التعدين لضمان عدم إرسال بيانات فارغة تكسر الواجهة
+DEFAULT_UPGRADE_CONFIG = {
+    "1": {"cost_zn": 100.0, "cost_usd": 0.0, "rate_bonus": 0.20},
+    "2": {"cost_zn": 400.0, "cost_usd": 0.25, "rate_bonus": 0.50},
+    "3": {"cost_zn": 1500.0, "cost_usd": 0.60, "rate_bonus": 1.20},
+    "4": {"cost_zn": 5000.0, "cost_usd": 1.25, "rate_bonus": 2.80},
+    "5": {"cost_zn": 15000.0, "cost_usd": 3.00, "rate_bonus": 6.00},
+    "6": {"cost_zn": 40000.0, "cost_usd": 6.00, "rate_bonus": 14.00},
+    "7": {"cost_zn": 100000.0, "cost_usd": 12.00, "rate_bonus": 30.00},
+    "8": {"cost_zn": 250000.0, "cost_usd": 25.00, "rate_bonus": 70.00}
+}
+
+# قيم افتراضية لسعات المخزن لضمان عدم إرسال بيانات فارغة تكسر الواجهة
+DEFAULT_STORAGE_CONFIG = {
+    "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},
+    "1": {"capacity": 1.5, "cost_zn": 50.0, "cost_usd": 0.0},
+    "2": {"capacity": 4.0, "cost_zn": 200.0, "cost_usd": 0.20},
+    "3": {"capacity": 10.0, "cost_zn": 800.0, "cost_usd": 0.50},
+    "4": {"capacity": 25.0, "cost_zn": 2500.0, "cost_usd": 1.00},
+    "5": {"capacity": 60.0, "cost_zn": 7000.0, "cost_usd": 2.50},
+    "6": {"capacity": 150.0, "cost_zn": 20000.0, "cost_usd": 5.00},
+    "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00},
+    "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00}
+}
+
 
 def _parse_json_field(field_val, default=None):
     """تحليل حقول JSONB بأمان تام"""
@@ -137,7 +162,7 @@ def _parse_json_field(field_val, default=None):
 
 
 def get_shop_catalog():
-    """جلب كتالوج التعدين والمخزن والباقات من جدول settings في Supabase (مثل مستندات فيربيس)"""
+    """جلب بيانات المزرعة والمتجر وتوحيدها بشكل مثالي لمنع تعليق شاشة التحميل"""
     try:
         farm_settings = {}
         shop_settings = {}
@@ -152,20 +177,33 @@ def get_shop_catalog():
                     elif row['key'] == 'shop_settings':
                         shop_settings = _parse_json_field(row['value'], {})
 
-        # استخراج مستويات التعدين والمخزن من إعدادات المزرعة
-        mining_cfg = farm_settings.get("upgrade_config", {}) or farm_settings.get("mining_config", {})
-        storage_cfg = farm_settings.get("storage_capacities", {}) or farm_settings.get("storage_config", {})
+        # استخراج مستويات التعدين (الأولوية لبيانات الداتابيز، ثم القيم الافتراضية لمنع إرسال قيم فارغة)
+        mining_cfg = farm_settings.get("upgrade_config") or farm_settings.get("mining_config")
+        if not mining_cfg or not isinstance(mining_cfg, dict) or len(mining_cfg) == 0:
+            mining_cfg = DEFAULT_UPGRADE_CONFIG
+            
+        # استخراج مستويات المخزن
+        storage_cfg = farm_settings.get("storage_capacities") or farm_settings.get("storage_config")
+        if not storage_cfg or not isinstance(storage_cfg, dict) or len(storage_cfg) == 0:
+            storage_cfg = DEFAULT_STORAGE_CONFIG
         
-        # استخراج الباقات من إعدادات المتجر أو المزرعة
-        usdt_pkgs = shop_settings.get("usdt_packages", {}) or shop_settings.get("packages", {}) or farm_settings.get("usdt_packages", {})
+        # استخراج الباقات
+        usdt_pkgs = shop_settings.get("usdt_packages") or shop_settings.get("packages") or farm_settings.get("usdt_packages")
+        if not usdt_pkgs or not isinstance(usdt_pkgs, dict) or len(usdt_pkgs) == 0:
+            usdt_pkgs = DEFAULT_USDT_PACKAGES.copy()
 
-        mining_normalized = {str(k): v for k, v in mining_cfg.items()} if isinstance(mining_cfg, dict) else {}
-        storage_normalized = {str(k): v for k, v in storage_cfg.items()} if isinstance(storage_cfg, dict) else {}
-        
-        if isinstance(usdt_pkgs, dict) and len(usdt_pkgs) > 0:
-            pkgs_normalized = {str(k): v for k, v in usdt_pkgs.items()}
-        else:
-            pkgs_normalized = DEFAULT_USDT_PACKAGES.copy()
+        # استخراج المحفظة وسعر الصرف بأمان
+        ton_wallet = shop_settings.get("ton_wallet") or shop_settings.get("wallet_address") or ""
+        rate_val = shop_settings.get("ton_usdt_rate")
+        try:
+            ton_usdt_rate = float(rate_val) if rate_val is not None else 5.5
+        except (ValueError, TypeError):
+            ton_usdt_rate = 5.5
+
+        # تنسيق المفاتيح كنصوص لتوافق أفضل مع الواجهة
+        mining_normalized = {str(k): v for k, v in mining_cfg.items()}
+        storage_normalized = {str(k): v for k, v in storage_cfg.items()}
+        pkgs_normalized = {str(k): v for k, v in usdt_pkgs.items()}
 
         return {
             "mining_config": mining_normalized,
@@ -173,51 +211,27 @@ def get_shop_catalog():
             "storage_config": storage_normalized,
             "storage_capacities": storage_normalized,
             "usdt_packages": pkgs_normalized,
-            "packages": pkgs_normalized
+            "packages": pkgs_normalized, # نكرر المفتاح ليوافق جميع قراءات الواجهة
+            "ton_wallet": ton_wallet,
+            "ton_usdt_rate": ton_usdt_rate
         }
     except Exception as e:
         logger.error(f"❌ Error in get_shop_catalog: {e}")
         return {
-            "mining_config": {},
-            "upgrade_config": {},
-            "storage_config": {},
-            "storage_capacities": {},
+            "mining_config": DEFAULT_UPGRADE_CONFIG,
+            "upgrade_config": DEFAULT_UPGRADE_CONFIG,
+            "storage_config": DEFAULT_STORAGE_CONFIG,
+            "storage_capacities": DEFAULT_STORAGE_CONFIG,
             "usdt_packages": DEFAULT_USDT_PACKAGES.copy(),
-            "packages": DEFAULT_USDT_PACKAGES.copy()
+            "packages": DEFAULT_USDT_PACKAGES.copy(),
+            "ton_wallet": "",
+            "ton_usdt_rate": 5.5
         }
 
 
 def get_shop_settings():
-    """جلب إعدادات المتجر الكاملة (عنوان محفظة TON، سعر الصرف، والباقات) لتظهر فوراً في الواجهة"""
-    try:
-        shop_settings = {}
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT value FROM settings WHERE key = 'shop_settings'")
-                row = cur.fetchone()
-                if row and row.get('value'):
-                    shop_settings = _parse_json_field(row['value'], {})
-
-        catalog = get_shop_catalog()
-        usdt_pkgs = shop_settings.get("usdt_packages") or shop_settings.get("packages") or catalog.get("usdt_packages", DEFAULT_USDT_PACKAGES.copy())
-
-        return {
-            "ton_wallet": shop_settings.get("ton_wallet") or shop_settings.get("wallet_address", ""),
-            "usdt_packages": usdt_pkgs,
-            "mining_config": catalog.get("mining_config", {}),
-            "storage_config": catalog.get("storage_config", {}),
-            "ton_usdt_rate": float(shop_settings.get("ton_usdt_rate", 5.5))
-        }
-    except Exception as e:
-        logger.error(f"❌ Error in get_shop_settings: {e}")
-        catalog = get_shop_catalog()
-        return {
-            "ton_wallet": "",
-            "usdt_packages": catalog.get("usdt_packages", DEFAULT_USDT_PACKAGES.copy()),
-            "mining_config": catalog.get("mining_config", {}),
-            "storage_config": catalog.get("storage_config", {}),
-            "ton_usdt_rate": 5.5
-        }
+    """جلب إعدادات المتجر الكاملة لتظهر فوراً في الواجهة"""
+    return get_shop_catalog()
 
 
 def get_user_vip_status(user_id):
@@ -302,7 +316,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
             return False, "بيانات الترقية غير صالحة", {}
 
         catalog = get_shop_catalog()
-        mining_cfg = catalog.get("mining_config", {})
+        mining_cfg = catalog.get("upgrade_config", {})
         lvl_str = str(upgrade_level)
 
         if lvl_str not in mining_cfg:
@@ -406,7 +420,7 @@ def upgrade_storage_capacity(tg_id):
             return False, "معرف غير صالح", {}
 
         catalog = get_shop_catalog()
-        storage_cfg = catalog.get("storage_config", {})
+        storage_cfg = catalog.get("storage_capacities", {})
         str_uid = str(tg_id)
 
         with get_db_connection() as conn:
@@ -523,7 +537,7 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
             return False, "بيانات غير صالحة", {}
 
         catalog = get_shop_catalog()
-        pkgs = catalog.get("usdt_packages", {}) or catalog.get("packages", {})
+        pkgs = catalog.get("packages", {})
         pkg_key = str(package_id)
 
         if pkg_key not in pkgs:
