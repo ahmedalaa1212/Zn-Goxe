@@ -1,6 +1,7 @@
 // shop/shop.js
 // =================================================================
 // 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
+// مُعالج ليعرض البيانات لحظياً من Supabase بدون تأخير (No Cache)
 // =================================================================
 
 (function initShop() {
@@ -11,7 +12,7 @@
     let shopDynamicSettings = null;
     let cachedPackagesData = null;
     let lastConfigFetchTime = 0;
-    const CONFIG_CACHE_TTL = 30000;
+    const CONFIG_CACHE_TTL = 0; // تم تغييره إلى 0 لضمان جلب البيانات فوراً عند كل طلب
     let vipTimerInterval = null;
 
     // 🎯 نظام اهتزازات اللمس (Haptic Feedback) للموبايل وتليجرام
@@ -139,7 +140,6 @@
                         el.innerText = `نشطة (متبقي ${remText})`;
                     });
                 } else {
-                    // في حال انتهاء الوقت أثناء تواجد المستخدم في الصفحة
                     if (window.updateShopUI) window.updateShopUI();
                 }
             }
@@ -200,7 +200,8 @@
         }
 
         try {
-            const res = await withTimeout(fetch('/api/shop/get_config'), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
+            // كسر كاش المتصفح عبر إضافة المتغير الزمني ?_t
+            const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
             const data = await res.json();
             if (data && data.success) {
                 shopDynamicSettings = data.settings || data.farm_settings || data;
@@ -268,7 +269,6 @@
 
         const liveTonPrice = floatVal(window.tonPrice, window.userState?.ton_price, 5.0);
 
-        // جلب حالة الاشتراك الحالية للمستخدم
         const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
         const activePkgId = activeVipStatus?.package_id || null;
         const activeExpiresAt = activeVipStatus?.expires_at || null;
@@ -286,10 +286,8 @@
                 tonAmount = usdtPrice / liveTonPrice;
             }
 
-            // التأكد مما إذا كانت هذه الباقة مفعلة حالياً ومتبقي بها وقت
             const isActive = (activePkgId === pkgId) && (remainingTimeText !== null);
 
-            // طباعة مميزات الباقة سطر بسطر بناءً على perks_text القادمة من السيرفر
             let perksHtml = '';
             if (Array.isArray(pkg.perks_text) && pkg.perks_text.length > 0) {
                 perksHtml = pkg.perks_text.map(perk => `<div class="usdt-perks-item">${perk}</div>`).join('');
@@ -354,7 +352,6 @@
 
         try {
             if (!tcInstance.connected) {
-                // وضع مهلة 60 ثانية لعملية ربط المحفظة
                 await withTimeout(tcInstance.openModal(), 60000, "تأخرت عملية فتح المحفظة.");
 
                 let attempts = 0;
@@ -403,7 +400,6 @@
                 }]
             };
 
-            // وضع مهلة زمنية 120 ثانية لإكمال المعاملة داخل تطبيق المحفظة
             const result = await withTimeout(
                 tcInstance.sendTransaction(transaction),
                 120000,
@@ -566,7 +562,6 @@
         let totalBal = floatVal(pData.balance);
         let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
 
-        // 🎯 عرض الرصيد العلوي بتباين أنيق ومطابق لقائمة الأصدقاء
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             balElem.innerHTML = `${formatTopBalanceHTML(totalBal)} ZN`;
@@ -826,7 +821,7 @@
     // =================================================================
     function boot() {
         initTonConnect();
-        loadShopConfig(false);
+        loadShopConfig(true); // جلب البيانات إجبارياً من السيرفر بمجرد الفتح
     }
 
     if (document.readyState === 'loading') {
@@ -839,5 +834,10 @@
     window.addEventListener('userStateUpdated', () => {
         window.updateShopUI();
     });
+    
+    // دالة استماع جديدة يتم استدعاؤها في كل مرة يقوم المستخدم فيها بفتح تبويب المتجر
+    window.onShopTabOpen = function() {
+        loadShopConfig(true); // إجبار المتجر على تحديث الأرقام لحظياً بمجرد دخوله
+    };
 
 })();
