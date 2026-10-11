@@ -20,7 +20,7 @@ PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 TON_SAFETY_MARGIN = 1.06  
 
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
-CACHE_TTL_TON = 60      
+CACHE_TTL_TON = 0      # تم تعديلها إلى 0 لإجبار السيرفر على جلب سعر TON لحظياً
 
 def invalidate_shop_cache():
     _TON_PRICE_CACHE["price"] = 0.0
@@ -63,6 +63,7 @@ def fetch_multi_source_ton_price():
 
 def get_cached_ton_price():
     now = time.time()
+    # إلغاء منطق الكاش لضمان تحديث السعر في كل طلب
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
         return _TON_PRICE_CACHE["price"]
 
@@ -145,8 +146,8 @@ def get_config():
             "packages": packages_with_ton
         })
         
-        # 🚀 إضافة أوامر صارمة لمنع التخزين المؤقت (No-Cache) من طرف السيرفر أو Cloudflare
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        # 🚀 إضافة أوامر صارمة لمنع التخزين المؤقت (No-Cache) وتحديث فوري
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         
