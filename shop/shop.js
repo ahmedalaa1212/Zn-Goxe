@@ -1,7 +1,7 @@
 // shop/shop.js
 // =================================================================
 // 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
-// مُعالج ليعرض البيانات لحظياً من Supabase بدون تأخير (Strict No-Cache)
+// مُعالج ليعرض البيانات لحظياً من Supabase بدون تأخير (Safe No-Cache)
 // =================================================================
 
 (function initShop() {
@@ -12,7 +12,7 @@
     let shopDynamicSettings = null;
     let cachedPackagesData = null;
     let lastConfigFetchTime = 0;
-    const CONFIG_CACHE_TTL = 0; // تم تغييره إلى 0 لضمان جلب البيانات فوراً عند كل طلب
+    const CONFIG_CACHE_TTL = 0; 
     let vipTimerInterval = null;
 
     // 🎯 نظام اهتزازات اللمس (Haptic Feedback) للموبايل وتليجرام
@@ -200,14 +200,9 @@
         }
 
         try {
-            // إضافة Headers صارمة لمنع الكاش تماماً مع المتغير الزمني
+            // تم إزالة الـ Headers المسببة لمشكلة الـ CORS مع الإبقاء على المتغير الزمني ?_t لكسر الكاش بأمان
             const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, {
-                method: 'GET',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0'
-                }
+                method: 'GET'
             }), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
             
             const data = await res.json();
@@ -225,6 +220,8 @@
             }
         } catch (e) {
             console.error("خطأ في تحميل إعدادات المتجر:", e);
+            // لضمان عدم تعليق الشاشة السوداء في حال فشل السيرفر، نستدعي تحديث الواجهة
+            window.updateShopUI();
         }
     }
 
@@ -829,7 +826,7 @@
     // =================================================================
     function boot() {
         initTonConnect();
-        loadShopConfig(true); // جلب البيانات إجبارياً من السيرفر بمجرد الفتح
+        loadShopConfig(true); 
     }
 
     if (document.readyState === 'loading') {
@@ -838,14 +835,12 @@
         boot();
     }
 
-    // الاستماع الفوري لحدث تحديث حالة المستخدم في التطبيق
     window.addEventListener('userStateUpdated', () => {
         window.updateShopUI();
     });
     
-    // دالة استماع رئيسية (يجب التأكد من استدعائها في ملف التنقل index.html أو main.js عند الضغط على زر المتجر)
     window.onShopTabOpen = function() {
-        loadShopConfig(true); // إجبار المتجر على تحديث الأرقام لحظياً بمجرد دخوله
+        loadShopConfig(true); 
     };
 
 })();
