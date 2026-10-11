@@ -1,7 +1,7 @@
 // shop/shop.js
 // =================================================================
 // 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
-// مُعالج ليعرض البيانات لحظياً من Supabase بدون تأخير (No Cache)
+// مُعالج ليعرض البيانات لحظياً من Supabase بدون تأخير (Strict No-Cache)
 // =================================================================
 
 (function initShop() {
@@ -200,8 +200,16 @@
         }
 
         try {
-            // كسر كاش المتصفح عبر إضافة المتغير الزمني ?_t
-            const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
+            // إضافة Headers صارمة لمنع الكاش تماماً مع المتغير الزمني
+            const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            }), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
+            
             const data = await res.json();
             if (data && data.success) {
                 shopDynamicSettings = data.settings || data.farm_settings || data;
@@ -369,7 +377,7 @@
 
             isBuying = true;
 
-            const prepRes = await withTimeout(fetch('/api/shop/prepare_ton_pay', {
+            const prepRes = await withTimeout(fetch(`/api/shop/prepare_ton_pay?_t=${Date.now()}`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -408,7 +416,7 @@
             
             let safeBoc = (result && result.boc) ? result.boc : ("TX_" + Date.now() + "_" + Math.floor(Math.random() * 100000));
 
-            const verifyRes = await withTimeout(fetch('/api/shop/verify_and_apply_package', {
+            const verifyRes = await withTimeout(fetch(`/api/shop/verify_and_apply_package?_t=${Date.now()}`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -770,7 +778,7 @@
         let apiType = (type === 'speed') ? 'mining' : 'storage';
 
         try {
-            let response = await withTimeout(fetch('/api/shop/buy', {
+            let response = await withTimeout(fetch(`/api/shop/buy?_t=${Date.now()}`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -835,7 +843,7 @@
         window.updateShopUI();
     });
     
-    // دالة استماع جديدة يتم استدعاؤها في كل مرة يقوم المستخدم فيها بفتح تبويب المتجر
+    // دالة استماع رئيسية (يجب التأكد من استدعائها في ملف التنقل index.html أو main.js عند الضغط على زر المتجر)
     window.onShopTabOpen = function() {
         loadShopConfig(true); // إجبار المتجر على تحديث الأرقام لحظياً بمجرد دخوله
     };
