@@ -52,7 +52,7 @@ def safe_parse_datetime(dt_raw, default_dt=None):
 
 # ==================== الذاكرة المؤقتة للإعدادات ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
-CACHE_TTL_SECONDS = 30
+CACHE_TTL_SECONDS = 0 # تم تغييرها إلى 0 لضمان التحديث اللحظي بدون أي تأخير
 
 # ==================== باقات العروض المميزة الافتراضية ====================
 DEFAULT_USDT_PACKAGES = {
@@ -242,8 +242,17 @@ def get_game_settings(force_refresh=False):
                             found_shop = True
                             
                         val = row['value']
+                        
+                        # --- معالجة التشفير المزدوج بشكل آمن ---
                         if isinstance(val, str):
-                            val = json.loads(val)
+                            try:
+                                val = json.loads(val)
+                                if isinstance(val, str):
+                                    val = json.loads(val)
+                            except Exception as e:
+                                print(f"⚠️ خطأ في تحليل JSON للمفتاح {row['key']}: {e}")
+                                pass
+                        
                         if isinstance(val, dict):
                             data.update(val)
 
