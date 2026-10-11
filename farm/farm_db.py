@@ -255,6 +255,13 @@ def get_game_settings(force_refresh=False):
                         
                         if isinstance(val, dict):
                             data.update(val)
+                            
+                            # 🔥 الحل الجذري لمشكلة باقات VIP 🔥
+                            # مزامنة مفاتيح الباقات لمنع السيرفر من إرسال القيم الافتراضية القديمة
+                            if "packages" in val and val["packages"]:
+                                data["usdt_packages"] = val["packages"]
+                            elif "usdt_packages" in val and val["usdt_packages"]:
+                                data["packages"] = val["usdt_packages"]
 
                 # التأكد من ملء باقات المتجر لو لم تكن متواجدة بالسجل المدمج
                 if "usdt_packages" not in data or not data["usdt_packages"]:
