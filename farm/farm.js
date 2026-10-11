@@ -35,7 +35,7 @@ window.closeWelcomeModal = function() {
             localStorage.setItem(`zn_welcome_seen_${userId}`, 'true');
         }
         if (typeof window.fetchAPI === 'function') {
-            window.fetchAPI('/api/farm/dismiss_welcome', 'POST', {}).catch(() => {});
+            window.fetchAPI(`/api/farm/dismiss_welcome?t=${Date.now()}`, 'POST', {}).catch(() => {});
         }
     } catch (e) {
         console.error("خطأ حفظ حالة النافذة الترحيبية:", e);
@@ -110,7 +110,7 @@ window.closeAutoClaimModal = function() {
     let isUpgradingStorage = false;
 
     let lastFetchTime = 0;
-    const FETCH_THROTTLE_MS = 3000;
+    const FETCH_THROTTLE_MS = 0; // تم إلغاء مانع التكرار لضمان التحديث اللحظي
     let lastCheckedDate = "";
     let lastAutoClaimAttempt = 0;
     let lastClickTime = 0;
@@ -548,7 +548,7 @@ window.closeAutoClaimModal = function() {
     // --- دالة التجميع المركزية لمنع تكرار كود الـ Claim ---
     async function executeClaimApi(isAuto = false) {
         try {
-            let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
+            let resData = await window.fetchAPI(`/api/farm/claim?t=${Date.now()}`, 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
@@ -603,7 +603,7 @@ window.closeAutoClaimModal = function() {
 
         isFetching = true;
         try {
-            let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
+            let resData = await window.fetchAPI(`/api/farm/player_data?t=${Date.now()}`, 'POST', { start_param: START_PARAM });
             if (resData && resData.success) {
                 lastFetchTime = Date.now();
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -806,7 +806,7 @@ window.closeAutoClaimModal = function() {
 
     window.onFarmTabOpen = async function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
-            await window.fetchPlayerDataFromServer(false);
+            await window.fetchPlayerDataFromServer(true); // تم تغييرها إلى true لإجبار التحديث اللحظي دائماً
         } else {
             window.updateFarmUI();
         }
@@ -988,7 +988,7 @@ window.closeAutoClaimModal = function() {
         window.updateFarmUI();
 
         try {
-            let resData = await window.fetchAPI('/api/farm/upgrade_storage', 'POST', {});
+            let resData = await window.fetchAPI(`/api/farm/upgrade_storage?t=${Date.now()}`, 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
@@ -1051,7 +1051,7 @@ window.closeAutoClaimModal = function() {
         window.updateFarmUI();
 
         try {
-            let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
+            let resData = await window.fetchAPI(`/api/farm/upgrade?t=${Date.now()}`, 'POST', { level: level });
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
@@ -1090,7 +1090,7 @@ window.closeAutoClaimModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
+            let resData = await window.fetchAPI(`/api/farm/daily_claim?t=${Date.now()}`, 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
@@ -1128,7 +1128,7 @@ window.closeAutoClaimModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
+            let resData = await window.fetchAPI(`/api/farm/daily_boost?t=${Date.now()}`, 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
 
