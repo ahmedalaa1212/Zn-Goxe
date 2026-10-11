@@ -199,10 +199,19 @@ def get_shop_catalog():
         if not storage_caps or not isinstance(storage_caps, dict) or len(storage_caps) == 0:
             storage_caps = DEFAULT_STORAGE_CONFIG
 
-        # 4. باقات العروض المميزة
-        usdt_pkgs = shop_settings.get("usdt_packages") or shop_settings.get("packages") or farm_settings.get("usdt_packages")
-        if not usdt_pkgs or not isinstance(usdt_pkgs, dict) or len(usdt_pkgs) == 0:
-            usdt_pkgs = DEFAULT_USDT_PACKAGES.copy()
+        # 4. باقات العروض المميزة - تطبيق الحل القوي لدمج المفاتيح
+        db_packages = None
+        
+        if "packages" in shop_settings and isinstance(shop_settings["packages"], dict) and len(shop_settings["packages"]) > 0:
+            db_packages = shop_settings["packages"]
+        elif "usdt_packages" in shop_settings and isinstance(shop_settings["usdt_packages"], dict) and len(shop_settings["usdt_packages"]) > 0:
+            db_packages = shop_settings["usdt_packages"]
+        elif "packages" in farm_settings and isinstance(farm_settings["packages"], dict) and len(farm_settings["packages"]) > 0:
+            db_packages = farm_settings["packages"]
+        elif "usdt_packages" in farm_settings and isinstance(farm_settings["usdt_packages"], dict) and len(farm_settings["usdt_packages"]) > 0:
+            db_packages = farm_settings["usdt_packages"]
+            
+        usdt_pkgs = db_packages if db_packages else DEFAULT_USDT_PACKAGES.copy()
 
         # 5. استخراج المحفظة وسعر الصرف بأمان
         ton_wallet = shop_settings.get("ton_wallet") or shop_settings.get("wallet_address") or ""
