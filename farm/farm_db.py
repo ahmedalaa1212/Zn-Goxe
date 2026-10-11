@@ -233,6 +233,9 @@ def get_game_settings(force_refresh=False):
                 data = DEFAULT_GAME_SETTINGS.copy()
                 found_farm = False
                 found_shop = False
+                
+                # متغير قوي للاحتفاظ بالباقات الحقيقية القادمة من قاعدة البيانات
+                db_packages = None
 
                 for row in rows:
                     if row and row.get('value'):
@@ -250,23 +253,30 @@ def get_game_settings(force_refresh=False):
                                 if isinstance(val, str):
                                     val = json.loads(val)
                             except Exception as e:
-                                print(f"⚠️ خطأ في تحليل JSON للمفتاح {row['key']}: {e}")
                                 pass
                         
                         if isinstance(val, dict):
-                            data.update(val)
-                            
-                            # 🔥 الحل الجذري لمشكلة باقات VIP 🔥
-                            # مزامنة مفاتيح الباقات لمنع السيرفر من إرسال القيم الافتراضية القديمة
-                            if "packages" in val and val["packages"]:
-                                data["usdt_packages"] = val["packages"]
-                            elif "usdt_packages" in val and val["usdt_packages"]:
-                                data["packages"] = val["usdt_packages"]
+                            # 🔥 استخراج الباقات بقوة من أي مفتاح يحتويها 🔥
+                            if "packages" in val and isinstance(val["packages"], dict) and len(val["packages"]) > 0:
+                                db_packages = val["packages"]
+                            elif "usdt_packages" in val and isinstance(val["usdt_packages"], dict) and len(val["usdt_packages"]) > 0:
+                                db_packages = val["usdt_packages"]
+                                
+                            # دمج باقي الإعدادات بدون المساس بالباقات مؤقتاً
+                            for k, v in val.items():
+                                if k not in ["packages", "usdt_packages"]:
+                                    if isinstance(v, dict) and k in data and isinstance(data[k], dict):
+                                        data[k].update(v)
+                                    else:
+                                        data[k] = v
 
-                # التأكد من ملء باقات المتجر لو لم تكن متواجدة بالسجل المدمج
-                if "usdt_packages" not in data or not data["usdt_packages"]:
-                    data["usdt_packages"] = DEFAULT_USDT_PACKAGES.copy()
+                # 🔥 وضع الباقات النهائية في الداتا لتتجاوز القيم الافتراضية تماماً 🔥
+                if db_packages is not None:
+                    data["packages"] = db_packages
+                    data["usdt_packages"] = db_packages
+                else:
                     data["packages"] = DEFAULT_USDT_PACKAGES.copy()
+                    data["usdt_packages"] = DEFAULT_USDT_PACKAGES.copy()
 
                 # إذا لم يكن ملف farm_settings موجوداً، قم بإنشائه منفرداً
                 if not found_farm:
