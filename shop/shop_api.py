@@ -17,17 +17,17 @@ from shop.shop_db import (
 shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
-TON_SAFETY_MARGIN = 1.03  # الهامش 3%
+TON_SAFETY_MARGIN = 1.03  # إضافة 3% على الكمية المطلوبة كحماية
 
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
-CACHE_TTL_TON = 0      # بدون كاش لضمان تحديث السعر لحظياً
+CACHE_TTL_TON = 0      # بدون كاش لضمان التحديث اللحظي
 
 def invalidate_shop_cache():
     _TON_PRICE_CACHE["price"] = 0.0
     _TON_PRICE_CACHE["timestamp"] = 0
 
 def fetch_multi_source_ton_price():
-    # نعتمد فقط على دالة جلب السعر الخاصة بك (سعر Gram)
+    # جلب سعر Gram المباشر من دالتك
     try:
         price = get_live_ton_price()
         if price and float(price) > 0:
@@ -42,9 +42,9 @@ def get_cached_ton_price():
         return _TON_PRICE_CACHE["price"]
 
     price = fetch_multi_source_ton_price()
-    # 1.442 هو السعر الافتراضي في حال فشل الاتصال بالشبكة
+    # 1.38 هو سعر تقريبي افتراضي في حال فشل جلب السعر
     if price <= 0:
-        price = _TON_PRICE_CACHE["price"] if _TON_PRICE_CACHE["price"] > 0 else 1.442
+        price = _TON_PRICE_CACHE["price"] if _TON_PRICE_CACHE["price"] > 0 else 1.38
 
     _TON_PRICE_CACHE["price"] = price
     _TON_PRICE_CACHE["timestamp"] = now
@@ -84,14 +84,11 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    """مسار جلب باقات العرض والأسعار بالدولار والـ Gram اللحظي بعد الهامش"""
+    """مسار جلب الباقات وعرض السعر الحقيقي المطابق للمحفظة"""
     try:
         settings = get_shop_catalog() 
         raw_ton_price = get_cached_ton_price()
         
-        # 🎯 السعر الفعال (بعد تطبيق الهامش 3%) وهو الذي سيظهر للمستخدم في الواجهة العلوية
-        effective_ton_price = round(raw_ton_price / TON_SAFETY_MARGIN, 4) if raw_ton_price > 0 else round(1.442 / TON_SAFETY_MARGIN, 4)
-
         usdt_pkgs = settings.get('packages', {})
         packages_with_ton = {}
 
@@ -102,8 +99,9 @@ def get_config():
                 continue
             usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
             
-            # حساب كمية العملة المطلوبة بناءً على السعر الفعال
-            ton_needed = round(usd_val / effective_ton_price, 4)
+            # 🎯 الحسبة الصحيحة: (السعر بالدولار / سعر العملة الحقيقي) * الهامش 3%
+            base_ton_amount = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
+            ton_needed = round(base_ton_amount * TON_SAFETY_MARGIN, 4)
 
             packages_with_ton[str(pkg_id)] = {
                 "title": str(pkg_info.get('title', f'باقة {pkg_id}')),
@@ -120,7 +118,7 @@ def get_config():
         response = jsonify({
             "success": True,
             "settings": settings,
-            "ton_price_usd": effective_ton_price, # إرسال السعر المطبق للمستخدم
+            "ton_price_usd": raw_ton_price, # إرسال السعر الحقيقي الصافي للواجهة العلوية
             "packages": packages_with_ton
         })
         
@@ -156,9 +154,9 @@ def prepare_ton_pay():
         raw_ton_price = get_cached_ton_price()
         usd_val = float(pkg_info.get('usdt', 0.0))
         
-        # 🎯 حساب الكمية النهائية بناءً على السعر الفعال (بعد الهامش)
-        effective_ton_price = (raw_ton_price / TON_SAFETY_MARGIN) if raw_ton_price > 0 else (1.442 / TON_SAFETY_MARGIN)
-        ton_amount = round(usd_val / effective_ton_price, 4)
+        # 🎯 حساب الكمية النهائية الدقيقة مع الهامش
+        base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
+        ton_amount = round(base_ton * TON_SAFETY_MARGIN, 4)
         nano_ton = int(ton_amount * 1000000000)
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
 
@@ -201,9 +199,9 @@ def verify_and_apply_package():
         usd_val = float(pkg_info.get('usdt', 0.0))
         raw_ton_price = get_cached_ton_price()
         
-        # 🎯 التحقق بناءً على السعر الفعال
-        effective_ton_price = (raw_ton_price / TON_SAFETY_MARGIN) if raw_ton_price > 0 else (1.442 / TON_SAFETY_MARGIN)
-        expected_ton = (usd_val / effective_ton_price)
+        # 🎯 التحقق بنفس المعادلة تماماً لضمان التطابق
+        base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
+        expected_ton = base_ton * TON_SAFETY_MARGIN
         expected_nano = int(expected_ton * 1000000000)
 
         verified_ok, confirmed_tx_hash = verify_ton_transaction_onchain(
