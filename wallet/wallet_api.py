@@ -34,7 +34,7 @@ def get_wallet_data():
         'znx_balance': balances.get('znx_balance', 0.0)
     }))
     
-    # منع التخزين المؤقت الكاش نهائياً لضمان قراءة البيانات اللحظية
+    # منع التخزين المؤقت الكاش نهائياً لضمان قراءة البيانات اللحظية من قاعدة البيانات
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
