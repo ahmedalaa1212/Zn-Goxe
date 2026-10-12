@@ -15,7 +15,7 @@ wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
 
 @wallet_bp.route('/data', methods=['GET'])
 def get_wallet_data():
-    """جلب أرصدة ZN و USDT و ZNX مع التحقق الأمني وتحديث لحظي بدون كاش"""
+    """جلب أرصدة ZN و USDT و ZNX مع التحقق الأمني وتحديث لحظي من Supabase"""
     user_id = request.args.get('user_id', type=int)
     header_user_id = request.headers.get('X-Telegram-User-Id')
     
@@ -34,7 +34,7 @@ def get_wallet_data():
         'znx_balance': balances.get('znx_balance', 0.0)
     }))
     
-    # منع التخزين المؤقت الكاش نهائياً لضمان قراءة الفيربيس اللحظية
+    # منع التخزين المؤقت الكاش نهائياً لضمان قراءة البيانات اللحظية
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
