@@ -7,10 +7,11 @@ ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../"))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# استيراد الاتصال بقاعدة البيانات PostgreSQL (Supabase)
+# 🚀 استيراد الاتصال بقاعدة البيانات PostgreSQL (Supabase) من الملف الرئيسي
 from database import get_db_connection
 
 # ==================== Sub-Modules Re-exports ====================
+# كما طلبت، هذا الملف يعمل كمركز لاستلام وتصدير بيانات المجلدات الفرعية
 try:
     from .deposit.deposit_db import *
 except Exception as e:
@@ -38,7 +39,7 @@ def get_user_wallet_balances(user_id: int) -> dict:
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # استعلام مباشر وسريع لجلب الأرصدة الثلاثة
+                # استعلام مباشر وسريع لجلب الأرصدة الثلاثة من جدول users
                 cur.execute("""
                     SELECT balance, usd_balance, znx_balance 
                     FROM users 
@@ -64,7 +65,7 @@ def update_user_balance(user_id: int, amount: float, currency: str = 'zn', opera
     str_user_id = str(user_id)
     curr = str(currency).lower()
     
-    # تحديد العمود المستهدف
+    # تحديد العمود المستهدف بناءً على نوع العملة
     if curr in ['zn', 'balance']:
         field_to_update = 'balance'
     elif curr in ['znx', 'znx_balance', 'total_znx_earned']:
@@ -79,8 +80,8 @@ def update_user_balance(user_id: int, amount: float, currency: str = 'zn', opera
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # استخدام تحديث ذري (Atomic Update) مع دالة GREATEST لمنع الرصيد السالب
-                # هذا الاستعلام يقفل الصف لحظياً وينفذ العملية بأمان تام بدون الحاجة لـ Transactions معقدة
+                # 🔒 استخدام تحديث ذري (Atomic Update) مع دالة GREATEST لمنع الرصيد السالب
+                # هذا الاستعلام يقفل الصف لحظياً وينفذ العملية بأمان تام
                 cur.execute(f"""
                     UPDATE users 
                     SET {field_to_update} = GREATEST(0.0, COALESCE({field_to_update}, 0.0) + %s)
