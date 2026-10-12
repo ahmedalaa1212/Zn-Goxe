@@ -1,7 +1,6 @@
 // shop/shop.js
 // =================================================================
 // 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
-// مُعالج ليعرض البيانات لحظياً من Supabase بدون تأخير (Safe No-Cache)
 // =================================================================
 
 (function initShop() {
@@ -15,7 +14,6 @@
     const CONFIG_CACHE_TTL = 0; 
     let vipTimerInterval = null;
 
-    // 🎯 نظام اهتزازات اللمس (Haptic Feedback) للموبايل وتليجرام
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
             try {
@@ -26,13 +24,10 @@
                 } else if (type === 'selection') {
                     window.Telegram.WebApp.HapticFeedback.selectionChanged();
                 }
-            } catch (e) {
-                console.warn("Haptic Feedback Error:", e);
-            }
+            } catch (e) {}
         }
     }
 
-    // 🎯 تحويل وتصفية القيم الرقمية بصفة آمنة
     function floatVal(...args) {
         for (let val of args) {
             if (val !== undefined && val !== null && val !== '') {
@@ -44,20 +39,17 @@
         return 0;
     }
 
-    // 🎯 تنظيف الأرقام وإزالة الأصفار العشرية الزائدة للميزات والعروض
     function cleanNum(num) {
         let val = floatVal(num);
         return parseFloat(val.toFixed(4)).toString();
     }
 
-    // 🎯 تنسيق أسعار الدولار للباقات والعروض بشكل نظيف
     function formatUSD(num) {
         let val = floatVal(num);
         if (Number.isInteger(val)) return val.toString();
         return parseFloat(val.toFixed(2)).toString();
     }
 
-    // 🎯 تنسيق أرقام ZN والسعات الكبيرة (K, M, B) بشكل طبيعي
     function formatNumberAbbreviated(num) {
         let val = floatVal(num);
         if (val >= 1000000000) return parseFloat((val / 1000000000).toFixed(2)) + 'B';
@@ -66,13 +58,11 @@
         return parseFloat(val.toFixed(2)).toString();
     }
 
-    // 🎯 فرض 4 أرقام عشرية حصراً للرصيد العلوي (نص عادي)
     function formatTopBalance(num) {
         let val = floatVal(num);
         return val.toFixed(4);
     }
 
-    // 🎯 تنسيق الأرقام العشرية بتباين هادئ ومتناسق مطابق لقائمة الأصدقاء والمزرعة
     function formatTopBalanceHTML(num) {
         let val = floatVal(num);
         let fixedStr = val.toFixed(4);
@@ -82,7 +72,6 @@
         return `${intPart}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${decPart}</span>`;
     }
 
-    // 🎯 دالة المهل الزمنية (Timeout Wrapper) لتفادي التعليق أثناء المعاملات
     function withTimeout(promise, ms, timeoutMsg = "⚠️ انتهت المهلة الزمنية للعملية.") {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
@@ -95,7 +84,6 @@
         });
     }
 
-    // 🎯 حساب المدة المتبقية للباقات وتنسيقها بالعربية بدقة
     function formatRemainingTime(expiresAtStr) {
         if (!expiresAtStr) return null;
         try {
@@ -127,7 +115,6 @@
         }
     }
 
-    // 🎯 تحديث تلقائي حقيقي ومباشر لعداد وقت اشتراك VIP المتبقي (Live Timer)
     function startVipLiveTimer() {
         if (vipTimerInterval) clearInterval(vipTimerInterval);
         vipTimerInterval = setInterval(() => {
@@ -146,7 +133,6 @@
         }, 1000);
     }
 
-    // 🎯 تهيئة TonConnect UI
     function initTonConnect() {
         if (tonConnectUI) return tonConnectUI;
         try {
@@ -185,9 +171,6 @@
         return initTonConnect();
     }
 
-    // =================================================================
-    // 📦 تحميل إعدادات المتجر والتخزين المؤقت (Cache Management)
-    // =================================================================
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
 
@@ -225,7 +208,7 @@
 
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price, 5.0);
+        const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price, 1.442);
         if (tonPriceElem && livePrice) {
             tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`;
         }
@@ -239,9 +222,6 @@
         window.updateShopUI();
     }
 
-    // =================================================================
-    // 🏷️ عرض باقات VIP الديناميكية
-    // =================================================================
     function renderDynamicPackages(packages) {
         let container = document.getElementById('usdt-packages-container');
         if (!container) return;
@@ -270,7 +250,7 @@
             { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
         ];
 
-        const liveTonPrice = floatVal(window.tonPrice, window.userState?.ton_price, 5.0);
+        const liveTonPrice = floatVal(window.tonPrice, window.userState?.ton_price, 1.442);
 
         const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
         const activePkgId = activeVipStatus?.package_id || null;
@@ -286,7 +266,8 @@
             const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd, pkg.price);
             let tonAmount = floatVal(pkg.ton_amount);
             if (tonAmount <= 0 && liveTonPrice > 0 && usdtPrice > 0) {
-                tonAmount = usdtPrice / liveTonPrice;
+                // حساب احتياطي متوافق مع السيرفر في حال عدم توفر القيمة
+                tonAmount = (usdtPrice / liveTonPrice) * 1.03;
             }
 
             const isActive = (activePkgId === pkgId) && (remainingTimeText !== null);
@@ -331,9 +312,6 @@
         startVipLiveTimer();
     }
 
-    // =================================================================
-    // 💎 شراء الباقات بـ TON مع معالجة حافة المهل المحددة والخطأ
-    // =================================================================
     window.buyPackageWithTon = async function(packageId) {
         if (isBuying) return;
 
@@ -460,9 +438,6 @@
         }
     };
 
-    // =================================================================
-    // 🎨 نافذة التأكيد المخصصة السلسة (Modal UI)
-    // =================================================================
     const injectModalUI = () => {
         if (!document.getElementById('shop-modal-styles')) {
             const styleSheet = document.createElement("style");
@@ -525,9 +500,6 @@
 
     injectModalUI();
 
-    // =================================================================
-    // 🔄 التبديل بين تبويبات المتجر
-    // =================================================================
     window.switchShopTab = function(tab) {
         triggerHaptic('selection');
         const miningSec = document.getElementById('shop-mining-section');
@@ -550,9 +522,6 @@
         }
     };
 
-    // =================================================================
-    // 🔄 تحديث واجهة المتجر وقفل/فتح الأزرار تلقائياً
-    // =================================================================
     window.updateShopUI = function() {
         if (cachedPackagesData) {
             renderDynamicPackages(cachedPackagesData);
@@ -701,9 +670,6 @@
         storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب مستويات التخزين...</div>';
     };
 
-    // =================================================================
-    // 🛒 طلب شراء ترقية السرعة أو التخزين
-    // =================================================================
     window.requestShopPurchase = function(type, level, priceZn, priceUsd) {
         const curBal = floatVal(window.userState?.balance);
         const curUsd = floatVal(window.userState?.usd_balance, window.userState?.balance_usd, window.userState?.usd, window.userState?.usdt);
@@ -760,9 +726,6 @@
         if (overlay) overlay.classList.add('shop-modal-active');
     };
 
-    // =================================================================
-    // ⚡ تنفيذ الشراء المباشر للترقيات الداخلية
-    // =================================================================
     async function executeActualPurchase(type, level) {
         const initData = window.Telegram?.WebApp?.initData; 
         if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل تليجرام.");
@@ -819,9 +782,6 @@
         }
     }
 
-    // =================================================================
-    // 🚀 بداية التشغيل واستماع الأحداث
-    // =================================================================
     function boot() {
         initTonConnect();
         loadShopConfig(true); 
