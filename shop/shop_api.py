@@ -17,48 +17,24 @@ from shop.shop_db import (
 shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
-TON_SAFETY_MARGIN = 1.03  # تم تقليل الهامش للنصف (3%) لضبط السعر بشكل واقعي
+TON_SAFETY_MARGIN = 1.03  # تم التعديل إلى 1.03 (3%) ويطبق فقط على الكمية المطلوبة
 
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
-CACHE_TTL_TON = 0      # إجبار السيرفر على جلب سعر TON لحظياً
+CACHE_TTL_TON = 0      # بدون كاش
 
 def invalidate_shop_cache():
     _TON_PRICE_CACHE["price"] = 0.0
     _TON_PRICE_CACHE["timestamp"] = 0
 
 def fetch_multi_source_ton_price():
-    headers = {'User-Agent': 'Mozilla/5.0'}
-
-    try:
-        req = urllib.request.Request("https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT", headers=headers)
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            price = float(data.get('price', 0))
-            if price > 0: return price
-    except Exception: pass
-
-    try:
-        req = urllib.request.Request("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", headers=headers)
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            price = float(data['data'][0]['last'])
-            if price > 0: return price
-    except Exception: pass
-
-    try:
-        req = urllib.request.Request("https://api.bybit.com/v5/market/tickers?category=spot&symbol=TONUSDT", headers=headers)
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            price = float(data['result']['list'][0]['lastPrice'])
-            if price > 0: return price
-    except Exception: pass
-
+    # تم حذف المنصات الخارجية لمنع جلب سعر TON (5$) 
+    # والاعتماد كلياً على الدالة الخاصة بك التي تجلب سعر Gram
     try:
         price = get_live_ton_price()
         if price and float(price) > 0:
             return float(price)
     except Exception: pass
-
+    
     return 0.0
 
 def get_cached_ton_price():
@@ -67,8 +43,9 @@ def get_cached_ton_price():
         return _TON_PRICE_CACHE["price"]
 
     price = fetch_multi_source_ton_price()
+    # وضعنا 1.442 كسعر تقريبي افتراضي في حال فشل الجلب بدلاً من 5.5
     if price <= 0:
-        price = _TON_PRICE_CACHE["price"] if _TON_PRICE_CACHE["price"] > 0 else 5.50
+        price = _TON_PRICE_CACHE["price"] if _TON_PRICE_CACHE["price"] > 0 else 1.442
 
     _TON_PRICE_CACHE["price"] = price
     _TON_PRICE_CACHE["timestamp"] = now
@@ -108,13 +85,13 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    """مسار جلب باقات العرض والأسعار بالدولار والـ TON اللحظي"""
+    """مسار جلب باقات العرض والأسعار بالدولار والـ Gram اللحظي"""
     try:
         settings = get_shop_catalog() 
         raw_ton_price = get_cached_ton_price()
         
-        # ظهور السعر للمستخدم بعد الهامش لتجنب التناقض
-        effective_ton_price = round(raw_ton_price / TON_SAFETY_MARGIN, 4) if raw_ton_price > 0 else round(5.50 / TON_SAFETY_MARGIN, 4)
+        # 🎯 السعر الذي سيظهر للمستخدم في الواجهة العلوية (كما هو في المحفظة تماماً)
+        display_ton_price = raw_ton_price if raw_ton_price > 0 else 1.442
 
         usdt_pkgs = settings.get('packages', {})
         packages_with_ton = {}
@@ -126,7 +103,8 @@ def get_config():
                 continue
             usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
             
-            ton_needed = round(usd_val / effective_ton_price, 4) if effective_ton_price > 0 else round(usd_val / 5.1887, 4)
+            # 🎯 هنا نطبق هامش الحماية (1.03) على الكمية المطلوبة للدفع فقط لتعويض الفارق
+            ton_needed = round((usd_val / display_ton_price) * TON_SAFETY_MARGIN, 4) if display_ton_price > 0 else round((usd_val / 1.442) * TON_SAFETY_MARGIN, 4)
 
             packages_with_ton[str(pkg_id)] = {
                 "title": str(pkg_info.get('title', f'باقة {pkg_id}')),
@@ -143,7 +121,7 @@ def get_config():
         response = jsonify({
             "success": True,
             "settings": settings,
-            "ton_price_usd": effective_ton_price,
+            "ton_price_usd": display_ton_price, # إرسال السعر الصافي للواجهة
             "packages": packages_with_ton
         })
         
@@ -179,7 +157,8 @@ def prepare_ton_pay():
         raw_ton_price = get_cached_ton_price()
         usd_val = float(pkg_info.get('usdt', 0.0))
         
-        base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 5.5)
+        # حساب الكمية النهائية مع الهامش 1.03
+        base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.442)
         ton_amount = round(base_ton * TON_SAFETY_MARGIN, 4)
         nano_ton = int(ton_amount * 1000000000)
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
@@ -222,7 +201,7 @@ def verify_and_apply_package():
         pkg_info = packages[pkg_key]
         usd_val = float(pkg_info.get('usdt', 0.0))
         raw_ton_price = get_cached_ton_price()
-        expected_ton = (usd_val / raw_ton_price) * TON_SAFETY_MARGIN if raw_ton_price > 0 else (usd_val / 5.5)
+        expected_ton = (usd_val / raw_ton_price) * TON_SAFETY_MARGIN if raw_ton_price > 0 else (usd_val / 1.442)
         expected_nano = int(expected_ton * 1000000000)
 
         verified_ok, confirmed_tx_hash = verify_ton_transaction_onchain(
@@ -233,7 +212,7 @@ def verify_and_apply_package():
         )
 
         if not verified_ok:
-            return jsonify({"success": False, "error": "تعذر التأكد من وصول المعاملة على شبكة TON. يرجى المحاولة لاحقاً."}), 200
+            return jsonify({"success": False, "error": "تعذر التأكد من وصول المعاملة على الشبكة. يرجى المحاولة لاحقاً."}), 200
 
         apply_success, message, result_data = db_verify_and_apply_package(
             tg_id=user_id,
