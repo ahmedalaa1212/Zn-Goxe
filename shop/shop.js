@@ -208,7 +208,7 @@
 
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        // السعر هنا يصل من السيرفر جاهزاً مخصوم منه الهامش ليظهر للمستخدم
+        // السعر هنا يُعرض بشكله الطبيعي الحقيقي الوارد من السيرفر بدون تدخل الهامش
         const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
         if (tonPriceElem && livePrice) {
             tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`;
@@ -251,9 +251,8 @@
             { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
         ];
 
-        // قراءة السعر المعروض أعلى الشاشة لاستخدامه في الحسابات التلقائية
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        const displayedPrice = tonPriceElem ? parseFloat(tonPriceElem.innerText.replace('$', '')) : 1.40;
+        const displayedPrice = tonPriceElem ? parseFloat(tonPriceElem.innerText.replace('$', '')) : 1.38;
 
         const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
         const activePkgId = activeVipStatus?.package_id || null;
@@ -268,9 +267,10 @@
 
             const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd, pkg.price);
             let tonAmount = floatVal(pkg.ton_amount);
+            
+            // 🎯 في حال عدم استلام السعر من السيرفر بشكل صحيح، يتم حساب الباقة وإضافة هامش 3% لها هنا أيضاً
             if (tonAmount <= 0 && displayedPrice > 0 && usdtPrice > 0) {
-                // القسمة المباشرة لأن السعر المعروض به الهامش بالفعل
-                tonAmount = usdtPrice / displayedPrice;
+                tonAmount = (usdtPrice / displayedPrice) * 1.03;
             }
 
             const isActive = (activePkgId === pkgId) && (remainingTimeText !== null);
@@ -415,6 +415,8 @@
                 if (res.balance !== undefined) window.userState.balance = res.balance;
                 if (res.usd_balance !== undefined) window.userState.usd_balance = res.usd_balance;
                 if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
+                if (res.upgrades !== undefined) window.userState.upgrades = res.upgrades;
+                if (res.storage_level !== undefined) window.userState.storage_level = res.storage_level;
                 if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
                 if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
                 if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
