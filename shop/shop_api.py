@@ -17,10 +17,10 @@ from shop.shop_db import (
 shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
-TON_SAFETY_MARGIN = 1.06  
+TON_SAFETY_MARGIN = 1.03  # تم تقليل الهامش للنصف (3%) لضبط السعر بشكل واقعي
 
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
-CACHE_TTL_TON = 0      # تم تعديلها إلى 0 لإجبار السيرفر على جلب سعر TON لحظياً
+CACHE_TTL_TON = 0      # إجبار السيرفر على جلب سعر TON لحظياً
 
 def invalidate_shop_cache():
     _TON_PRICE_CACHE["price"] = 0.0
@@ -63,7 +63,6 @@ def fetch_multi_source_ton_price():
 
 def get_cached_ton_price():
     now = time.time()
-    # إلغاء منطق الكاش لضمان تحديث السعر في كل طلب
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
         return _TON_PRICE_CACHE["price"]
 
@@ -113,6 +112,8 @@ def get_config():
     try:
         settings = get_shop_catalog() 
         raw_ton_price = get_cached_ton_price()
+        
+        # ظهور السعر للمستخدم بعد الهامش لتجنب التناقض
         effective_ton_price = round(raw_ton_price / TON_SAFETY_MARGIN, 4) if raw_ton_price > 0 else round(5.50 / TON_SAFETY_MARGIN, 4)
 
         usdt_pkgs = settings.get('packages', {})
@@ -146,7 +147,6 @@ def get_config():
             "packages": packages_with_ton
         })
         
-        # 🚀 إضافة أوامر صارمة لمنع التخزين المؤقت (No-Cache) وتحديث فوري
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
@@ -176,10 +176,10 @@ def prepare_ton_pay():
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 200
 
         pkg_info = packages[pkg_id]
-        ton_price = get_cached_ton_price()
+        raw_ton_price = get_cached_ton_price()
         usd_val = float(pkg_info.get('usdt', 0.0))
         
-        base_ton = (usd_val / ton_price) if ton_price > 0 else (usd_val / 5.5)
+        base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 5.5)
         ton_amount = round(base_ton * TON_SAFETY_MARGIN, 4)
         nano_ton = int(ton_amount * 1000000000)
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
@@ -221,8 +221,8 @@ def verify_and_apply_package():
 
         pkg_info = packages[pkg_key]
         usd_val = float(pkg_info.get('usdt', 0.0))
-        ton_price = get_cached_ton_price()
-        expected_ton = (usd_val / ton_price) * TON_SAFETY_MARGIN if ton_price > 0 else (usd_val / 5.5)
+        raw_ton_price = get_cached_ton_price()
+        expected_ton = (usd_val / raw_ton_price) * TON_SAFETY_MARGIN if raw_ton_price > 0 else (usd_val / 5.5)
         expected_nano = int(expected_ton * 1000000000)
 
         verified_ok, confirmed_tx_hash = verify_ton_transaction_onchain(
