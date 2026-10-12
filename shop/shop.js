@@ -3,7 +3,6 @@
 // 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
 // =================================================================
 
-
 (function initShop() {
     'use strict';
 
@@ -209,7 +208,8 @@
 
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price, 1.442);
+        // السعر هنا يصل من السيرفر جاهزاً مخصوم منه الهامش ليظهر للمستخدم
+        const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
         if (tonPriceElem && livePrice) {
             tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`;
         }
@@ -251,7 +251,9 @@
             { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
         ];
 
-        const liveTonPrice = floatVal(window.tonPrice, window.userState?.ton_price, 1.442);
+        // قراءة السعر المعروض أعلى الشاشة لاستخدامه في الحسابات التلقائية
+        const tonPriceElem = document.getElementById('ton-live-rate-text');
+        const displayedPrice = tonPriceElem ? parseFloat(tonPriceElem.innerText.replace('$', '')) : 1.40;
 
         const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
         const activePkgId = activeVipStatus?.package_id || null;
@@ -266,9 +268,9 @@
 
             const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd, pkg.price);
             let tonAmount = floatVal(pkg.ton_amount);
-            if (tonAmount <= 0 && liveTonPrice > 0 && usdtPrice > 0) {
-                // حساب احتياطي متوافق مع السيرفر في حال عدم توفر القيمة
-                tonAmount = (usdtPrice / liveTonPrice) * 1.03;
+            if (tonAmount <= 0 && displayedPrice > 0 && usdtPrice > 0) {
+                // القسمة المباشرة لأن السعر المعروض به الهامش بالفعل
+                tonAmount = usdtPrice / displayedPrice;
             }
 
             const isActive = (activePkgId === pkgId) && (remainingTimeText !== null);
