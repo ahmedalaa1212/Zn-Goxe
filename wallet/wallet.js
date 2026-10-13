@@ -26,13 +26,13 @@ window.walletModule = (function () {
         return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
     }
 
-    // 🎯 دالة جديدة تقوم بالتحديث المباشر من الأرقام المعطاة لها دون الرجوع للكاش القديم
-    function forceUpdateUIWithValues(znVal, usdtVal, znxVal) {
+    // 🎯 دالة التحديث المباشر للواجهة
+    function directUpdateUI(znVal, usdtVal, znxVal) {
         const newZnHTML = formatSmartBalanceHTML(znVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
         const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
-        // 1. تحديث مربعات المحفظة الداخلية الثلاثة
+        // 1. تحديث عناصر المحفظة الداخلية (إذا كانت موجودة في الـ DOM)
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
         const znxElem = document.getElementById('znx-balance-display');
@@ -41,9 +41,9 @@ window.walletModule = (function () {
         if (usdtElem) usdtElem.innerHTML = newUsdtHTML;
         if (znxElem) znxElem.innerHTML = newZnxHTML;
 
-        // 2. تحديث الشاشة العلوية للتطبيق (Header) والمزرعة وأي مكان آخر
-        const topZnBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
-        topZnBalances.forEach(el => {
+        // 2. تحديث الشاشة العلوية للتطبيق (Header) وأي مكان آخر يظهر فيه الرصيد
+        const topBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
+        topBalances.forEach(el => {
             if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display' && el.id !== 'usdt-balance-display') {
                 if (el.textContent.includes('ZNX')) {
                     el.innerHTML = `${newZnxHTML} ZNX`;
@@ -56,21 +56,13 @@ window.walletModule = (function () {
         });
     }
 
-    function updateBalancesUI() {
-        // نستخدم هذه الدالة فقط كخيار أخير إذا لم تكن هناك بيانات من السيرفر
-        const znVal = window.userState?.balance ?? window.userState?.zn_balance ?? 0;
-        const usdtVal = window.userState?.usd_balance ?? window.userState?.usdt_balance ?? 0;
-        const znxVal = window.userState?.znx_balance ?? window.userState?.total_znx_earned ?? 0;
-        
-        forceUpdateUIWithValues(znVal, usdtVal, znxVal);
-    }
-
+    // الدالة المسؤولة عن حقن القيم في الكاش وتحديث الواجهة
     function applyNewBalances(zn, usdt, znx) {
         const newZn = parseFloat(zn || 0);
         const newUsdt = parseFloat(usdt || 0);
         const newZnx = parseFloat(znx || 0);
 
-        // حفظ القيم في الأوبجكتات العامة
+        // تحديث جميع الكائنات العامة في التطبيق لمنع ظهور الأصفار لاحقاً
         if (!window.userState) window.userState = {};
         window.userState.balance = newZn;
         window.userState.zn_balance = newZn;
@@ -83,9 +75,10 @@ window.walletModule = (function () {
         window.PlayerData.usd_balance = newUsdt;
         window.PlayerData.znx_balance = newZnx;
 
-        // 🎯 نداء التحديث المباشر هنا لحل مشكلة الظهور والاختفاء
-        forceUpdateUIWithValues(newZn, newUsdt, newZnx);
+        // تحديث الواجهة مباشرة بالأرقام الجديدة
+        directUpdateUI(newZn, newUsdt, newZnx);
         
+        // إطلاق الحدث لتحديث باقي مكونات التطبيق (مثل المتجر)
         window.dispatchEvent(new CustomEvent('userStateUpdated'));
     }
 
@@ -109,7 +102,8 @@ window.walletModule = (function () {
 
         try {
             const tg = window.Telegram?.WebApp;
-            // الحصول على المعرف بشكل دقيق 
+            
+            // جلب معرف المستخدم بكل الطرق الممكنة لضمان عدم إرسال طلب فارغ
             let userId = tg?.initDataUnsafe?.user?.id || 
                          window.userState?.tg_id || window.userState?.user_id || window.userState?.id ||
                          window.PlayerData?.tg_id || window.PlayerData?.user_id || '';
@@ -117,7 +111,7 @@ window.walletModule = (function () {
             const initData = tg?.initData || '';
 
             if (!userId || userId === 'undefined') {
-                return;
+                return; // لا ترسل الطلب إذا لم يكن هناك مستخدم
             }
 
             const headers = { 'Content-Type': 'application/json' };
@@ -133,17 +127,17 @@ window.walletModule = (function () {
             const data = await res.json();
             
             if (data.success) {
-                // إرسال البيانات مباشرة للواجهة لضمان ثباتها
+                // إرسال البيانات فوراً إلى دالة التطبيق لتحديث الواجهة والكاش
                 applyNewBalances(data.zn_balance, data.usdt_balance, data.znx_balance);
             }
         } catch (err) {
-            console.warn("⚠️ فشل جلب الرصيد من السيرفر:");
+            console.warn("⚠️ فشل جلب الرصيد من السيرفر.");
         }
     }
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        // تحديث كل 3 ثواني للحفاظ على التزامن 
+        // تحديث كل 3 ثواني
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
         }, 3000);
@@ -200,6 +194,7 @@ window.walletModule = (function () {
         if (!container) return;
         container.setAttribute('data-active-tab', tabName);
 
+        // جلب الأرصدة عند تبديل التبويب
         fetchWalletBalances(true);
 
         if (viewCache[tabName]) {
@@ -252,7 +247,7 @@ window.walletModule = (function () {
         }
 
         isWalletRendered = true;
-        fetchWalletBalances(true);
+        fetchWalletBalances(true); // جلب الأرصدة عند التهيئة
         startAutoPolling();
         switchTab(currentTab || 'deposit', force);
     }
@@ -261,7 +256,6 @@ window.walletModule = (function () {
         init,
         switchTab,
         fetchWalletBalances,
-        updateBalancesUI,
         formatSmartBalance,
         formatSmartBalanceHTML
     };
