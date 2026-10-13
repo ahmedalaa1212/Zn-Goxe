@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request, make_response
 from .wallet_db import get_user_wallet_balances
 
+# ربط واجهات برمجة التطبيقات (APIs) للقوائم الفرعية الثلاث
 try:
     from .deposit.deposit_api import deposit_bp
 except ImportError:
@@ -26,7 +27,7 @@ wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
 def get_wallet_data():
     """جلب الأرصدة من Supabase بشكل مباشر"""
     
-    # الحصول على user_id بكل الطرق الممكنة لضمان عدم إرجاع السيرفر لبيانات أصفار
+    # محاولة جلب user_id من جميع المصادر الممكنة في الريكويست
     user_id = request.args.get('user_id')
     
     if not user_id or user_id == 'undefined':
@@ -37,13 +38,15 @@ def get_wallet_data():
         
     balances = get_user_wallet_balances(user_id)
     
+    # إرسال القيم كسلاسل نصية (Strings) لمنع أخطاء التقريب في JavaScript
     response = make_response(jsonify({
         'success': True,
-        'zn_balance': balances.get('zn_balance', 0.0),
-        'usdt_balance': balances.get('usdt_balance', 0.0),
-        'znx_balance': balances.get('znx_balance', 0.0)
+        'zn_balance': str(balances.get('zn_balance', 0.0)),
+        'usdt_balance': str(balances.get('usdt_balance', 0.0)),
+        'znx_balance': str(balances.get('znx_balance', 0.0))
     }))
     
+    # منع الكاش بشكل قاطع
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
