@@ -46,11 +46,11 @@ window.walletModule = (function () {
                 }
             }
         }
-        return null; // إذا لم يجد شيئاً
+        return 0.0; 
     }
 
     function updateBalancesUI() {
-        // قراءة القيم المخزنة محلياً
+        // قراءة القيم من الـ Cache أو من الذاكرة
         const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']) ?? 0;
         const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']) ?? 0;
         const znxVal = getGlobalBalance(['znx_balance', 'total_znx_earned', 'znx']) ?? 0;
@@ -59,25 +59,38 @@ window.walletModule = (function () {
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
         const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
-        // 1. تحديث عناصر المحفظة الداخلية (إن وجدت)
-        const znElem = document.getElementById('zn-balance-display');
-        const usdtElem = document.getElementById('usdt-balance-display');
-        const znxElem = document.getElementById('znx-balance-display');
+        // 1. التحديث بقوة العنف للأيديهات الشائعة (Force Update By IDs)
+        const commonZnIds = ['zn-balance-display', 'top-balance', 'top-balance-shop', 'header-zn-balance', 'user-balance-zn'];
+        const commonUsdtIds = ['usdt-balance-display', 'shop-usd-text', 'header-usd-balance'];
+        const commonZnxIds = ['znx-balance-display', 'top-znx-balance', 'header-znx-balance'];
 
-        if (znElem) znElem.innerHTML = newZnHTML;
-        if (usdtElem) usdtElem.innerHTML = newUsdtHTML;
-        if (znxElem) znxElem.innerHTML = newZnxHTML;
+        commonZnIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = `${newZnHTML} ZN`;
+        });
 
-        // 2. تحديث الشاشة العلوية للتطبيق (Header) بشكل قسري
-        const topZnBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
-        topZnBalances.forEach(el => {
-            if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display' && el.id !== 'usdt-balance-display') {
-                if (el.textContent.includes('ZNX')) {
-                    el.innerHTML = `${newZnxHTML} ZNX`;
-                } else if (el.textContent.includes('ZN')) {
+        commonUsdtIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = `<span style="color:#00cc66;">$</span> ${newUsdtHTML}`;
+        });
+
+        commonZnxIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = `ZNX ${newZnxHTML}`;
+        });
+
+        // 2. تحديث شامل بـ Query Selector لضمان عدم هروب أي كلاس (Catch All Elements)
+        document.querySelectorAll('div, span, p, h1, h2, h3, h4, h5').forEach(el => {
+            // التحقق من أن العنصر يحتوي على الكلمة فقط ولا يحتوي على أبناء (تجنب مسح تصميم الصفحة)
+            if (el.children.length === 0 || el.classList.contains('zn-balance-display') || el.classList.contains('user-balance')) {
+                const text = el.textContent.trim();
+                
+                if (text.startsWith('ZNX') && text.match(/[0-9]/)) {
+                    el.innerHTML = `ZNX ${newZnxHTML}`;
+                } else if (text.endsWith('ZN') && text.match(/[0-9]/)) {
                     el.innerHTML = `${newZnHTML} ZN`;
-                } else {
-                    el.innerHTML = newZnHTML;
+                } else if (text.startsWith('$') && text.match(/[0-9]/)) {
+                    el.innerHTML = `<span style="color:#00cc66;">$</span> ${newUsdtHTML}`;
                 }
             }
         });
@@ -124,7 +137,6 @@ window.walletModule = (function () {
     }
 
     async function fetchWalletBalances(force = false) {
-        // تحديث سريع محلي أولاً
         updateBalancesUI();
 
         const now = Date.now();
@@ -135,15 +147,16 @@ window.walletModule = (function () {
 
         try {
             const tg = window.Telegram?.WebApp;
-            // الحصول على المعرف بشكل دقيق من عدة مصادر محتملة
+            
+            // جلب الأيدي بكل الطرق الممكنة لمنع إرسال طلب فارغ للسيرفر
             let userId = tg?.initDataUnsafe?.user?.id || 
                          window.userState?.tg_id || window.userState?.user_id || window.userState?.id ||
                          window.PlayerData?.tg_id || window.PlayerData?.user_id || '';
                          
             const initData = tg?.initData || '';
 
-            if (!userId || userId === 'undefined') {
-                return; // لا ترسل ريكويست خالي للسيرفر
+            if (!userId || String(userId) === 'undefined') {
+                return;
             }
 
             const headers = { 'Content-Type': 'application/json' };
@@ -169,7 +182,7 @@ window.walletModule = (function () {
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        // تحديث كل 3 ثواني للحفاظ على تزامن Supabase
+        // تحديث كل 3 ثواني للحفاظ على تزامن Supabase بشكل دائم
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
         }, 3000);
@@ -268,7 +281,7 @@ window.walletModule = (function () {
 
     function init(force = false) {
         attachRealtimeListeners();
-        updateBalancesUI(); // تطبيق فوري للأرصدة الموجودة مسبقاً قبل انتظار السيرفر
+        updateBalancesUI();
 
         const container = document.getElementById('wallet-subview-container');
         const isSubContentPresent = container && container.children.length > 0;
