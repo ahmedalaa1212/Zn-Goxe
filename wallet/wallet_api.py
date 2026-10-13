@@ -34,7 +34,6 @@ def get_wallet_data():
         user_id = request.headers.get('X-Telegram-User-Id')
         
     if not user_id or user_id == 'undefined':
-        # إذا لم يتم العثور عليه، نعيد خطأ ليقوم الجافاسكريبت بالاعتماد على النسخة المخبأة
         return jsonify({'success': False, 'error': 'معرف المستخدم غير متاح'}), 400
         
     balances = get_user_wallet_balances(user_id)
@@ -46,7 +45,7 @@ def get_wallet_data():
         'znx_balance': balances.get('znx_balance', 0.0)
     }))
     
-    # منع الكاش
+    # منع الكاش بشكل تام
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
