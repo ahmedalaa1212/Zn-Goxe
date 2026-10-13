@@ -44,7 +44,7 @@ def get_user_wallet_balances(user_id) -> dict:
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # استعلام شامل للبحث عن المستخدم بكل الطرق الممكنة (tg_id, user_id, telegram_id)
+                # التأكد من إرجاع قيم 0.0 بدلاً من Null إذا كان الحقل فارغاً
                 cur.execute("""
                     SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0) 
                     FROM users 
