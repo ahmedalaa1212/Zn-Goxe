@@ -44,7 +44,7 @@ def get_user_wallet_balances(user_id) -> dict:
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # التأكد من إرجاع قيم 0.0 بدلاً من Null إذا كان الحقل فارغاً
+                # استخدام COALESCE بقوة لضمان وجود قيمة رقمية دائماً
                 cur.execute("""
                     SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0) 
                     FROM users 
@@ -54,10 +54,11 @@ def get_user_wallet_balances(user_id) -> dict:
                 
                 row = cur.fetchone()
                 if row:
+                    # تحويل صريح إلى float لضمان عدم وجود أخطاء في الـ JSON
                     return {
-                        'zn_balance': float(row[0]),
-                        'usdt_balance': float(row[1]),
-                        'znx_balance': float(row[2])
+                        'zn_balance': float(row[0] if row[0] is not None else 0.0),
+                        'usdt_balance': float(row[1] if row[1] is not None else 0.0),
+                        'znx_balance': float(row[2] if row[2] is not None else 0.0)
                     }
     except Exception as e:
         print(f"⚠️ خطأ جلب الرصيد من Supabase: {e}")
