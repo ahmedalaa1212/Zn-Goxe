@@ -26,13 +26,11 @@ window.walletModule = (function () {
         return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
     }
 
-    // 🎯 دالة التحديث المباشر للواجهة
     function directUpdateUI(znVal, usdtVal, znxVal) {
         const newZnHTML = formatSmartBalanceHTML(znVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
         const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
-        // 1. تحديث عناصر المحفظة الداخلية (إذا كانت موجودة في الـ DOM)
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
         const znxElem = document.getElementById('znx-balance-display');
@@ -41,7 +39,6 @@ window.walletModule = (function () {
         if (usdtElem) usdtElem.innerHTML = newUsdtHTML;
         if (znxElem) znxElem.innerHTML = newZnxHTML;
 
-        // 2. تحديث الشاشة العلوية للتطبيق (Header) وأي مكان آخر يظهر فيه الرصيد
         const topBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
         topBalances.forEach(el => {
             if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display' && el.id !== 'usdt-balance-display') {
@@ -56,13 +53,11 @@ window.walletModule = (function () {
         });
     }
 
-    // الدالة المسؤولة عن حقن القيم في الكاش وتحديث الواجهة
     function applyNewBalances(zn, usdt, znx) {
         const newZn = parseFloat(zn || 0);
         const newUsdt = parseFloat(usdt || 0);
         const newZnx = parseFloat(znx || 0);
 
-        // تحديث جميع الكائنات العامة في التطبيق لمنع ظهور الأصفار لاحقاً
         if (!window.userState) window.userState = {};
         window.userState.balance = newZn;
         window.userState.zn_balance = newZn;
@@ -75,22 +70,22 @@ window.walletModule = (function () {
         window.PlayerData.usd_balance = newUsdt;
         window.PlayerData.znx_balance = newZnx;
 
-        // تحديث الواجهة مباشرة بالأرقام الجديدة
         directUpdateUI(newZn, newUsdt, newZnx);
-        
-        // إطلاق الحدث لتحديث باقي مكونات التطبيق (مثل المتجر)
         window.dispatchEvent(new CustomEvent('userStateUpdated'));
     }
 
-    function attachRealtimeListeners() {
-        if (isListening) return;
-        isListening = true;
-
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                fetchWalletBalances(true);
-            }
-        });
+    // 🎯 دالة جديدة قوية لجلب المعرف الحقيقي من تليجرام
+    function getValidUserId() {
+        let tg = window.Telegram?.WebApp;
+        let id = tg?.initDataUnsafe?.user?.id;
+        if (id) return String(id);
+        
+        id = window.userState?.tg_id || window.userState?.user_id || window.userState?.id ||
+             window.PlayerData?.tg_id || window.PlayerData?.user_id;
+             
+        if (id && String(id) !== 'undefined') return String(id);
+        
+        return null;
     }
 
     async function fetchWalletBalances(force = false) {
@@ -98,24 +93,22 @@ window.walletModule = (function () {
         if (!force && lastFetchTime && (now - lastFetchTime < 1000)) {
             return;
         }
+        
+        let userId = getValidUserId();
+        
+        // 🎯 إذا لم يكن الـ ID متاحاً، نوقف العملية ولا نطلب أصفاراً من السيرفر
+        if (!userId) {
+            console.warn("⏳ لم يتم التعرف على Telegram ID بعد، جاري المحاولة...");
+            return; 
+        }
+
         lastFetchTime = now;
 
         try {
             const tg = window.Telegram?.WebApp;
-            
-            // جلب معرف المستخدم بكل الطرق الممكنة لضمان عدم إرسال طلب فارغ
-            let userId = tg?.initDataUnsafe?.user?.id || 
-                         window.userState?.tg_id || window.userState?.user_id || window.userState?.id ||
-                         window.PlayerData?.tg_id || window.PlayerData?.user_id || '';
-                         
             const initData = tg?.initData || '';
-
-            if (!userId || userId === 'undefined') {
-                return; // لا ترسل الطلب إذا لم يكن هناك مستخدم
-            }
-
             const headers = { 'Content-Type': 'application/json' };
-            headers['X-Telegram-User-Id'] = String(userId);
+            headers['X-Telegram-User-Id'] = userId;
             if (initData) headers['Authorization'] = `Bearer ${initData}`;
 
             const res = await fetch(`/api/wallet/data?user_id=${userId}&t=${Date.now()}`, { 
@@ -123,21 +116,20 @@ window.walletModule = (function () {
                 cache: 'no-store' 
             });
             
-            if (!res.ok) throw new Error("Server response error");
+            if (!res.ok) throw new Error(`Server returned ${res.status}`);
             const data = await res.json();
             
             if (data.success) {
-                // إرسال البيانات فوراً إلى دالة التطبيق لتحديث الواجهة والكاش
+                // تمرير الأرصدة الحقيقية للواجهة
                 applyNewBalances(data.zn_balance, data.usdt_balance, data.znx_balance);
             }
         } catch (err) {
-            console.warn("⚠️ فشل جلب الرصيد من السيرفر.");
+            console.error("❌ خطأ في الاتصال بسيرفر Railway:", err);
         }
     }
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        // تحديث كل 3 ثواني
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
         }, 3000);
@@ -157,10 +149,7 @@ window.walletModule = (function () {
             script.id = scriptId;
             script.src = `wallet/${tabName}/${tabName}.js?v=${Date.now()}`;
             script.onload = () => resolve();
-            script.onerror = () => {
-                console.error(`⚠️ فشل تحميل السكربت الفرعي: wallet/${tabName}/${tabName}.js`);
-                resolve();
-            };
+            script.onerror = () => { resolve(); };
             document.head.appendChild(script);
         });
     }
@@ -194,49 +183,39 @@ window.walletModule = (function () {
         if (!container) return;
         container.setAttribute('data-active-tab', tabName);
 
-        // جلب الأرصدة عند تبديل التبويب
         fetchWalletBalances(true);
 
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
             await ensureSubModuleScriptLoaded(tabName);
-            executeSubModuleInit(tabName);
+            if (typeof window[`init_${tabName}_module`] === 'function') window[`init_${tabName}_module`]();
             return;
         }
 
         try {
             const cacheBuster = `?v=${Date.now()}`;
             let response = await fetch(`/wallet/${tabName}/${tabName}.html${cacheBuster}`);
-            if (!response.ok) {
-                response = await fetch(`wallet/${tabName}/${tabName}.html${cacheBuster}`);
-            }
+            if (!response.ok) response = await fetch(`wallet/${tabName}/${tabName}.html${cacheBuster}`);
 
             if (response.ok) {
                 const htmlContent = await response.text();
                 viewCache[tabName] = htmlContent;
                 container.innerHTML = htmlContent;
-                
                 await ensureSubModuleScriptLoaded(tabName);
-                executeSubModuleInit(tabName);
+                if (typeof window[`init_${tabName}_module`] === 'function') window[`init_${tabName}_module`]();
             } else {
-                container.innerHTML = `<div style="text-align:center; padding:20px; color:#aaa; background:rgba(255,255,255,0.05); border-radius:12px;">جاري تحميل ${tabName}...</div>`;
+                container.innerHTML = `<div style="text-align:center; padding:20px; color:#aaa;">جاري تحميل ${tabName}...</div>`;
             }
-        } catch (e) {
-            console.error(`فشل تحميل واجهة ${tabName}:`, e);
-        }
-    }
-
-    function executeSubModuleInit(tabName) {
-        const initFuncName = `init_${tabName}_module`;
-        if (typeof window[initFuncName] === 'function') {
-            window[initFuncName]();
-        } else if (window[`${tabName}Module`]?.init) {
-            window[`${tabName}Module`].init();
-        }
+        } catch (e) {}
     }
 
     function init(force = false) {
-        attachRealtimeListeners();
+        if (isListening) return;
+        isListening = true;
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) fetchWalletBalances(true);
+        });
 
         const container = document.getElementById('wallet-subview-container');
         const isSubContentPresent = container && container.children.length > 0;
@@ -247,8 +226,13 @@ window.walletModule = (function () {
         }
 
         isWalletRendered = true;
-        fetchWalletBalances(true); // جلب الأرصدة عند التهيئة
-        startAutoPolling();
+        
+        // 🎯 تأخير الجلب الأول قليلاً حتى يأخذ التليجرام وقته في تهيئة الـ ID
+        setTimeout(() => {
+            fetchWalletBalances(true);
+            startAutoPolling();
+        }, 500);
+        
         switchTab(currentTab || 'deposit', force);
     }
 
