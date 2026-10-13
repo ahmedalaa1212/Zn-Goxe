@@ -26,74 +26,43 @@ window.walletModule = (function () {
         return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
     }
 
-    function getGlobalBalance(keys) {
-        const sources = [
-            window.userState,
-            window.PlayerData,
-            window.currentUser,
-            window.user,
-            window.appData
-        ];
-
-        for (const src of sources) {
-            if (!src) continue;
-            for (const key of keys) {
-                if (src[key] !== undefined && src[key] !== null) {
-                    let val = src[key];
-                    if (typeof val === 'string') val = val.replace(/[^0-9.-]/g, '');
-                    const num = parseFloat(val);
-                    if (!isNaN(num)) return num;
-                }
-            }
-        }
-        return 0.0; 
-    }
-
-    function updateBalancesUI() {
-        // قراءة القيم من الـ Cache أو من الذاكرة
-        const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']) ?? 0;
-        const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']) ?? 0;
-        const znxVal = getGlobalBalance(['znx_balance', 'total_znx_earned', 'znx']) ?? 0;
-
+    // 🎯 دالة جديدة تقوم بالتحديث المباشر من الأرقام المعطاة لها دون الرجوع للكاش القديم
+    function forceUpdateUIWithValues(znVal, usdtVal, znxVal) {
         const newZnHTML = formatSmartBalanceHTML(znVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
         const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
-        // 1. التحديث بقوة العنف للأيديهات الشائعة (Force Update By IDs)
-        const commonZnIds = ['zn-balance-display', 'top-balance', 'top-balance-shop', 'header-zn-balance', 'user-balance-zn'];
-        const commonUsdtIds = ['usdt-balance-display', 'shop-usd-text', 'header-usd-balance'];
-        const commonZnxIds = ['znx-balance-display', 'top-znx-balance', 'header-znx-balance'];
+        // 1. تحديث مربعات المحفظة الداخلية الثلاثة
+        const znElem = document.getElementById('zn-balance-display');
+        const usdtElem = document.getElementById('usdt-balance-display');
+        const znxElem = document.getElementById('znx-balance-display');
 
-        commonZnIds.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.innerHTML = `${newZnHTML} ZN`;
-        });
+        if (znElem) znElem.innerHTML = newZnHTML;
+        if (usdtElem) usdtElem.innerHTML = newUsdtHTML;
+        if (znxElem) znxElem.innerHTML = newZnxHTML;
 
-        commonUsdtIds.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.innerHTML = `<span style="color:#00cc66;">$</span> ${newUsdtHTML}`;
-        });
-
-        commonZnxIds.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.innerHTML = `ZNX ${newZnxHTML}`;
-        });
-
-        // 2. تحديث شامل بـ Query Selector لضمان عدم هروب أي كلاس (Catch All Elements)
-        document.querySelectorAll('div, span, p, h1, h2, h3, h4, h5').forEach(el => {
-            // التحقق من أن العنصر يحتوي على الكلمة فقط ولا يحتوي على أبناء (تجنب مسح تصميم الصفحة)
-            if (el.children.length === 0 || el.classList.contains('zn-balance-display') || el.classList.contains('user-balance')) {
-                const text = el.textContent.trim();
-                
-                if (text.startsWith('ZNX') && text.match(/[0-9]/)) {
-                    el.innerHTML = `ZNX ${newZnxHTML}`;
-                } else if (text.endsWith('ZN') && text.match(/[0-9]/)) {
+        // 2. تحديث الشاشة العلوية للتطبيق (Header) والمزرعة وأي مكان آخر
+        const topZnBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
+        topZnBalances.forEach(el => {
+            if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display' && el.id !== 'usdt-balance-display') {
+                if (el.textContent.includes('ZNX')) {
+                    el.innerHTML = `${newZnxHTML} ZNX`;
+                } else if (el.textContent.includes('ZN')) {
                     el.innerHTML = `${newZnHTML} ZN`;
-                } else if (text.startsWith('$') && text.match(/[0-9]/)) {
-                    el.innerHTML = `<span style="color:#00cc66;">$</span> ${newUsdtHTML}`;
+                } else {
+                    el.innerHTML = newZnHTML;
                 }
             }
         });
+    }
+
+    function updateBalancesUI() {
+        // نستخدم هذه الدالة فقط كخيار أخير إذا لم تكن هناك بيانات من السيرفر
+        const znVal = window.userState?.balance ?? window.userState?.zn_balance ?? 0;
+        const usdtVal = window.userState?.usd_balance ?? window.userState?.usdt_balance ?? 0;
+        const znxVal = window.userState?.znx_balance ?? window.userState?.total_znx_earned ?? 0;
+        
+        forceUpdateUIWithValues(znVal, usdtVal, znxVal);
     }
 
     function applyNewBalances(zn, usdt, znx) {
@@ -101,7 +70,7 @@ window.walletModule = (function () {
         const newUsdt = parseFloat(usdt || 0);
         const newZnx = parseFloat(znx || 0);
 
-        // حقن القيم مباشرة في الأوبجكتات العامة لتقرأها الدوال الأخرى
+        // حفظ القيم في الأوبجكتات العامة
         if (!window.userState) window.userState = {};
         window.userState.balance = newZn;
         window.userState.zn_balance = newZn;
@@ -114,20 +83,15 @@ window.walletModule = (function () {
         window.PlayerData.usd_balance = newUsdt;
         window.PlayerData.znx_balance = newZnx;
 
-        // نداء التحديث القسري للواجهة
-        updateBalancesUI();
+        // 🎯 نداء التحديث المباشر هنا لحل مشكلة الظهور والاختفاء
+        forceUpdateUIWithValues(newZn, newUsdt, newZnx);
         
-        // إطلاق إيفنت لكي تقوم الشاشات الأخرى بتحديث نفسها (مثل المتجر)
         window.dispatchEvent(new CustomEvent('userStateUpdated'));
     }
 
     function attachRealtimeListeners() {
         if (isListening) return;
         isListening = true;
-
-        window.addEventListener('userStateUpdated', () => {
-            updateBalancesUI();
-        });
 
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
@@ -137,8 +101,6 @@ window.walletModule = (function () {
     }
 
     async function fetchWalletBalances(force = false) {
-        updateBalancesUI();
-
         const now = Date.now();
         if (!force && lastFetchTime && (now - lastFetchTime < 1000)) {
             return;
@@ -147,15 +109,14 @@ window.walletModule = (function () {
 
         try {
             const tg = window.Telegram?.WebApp;
-            
-            // جلب الأيدي بكل الطرق الممكنة لمنع إرسال طلب فارغ للسيرفر
+            // الحصول على المعرف بشكل دقيق 
             let userId = tg?.initDataUnsafe?.user?.id || 
                          window.userState?.tg_id || window.userState?.user_id || window.userState?.id ||
                          window.PlayerData?.tg_id || window.PlayerData?.user_id || '';
                          
             const initData = tg?.initData || '';
 
-            if (!userId || String(userId) === 'undefined') {
+            if (!userId || userId === 'undefined') {
                 return;
             }
 
@@ -172,17 +133,17 @@ window.walletModule = (function () {
             const data = await res.json();
             
             if (data.success) {
+                // إرسال البيانات مباشرة للواجهة لضمان ثباتها
                 applyNewBalances(data.zn_balance, data.usdt_balance, data.znx_balance);
             }
         } catch (err) {
-            console.warn("⚠️ فشل جلب الرصيد من السيرفر، يتم الاعتماد على الرصيد المحلي:");
-            updateBalancesUI();
+            console.warn("⚠️ فشل جلب الرصيد من السيرفر:");
         }
     }
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        // تحديث كل 3 ثواني للحفاظ على تزامن Supabase بشكل دائم
+        // تحديث كل 3 ثواني للحفاظ على التزامن 
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
         }, 3000);
@@ -281,7 +242,6 @@ window.walletModule = (function () {
 
     function init(force = false) {
         attachRealtimeListeners();
-        updateBalancesUI();
 
         const container = document.getElementById('wallet-subview-container');
         const isSubContentPresent = container && container.children.length > 0;
