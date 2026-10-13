@@ -1,6 +1,6 @@
 // wallet/wallet.js
 // =================================================================
-// 👛 ZN Goxe - Wallet Module (Realtime Firebase Sync & Instant Balances)
+// 👛 ZN Goxe - Wallet Module (Supabase PostgreSQL Sync & Instant Balances)
 // =================================================================
 
 window.walletModule = (function () {
@@ -8,7 +8,6 @@ window.walletModule = (function () {
     let isListening = false;
     let isWalletRendered = false; 
     let pollInterval = null;
-    let unsubscribeFirestore = null;
     let lastFetchTime = 0;
     const viewCache = {};
 
@@ -109,35 +108,6 @@ window.walletModule = (function () {
         updateBalancesUI();
     }
 
-    function setupFirestoreRealtimeListener(userId) {
-        if (!userId) return false;
-        const strUserId = String(userId);
-
-        try {
-            let dbInstance = window.db || (window.firebase && window.firebase.firestore ? window.firebase.firestore() : null);
-            if (dbInstance && typeof dbInstance.collection === 'function') {
-                if (unsubscribeFirestore) unsubscribeFirestore();
-
-                unsubscribeFirestore = dbInstance.collection('users').doc(strUserId).onSnapshot((doc) => {
-                    if (doc.exists) {
-                        const data = doc.data();
-                        const zn = data.balance ?? data.zn_balance ?? 0;
-                        const usdt = data.usd_balance ?? data.usdt_balance ?? (data.upgrades?.usd_balance) ?? 0;
-                        const znx = data.znx_balance ?? data.total_znx_earned ?? data.znx ?? 0;
-                        
-                        applyNewBalances(zn, usdt, znx);
-                    }
-                }, (err) => {
-                    console.warn("⚠️ تنبيه استماع الفيربيس المباشر:", err);
-                });
-                return true;
-            }
-        } catch (e) {
-            console.warn("⚠️ لم يتم تفعيل SDK الفيربيس المباشر للواجهة، الاعتماد على المزامنة السريعة:", e);
-        }
-        return false;
-    }
-
     function attachRealtimeListeners() {
         if (isListening) return;
         isListening = true;
@@ -157,7 +127,7 @@ window.walletModule = (function () {
         updateBalancesUI();
 
         const now = Date.now();
-        // حظر بسيط لمدة ثانية واحدة فقط لمنع التكرار الشديد بدلاً من 30 ثانية
+        // حظر بسيط لمدة ثانية واحدة فقط لمنع التكرار الشديد
         if (!force && lastFetchTime && (now - lastFetchTime < 1000)) {
             return;
         }
@@ -175,9 +145,6 @@ window.walletModule = (function () {
                 return;
             }
 
-            // محاولة ربط لسنر الفيربيس المباشر إن أمكن
-            setupFirestoreRealtimeListener(userId);
-
             const headers = { 'Content-Type': 'application/json' };
             if (userId) headers['X-Telegram-User-Id'] = String(userId);
             if (initData) headers['Authorization'] = `Bearer ${initData}`;
@@ -190,14 +157,14 @@ window.walletModule = (function () {
                 applyNewBalances(data.zn_balance, data.usdt_balance, data.znx_balance);
             }
         } catch (err) {
-            console.warn("⚠️ اعتماد التحديث اللحظي المحلي:", err);
+            console.warn("⚠️ تحديث الرصيد المحلي للمحفظة:", err);
             updateBalancesUI();
         }
     }
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        // تحديث سريع كل 3 ثوانٍ لضمان الانعكاس اللحظي التام لأي تغيير من الفيربيس
+        // تحديث سريع كل 3 ثوانٍ لضمان الانعكاس اللحظي التام لأي تغيير من السيرفر (Supabase)
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
         }, 3000);
@@ -218,7 +185,7 @@ window.walletModule = (function () {
             script.src = `wallet/${tabName}/${tabName}.js?v=${Date.now()}`;
             script.onload = () => resolve();
             script.onerror = () => {
-                console.error(`⚠️ فشل تحميل السكربت: wallet/${tabName}/${tabName}.js`);
+                console.error(`⚠️ فشل تحميل السكربت الفرعي: wallet/${tabName}/${tabName}.js`);
                 resolve();
             };
             document.head.appendChild(script);
