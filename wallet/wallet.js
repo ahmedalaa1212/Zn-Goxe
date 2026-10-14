@@ -11,23 +11,26 @@ window.walletModule = (function () {
     let lastFetchTime = 0;
     const viewCache = {};
 
-    function formatSmartBalanceHTML(val) {
-        let plainStr = "0.0000";
-        if (val !== undefined && val !== null) {
-            let num = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
-            if (!isNaN(num)) plainStr = num.toFixed(4);
+    function formatSmartBalance(val) {
+        if (typeof val === 'string') {
+            val = val.replace(/[^0-9.-]/g, '');
         }
-        const parts = plainStr.split('.');
-        return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1] || '0000'}</span>`;
+        const num = parseFloat(val || 0);
+        if (isNaN(num)) return "0.0000";
+        return num.toFixed(4);
     }
 
-    // التحديث القسري والمباشر للـ DOM
+    function formatSmartBalanceHTML(val) {
+        const plainStr = formatSmartBalance(val);
+        const parts = plainStr.split('.');
+        return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
+    }
+
     function directUpdateUI(znVal, usdtVal, znxVal) {
         const newZnHTML = formatSmartBalanceHTML(znVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
         const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
-        // 1. تحديث المحفظة نفسها
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
         const znxElem = document.getElementById('znx-balance-display');
@@ -36,25 +39,19 @@ window.walletModule = (function () {
         if (usdtElem) usdtElem.innerHTML = newUsdtHTML;
         if (znxElem) znxElem.innerHTML = newZnxHTML;
 
-        // 2. البحث عن كل العناصر في الشاشة العلوية وتحديثها
-        const allZnElements = document.querySelectorAll('.zn-balance-display, #top-balance-wallet, #top-balance, #header-zn-balance, #shop-balance-text, .user-balance');
-        allZnElements.forEach(el => {
-            if (el.id === 'zn-balance-display' || el.id === 'znx-balance-display' || el.id === 'usdt-balance-display') return;
-            
-            if (el.textContent.includes('ZNX')) {
-                el.innerHTML = `${newZnxHTML} ZNX`;
-            } else if (el.textContent.includes('ZN')) {
-                el.innerHTML = `${newZnHTML} ZN`;
-            } else {
-                el.innerHTML = newZnHTML;
+        // تحديث جميع الأماكن الأخرى
+        const topBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
+        topBalances.forEach(el => {
+            if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display' && el.id !== 'usdt-balance-display') {
+                if (el.textContent.includes('ZNX')) {
+                    el.innerHTML = `${newZnxHTML} ZNX`;
+                } else if (el.textContent.includes('ZN')) {
+                    el.innerHTML = `${newZnHTML} ZN`;
+                } else {
+                    el.innerHTML = newZnHTML;
+                }
             }
         });
-        
-        // تحديث الدولار العلوي إن وجد
-        const usdElem = document.getElementById('shop-usd-text');
-        if (usdElem) {
-            usdElem.innerHTML = `$${newUsdtHTML}`;
-        }
     }
 
     function applyNewBalances(zn, usdt, znx) {
@@ -78,35 +75,47 @@ window.walletModule = (function () {
         window.dispatchEvent(new CustomEvent('userStateUpdated'));
     }
 
-    // دالة لاستخراج ID آمنة 100%
-    function getSafeUserId() {
-        try {
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-                return String(window.Telegram.WebApp.initDataUnsafe.user.id);
-            }
-        } catch (e) {}
+    // 🎯 تحسين جلب المعرف ليكون أكثر موثوقية
+    function getValidUserId() {
+        // محاولة الحصول عليه من URL Params (أكثر موثوقية في بعض بيئات Telegram WebApp)
+        const urlParams = new URLSearchParams(window.location.search);
+        let id = urlParams.get('tgWebAppUser') ? JSON.parse(urlParams.get('tgWebAppUser')).id : null;
+
+        if (!id) {
+            let tg = window.Telegram?.WebApp;
+            id = tg?.initDataUnsafe?.user?.id;
+        }
         
-        const fallbackId = window.userState?.tg_id || window.userState?.user_id || window.PlayerData?.tg_id;
-        if (fallbackId && String(fallbackId) !== 'undefined') return String(fallbackId);
+        if (id) return String(id);
+        
+        id = window.userState?.tg_id || window.userState?.user_id || window.userState?.id ||
+             window.PlayerData?.tg_id || window.PlayerData?.user_id;
+             
+        if (id && String(id) !== 'undefined') return String(id);
         
         return null;
     }
 
     async function fetchWalletBalances(force = false) {
         const now = Date.now();
-        if (!force && lastFetchTime && (now - lastFetchTime < 1000)) return;
+        if (!force && lastFetchTime && (now - lastFetchTime < 1000)) {
+            return;
+        }
         
-        const userId = getSafeUserId();
+        let userId = getValidUserId();
         
-        // 🔴 حماية: إذا لم يكن الـ ID جاهزاً، نوقف العملية تماماً لكي لا نرسل طلباً يجلب الأصفار
         if (!userId) {
+            console.warn("⏳ لم يتم التعرف على Telegram ID بعد، جاري المحاولة...");
+            // محاولة إعادة الجلب بعد فترة قصيرة
+            setTimeout(() => fetchWalletBalances(force), 500);
             return; 
         }
 
         lastFetchTime = now;
 
         try {
-            const initData = window.Telegram?.WebApp?.initData || '';
+            const tg = window.Telegram?.WebApp;
+            const initData = tg?.initData || '';
             const headers = { 'Content-Type': 'application/json' };
             headers['X-Telegram-User-Id'] = userId;
             if (initData) headers['Authorization'] = `Bearer ${initData}`;
@@ -116,21 +125,21 @@ window.walletModule = (function () {
                 cache: 'no-store' 
             });
             
-            if (!res.ok) throw new Error("Network Error");
+            if (!res.ok) throw new Error(`Server returned ${res.status}`);
             const data = await res.json();
             
             if (data.success) {
-                // استلام القيم وتمريرها فوراً للواجهة
                 applyNewBalances(data.zn_balance, data.usdt_balance, data.znx_balance);
+            } else {
+                console.error("❌ فشل جلب الأرصدة من السيرفر:", data.error);
             }
         } catch (err) {
-            // صمت عند الخطأ لمنع مسح الواجهة
+            console.error("❌ خطأ في الاتصال بسيرفر Railway:", err);
         }
     }
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
-        // تحديث كل 3 ثواني
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
         }, 3000);
@@ -184,6 +193,8 @@ window.walletModule = (function () {
         if (!container) return;
         container.setAttribute('data-active-tab', tabName);
 
+        fetchWalletBalances(true);
+
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
             await ensureSubModuleScriptLoaded(tabName);
@@ -220,16 +231,17 @@ window.walletModule = (function () {
         const isSubContentPresent = container && container.children.length > 0;
 
         if (!force && isWalletRendered && isSubContentPresent) {
+            fetchWalletBalances(true);
             return;
         }
 
         isWalletRendered = true;
         
-        // 🎯 تأخير الطلب الأول نصف ثانية للتأكد من أن تليجرام أرسل הـ ID
+        // 🎯 تأخير أطول لضمان تهيئة التليجرام
         setTimeout(() => {
             fetchWalletBalances(true);
             startAutoPolling();
-        }, 500);
+        }, 1000);
         
         switchTab(currentTab || 'deposit', force);
     }
@@ -238,6 +250,7 @@ window.walletModule = (function () {
         init,
         switchTab,
         fetchWalletBalances,
+        formatSmartBalance,
         formatSmartBalanceHTML
     };
 })();
