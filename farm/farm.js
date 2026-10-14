@@ -64,9 +64,9 @@ window.closeAutoClaimModal = function() {
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
         maxUpgradesPerLevel: 15,
-        dailyBoostReward: 0.10, // زيادة السرعة بمقدار 0.1 ZN/ساعة
-        boostDurationMs: 2 * 60 * 60 * 1000, // تعمل لمدة 2 ساعة
-        boostCooldownMs: 3 * 60 * 60 * 1000, // تتجدد كل 3 ساعات
+        dailyBoostReward: 0.10,
+        boostDurationMs: 2 * 60 * 60 * 1000, 
+        boostCooldownMs: 3 * 60 * 60 * 1000, 
         upgradeCosts: {
             1: { cost_zn: 0, cost_usd: 0.0, rate: 0.1 },
             2: { cost_zn: 100, cost_usd: 0.0, rate: 0.2 },
@@ -99,8 +99,6 @@ window.closeAutoClaimModal = function() {
     };
 
     let MIN_CLAIM_INTERVAL = 15;
-
-    // أقفال العمليات لمنع التكرار والتضارب
     let isClaimingDaily = false;
     let isBoosting = false; 
     let isFetching = false;
@@ -110,18 +108,16 @@ window.closeAutoClaimModal = function() {
     let isUpgradingStorage = false;
 
     let lastFetchTime = 0;
-    const FETCH_THROTTLE_MS = 0; // تم إلغاء مانع التكرار لضمان التحديث اللحظي
+    const FETCH_THROTTLE_MS = 0; 
     let lastCheckedDate = "";
     let lastAutoClaimAttempt = 0;
     let lastClickTime = 0;
 
-    // --- أدوات موحدة لإدارة الحالة محلياً ---
     function updateState(patch) {
         if (!patch || typeof patch !== 'object') return;
         window.userState = Object.assign(window.userState || {}, patch);
         window.PlayerData = Object.assign(window.PlayerData || {}, patch);
         saveCachedData(window.userState);
-        // إطلاق الحدث لإعلام باقي الأجزاء بالتحديث
         window.dispatchEvent(new CustomEvent('userStateUpdated'));
     }
     window.updateState = updateState;
@@ -241,28 +237,42 @@ window.closeAutoClaimModal = function() {
                     window.serverTimeOffset = diff;
                 }
             }
-        } catch (e) {
-            console.error("خطأ مزامنة وقت السيرفر:", e);
+        } catch (e) {}
+    }
+
+    // 🎨 اللمسة الفنية: دالة تنسيق الأرصدة الكبيرة مع اختصارات وشفافية للواجهة العليا
+    function formatSmartBalanceHTML(val) {
+        let num = parseFloat(val || 0);
+        if (isNaN(num)) num = 0;
+
+        if (num >= 1000000000) {
+            let str = (num / 1000000000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${parts[1]}B</span>`;
         }
+        if (num >= 1000000) {
+            let str = (num / 1000000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${parts[1]}M</span>`;
+        }
+        if (num >= 1000) {
+            let str = (num / 1000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${parts[1]}K</span>`;
+        }
+
+        let fixedStr = num.toFixed(4);
+        let parts = fixedStr.split('.');
+        let intPart = parts[0];
+        let decPart = parts[1] || '0000';
+        return `${intPart}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${decPart}</span>`;
     }
 
-    // --- دوال التنسيق والأرقام ---
-    function formatUsdBalance(val) {
-        const num = parseFloat(val || 0);
-        if (isNaN(num) || Math.abs(num) < 0.000001) return "$0.00";
-        
-        let str = num.toFixed(6).replace(/\.?0+$/, '');
-        const parts = str.split('.');
-        if (!parts[1]) return `$${parts[0]}.00`;
-        if (parts[1].length === 1) return `$${parts[0]}.${parts[1]}0`;
-        return `$${str}`;
-    }
-
+    // تُستخدم للنصوص المباشرة فقط (مثل التنبيهات)
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
-        
-        let parts = num.toFixed(6).split('.');
+        let parts = num.toFixed(4).split('.');
         let decimals = parts[1].replace(/0+$/, '');
         if (decimals.length < 2) decimals = (decimals + '00').slice(0, 2);
         return `${parts[0]}.${decimals}`;
@@ -271,7 +281,6 @@ window.closeAutoClaimModal = function() {
     function formatStorageBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.000000";
-        
         let parts = num.toFixed(6).split('.');
         let decimals = parts[1].replace(/0+$/, '');
         if (decimals.length < 3) decimals = (decimals + '000').slice(0, 3);
@@ -292,23 +301,22 @@ window.closeAutoClaimModal = function() {
         if (newBalance !== undefined && newBalance !== null) {
             const val = parseFloat(newBalance);
             patch.balance = val;
-            patch.zn_balance = val; // تحديث كلا الاسمين للتوافق
+            patch.zn_balance = val;
             const balEl = document.getElementById('farm-balance');
-            if (balEl) balEl.innerText = `${formatZnBalance(val)} ZN`;
+            if (balEl) balEl.innerHTML = `${formatSmartBalanceHTML(val)} ZN`;
         }
 
         if (newUsdBalance !== undefined && newUsdBalance !== null) {
             const usdVal = parseFloat(newUsdBalance);
             patch.usd_balance = usdVal;
-            patch.usdt_balance = usdVal; // تحديث كلا الاسمين للتوافق
+            patch.usdt_balance = usdVal;
             const usdEl = document.getElementById('farm-usd-balance');
-            if (usdEl) usdEl.innerText = formatUsdBalance(usdVal);
+            if (usdEl) usdEl.innerHTML = `$${formatSmartBalanceHTML(usdVal)}`;
         }
 
         updateState(patch);
     }
 
-    // تم تعديل الدالة لاستخدام UTC صريح 100% لمنع مشاكل الـ Timezone
     function getTodayUTCStr() {
         const now = new Date(getAdjustedNowMs());
         const y = now.getUTCFullYear();
@@ -554,7 +562,6 @@ window.closeAutoClaimModal = function() {
         }
     }
 
-    // --- دالة التجميع المركزية لمنع تكرار كود الـ Claim ---
     async function executeClaimApi(isAuto = false) {
         try {
             let resData = await window.fetchAPI(`/api/farm/claim?t=${Date.now()}`, 'POST', {});
@@ -679,10 +686,10 @@ window.closeAutoClaimModal = function() {
         let totalRate = baseRate + boostRate;
 
         const balEl = document.getElementById('farm-balance');
-        if (balEl) balEl.innerText = `${formatZnBalance(bal)} ZN`;
+        if (balEl) balEl.innerHTML = `${formatSmartBalanceHTML(bal)} ZN`;
 
         const usdEl = document.getElementById('farm-usd-balance');
-        if (usdEl) usdEl.innerText = formatUsdBalance(usdBal);
+        if (usdEl) usdEl.innerHTML = `$${formatSmartBalanceHTML(usdBal)}`;
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
@@ -714,7 +721,6 @@ window.closeAutoClaimModal = function() {
                 const costStrZn = formatCompactCost(costZn);
                 const costStrUsd = costUsd > 0 ? ` + $${costUsd.toFixed(2)}` : '';
                 
-                // إضافة الرصيد المعلق لرصيد المستخدم في الواجهة للسماح بالترقية
                 const currentUnclaim = parseFloat(getState().unclaimed || 0);
                 const canAfford = ((bal + currentUnclaim) >= costZn) && (usdBal >= costUsd);
 
@@ -744,7 +750,6 @@ window.closeAutoClaimModal = function() {
                 let costStrZn = formatCompactCost(costZn);
                 let costStrUsd = costUsd > 0 ? `+$${costUsd.toFixed(2)}` : '';
                 
-                // إضافة الرصيد المعلق
                 let canAfford = ((bal + currentUnclaim) >= costZn) && (usdBal >= costUsd);
                 let isThisCardUpgrading = (upgradingLevel === i);
 
@@ -820,7 +825,7 @@ window.closeAutoClaimModal = function() {
 
     window.onFarmTabOpen = async function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
-            await window.fetchPlayerDataFromServer(true); // تم تغييرها إلى true لإجبار التحديث اللحظي دائماً
+            await window.fetchPlayerDataFromServer(true); 
         } else {
             window.updateFarmUI();
         }
@@ -874,7 +879,6 @@ window.closeAutoClaimModal = function() {
     loadCachedData();
     window.updateFarmUI();
 
-    // --- المؤقت الدوري لحساب التعدين الحي والواجهة ---
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = getState();
@@ -969,15 +973,12 @@ window.closeAutoClaimModal = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
-    // 🎯 إضافة المستمع لحدث تحديث الأرصدة القادم من المحفظة أو المتجر
     window.addEventListener('userStateUpdated', (e) => {
-        // نحدث الواجهة فقط إذا لم تكن المزرعة في منتصف عملية أخرى
         if (!isFetching && !isClaimingMain && !isAutoClaiming && !isUpgradingStorage && upgradingLevel === null) {
             window.updateFarmUI();
         }
     });
 
-    // --- معالجات الترقية والاستلام ---
     window.handleStorageUpgrade = async function() {
         if (isDebouncedClick() || isUpgradingStorage) return;
 
@@ -993,7 +994,6 @@ window.closeAutoClaimModal = function() {
         const bal = getStoredBalance();
         const usdBal = getStoredUsdBalance();
         
-        // حساب الرصيد الإجمالي (الأساسي + المعلق)
         const currentUnclaim = parseFloat(pData.unclaimed || 0);
         const totalAvailableZn = bal + currentUnclaim;
 
@@ -1005,7 +1005,6 @@ window.closeAutoClaimModal = function() {
         isUpgradingStorage = true;
         const stateBackup = cloneCurrentState();
 
-        // تحديث الواجهة فوراً (صفر المعلق واخصم الثمن وضع الباقي في الرصيد)
         const nowMs = getAdjustedNowMs();
         setStoredBalance(Math.max(0, totalAvailableZn - costZn), Math.max(0, usdBal - costUsd));
         updateState({
@@ -1024,7 +1023,6 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
-                // التأكيد على التصفير من السيرفر
                 updateState({
                     storage_level: resData.storage_level !== undefined ? resData.storage_level : nextLvl,
                     unclaimed: 0.0,
@@ -1058,7 +1056,6 @@ window.closeAutoClaimModal = function() {
         const currentBal = getStoredBalance();
         const currentUsdBal = getStoredUsdBalance();
         
-        // حساب الرصيد الإجمالي
         const currentUnclaim = parseFloat(getState().unclaimed || 0);
         const totalAvailableZn = currentBal + currentUnclaim;
 
@@ -1072,7 +1069,6 @@ window.closeAutoClaimModal = function() {
         upgradingLevel = level;
         const stateBackup = cloneCurrentState();
 
-        // تحديث الواجهة فوراً
         const nowMs = getAdjustedNowMs();
         setStoredBalance(Math.max(0, totalAvailableZn - costZn), Math.max(0, currentUsdBal - costUsd));
 
