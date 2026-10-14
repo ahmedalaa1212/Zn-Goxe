@@ -63,8 +63,26 @@
         return val.toFixed(4);
     }
 
+    // ✅ تم التعديل هنا: إضافة منطق الاختصارات (K, M, B) للأرصدة العلوية
     function formatTopBalanceHTML(num) {
         let val = floatVal(num);
+        
+        if (val >= 1000000000) {
+            let str = (val / 1000000000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${parts[1]}B</span>`;
+        }
+        if (val >= 1000000) {
+            let str = (val / 1000000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${parts[1]}M</span>`;
+        }
+        if (val >= 1000) {
+            let str = (val / 1000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${parts[1]}K</span>`;
+        }
+
         let fixedStr = val.toFixed(4);
         let parts = fixedStr.split('.');
         let intPart = parts[0];
