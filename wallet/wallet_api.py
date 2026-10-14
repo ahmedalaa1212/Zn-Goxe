@@ -1,114 +1,96 @@
 # -*- coding: utf-8 -*-
-import os
-import sys
-
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../"))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+import json
+from urllib.parse import parse_qs, unquote
+from flask import Blueprint, jsonify, request, make_response
+from .wallet_db import get_user_wallet_balances
 
 try:
-    from database import get_db_connection, _sanitize_id
-except ImportError as e:
-    print(f"⚠️ خطأ فادح: لم يتم العثور على database.py: {e}")
-    def _sanitize_id(val):
-        if val is None: return None
-        s = str(val).strip()
-        return s[:-2] if s.endswith('.0') else s
+    from .deposit.deposit_api import deposit_bp
+except ImportError:
+    deposit_bp = Blueprint('deposit_placeholder', __name__)
+try:
+    from .history.history_api import history_bp
+except ImportError:
+    history_bp = Blueprint('history_placeholder', __name__)
+try:
+    from .withdraw.withdraw_api import withdraw_bp
+except ImportError:
+    withdraw_bp = Blueprint('withdraw_placeholder', __name__)
 
-try:
-    from .deposit.deposit_db import *
-except Exception:
-    pass
-try:
-    from .history.history_db import *
-except Exception:
-    pass
-try:
-    from .withdraw.withdraw_db import *
-except Exception:
-    pass
+wallet_bp = Blueprint('wallet', __name__, url_prefix='/api/wallet')
 
-def get_user_wallet_balances(user_id) -> dict:
-    """جلب الأرصدة المباشرة من Supabase مع دعم البحث في كافة أعمدة المعرف وإعادة المحاولة"""
-    clean_id = _sanitize_id(user_id)
-    default_balances = {
-        'zn_balance': 0.0,
-        'usdt_balance': 0.0,
-        'znx_balance': 0.0,
-        'db_ok': False
-    }
+wallet_bp.register_blueprint(deposit_bp, url_prefix='/deposit')
+wallet_bp.register_blueprint(history_bp, url_prefix='/history')
+wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
+
+def _extract_telegram_user_id():
+    """استخراج معرف المستخدم من كافة المصادر الممكنة بما فيها Telegram initData"""
+    candidates = [
+        request.args.get('user_id'),
+        request.args.get('tg_id'),
+        request.args.get('telegram_id'),
+        request.headers.get('X-Telegram-User-Id'),
+    ]
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        candidates.extend([body.get('user_id'), body.get('tg_id'), body.get('telegram_id')])
+
+    for cid in candidates:
+        if cid is not None:
+            s = str(cid).strip()
+            if s.endswith('.0'):
+                s = s[:-2]
+            if s and s.lower() not in ('undefined', 'none', 'null', 'nan', ''):
+                return s
+
+    # محاولة الاستخراج من ترويسة Authorization (Telegram WebApp initData)
+    auth_header = request.headers.get('Authorization', '') or request.headers.get('X-Telegram-Init-Data', '')
+    if auth_header:
+        raw_init = auth_header.replace('Bearer ', '').strip()
+        try:
+            parsed = parse_qs(raw_init)
+            user_str = parsed.get('user', [None])[0]
+            if user_str:
+                user_obj = json.loads(unquote(user_str))
+                uid = user_obj.get('id')
+                if uid:
+                    return str(uid).strip()
+        except Exception:
+            pass
+
+    return None
+
+@wallet_bp.route('/data', methods=['GET', 'POST'])
+@wallet_bp.route('/balances', methods=['GET', 'POST'])
+def get_wallet_data():
+    user_id = _extract_telegram_user_id()
+        
+    if not user_id:
+        return jsonify({'success': False, 'error': 'معرف المستخدم غير متاح'}), 400
+        
+    balances = get_user_wallet_balances(user_id)
     
-    if not clean_id:
-        return default_balances
+    # إذا حدث خطأ في الاتصال بالقاعدة، نرسل success: False حتى لا تصفر الواجهة الرصيد الحالي
+    if not balances.get('db_ok', True):
+        return jsonify({'success': False, 'error': 'خطأ مؤقت في الاتصال بقاعدة البيانات'}), 503
 
-    for attempt in range(2):
-        try:
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0)
-                        FROM users 
-                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                        LIMIT 1
-                    """, (clean_id, clean_id, clean_id))
-                    
-                    row = cur.fetchone()
-                    if row:
-                        return {
-                            'zn_balance': float(row[0] if row[0] is not None else 0.0),
-                            'usdt_balance': float(row[1] if row[1] is not None else 0.0),
-                            'znx_balance': float(row[2] if row[2] is not None else 0.0),
-                            'db_ok': True
-                        }
-                    else:
-                        # المستخدم غير موجود بعد في الجدول
-                        return {
-                            'zn_balance': 0.0,
-                            'usdt_balance': 0.0,
-                            'znx_balance': 0.0,
-                            'db_ok': True
-                        }
-        except Exception as e:
-            print(f"⚠️ Database Fetch Error (Attempt {attempt + 1}): {e}")
+    zn_val = float(balances.get('zn_balance', 0.0))
+    usdt_val = float(balances.get('usdt_balance', 0.0))
+    znx_val = float(balances.get('znx_balance', 0.0))
 
-    return default_balances
-
-def update_user_balance(user_id, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تحديث الأرصدة في Supabase بأمان تام"""
-    clean_id = _sanitize_id(user_id)
-    if not clean_id:
-        return False
-
-    curr = str(currency).lower().strip()
-    if curr in ['zn', 'balance']:
-        field_to_update = 'balance'
-    elif curr in ['znx', 'znx_balance', 'total_znx_earned']:
-        field_to_update = 'znx_balance'
-    else:
-        field_to_update = 'usd_balance'
-
-    amount_val = abs(float(amount))
-    if operation == 'subtract':
-        amount_val = -amount_val
-
-    for attempt in range(2):
-        try:
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(f"""
-                        UPDATE users 
-                        SET {field_to_update} = GREATEST(0.0, COALESCE({field_to_update}, 0.0) + %s),
-                            last_active_at = CURRENT_TIMESTAMP
-                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                        RETURNING {field_to_update}
-                    """, (amount_val, clean_id, clean_id, clean_id))
-                    
-                    updated_row = cur.fetchone()
-                    if updated_row is not None:
-                        return True
-                    return False
-        except Exception as e:
-            print(f"⚠️ Database Update Error (Attempt {attempt + 1}): {e}")
-
-    return False
+    response = make_response(jsonify({
+        'success': True,
+        'user_id': user_id,
+        'zn_balance': f"{zn_val:.4f}",
+        'usdt_balance': f"{usdt_val:.4f}",
+        'znx_balance': f"{znx_val:.4f}",
+        'balance': zn_val,
+        'usd_balance': usdt_val,
+        'znx': znx_val
+    }))
+    
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    return response
