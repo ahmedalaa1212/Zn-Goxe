@@ -26,6 +26,7 @@ window.walletModule = (function () {
         return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
     }
 
+    // الدالة المسؤولة عن تحديث الواجهة بقوة، تأخذ القيم المعطاة لها فقط
     function directUpdateUI(znVal, usdtVal, znxVal) {
         const newZnHTML = formatSmartBalanceHTML(znVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
@@ -53,6 +54,7 @@ window.walletModule = (function () {
         });
     }
 
+    // هذه الدالة لتحديث القيم داخلياً وإطلاق الحدث
     function applyNewBalances(zn, usdt, znx) {
         const newZn = parseFloat(zn || 0);
         const newUsdt = parseFloat(usdt || 0);
@@ -70,11 +72,13 @@ window.walletModule = (function () {
         window.PlayerData.usd_balance = newUsdt;
         window.PlayerData.znx_balance = newZnx;
 
+        // التحديث الفوري للواجهة
         directUpdateUI(newZn, newUsdt, newZnx);
+        
+        // إبلاغ باقي مكونات اللعبة
         window.dispatchEvent(new CustomEvent('userStateUpdated'));
     }
 
-    // 🎯 دالة جديدة قوية لجلب المعرف الحقيقي من تليجرام
     function getValidUserId() {
         let tg = window.Telegram?.WebApp;
         let id = tg?.initDataUnsafe?.user?.id;
@@ -96,9 +100,8 @@ window.walletModule = (function () {
         
         let userId = getValidUserId();
         
-        // 🎯 إذا لم يكن الـ ID متاحاً، نوقف العملية ولا نطلب أصفاراً من السيرفر
         if (!userId) {
-            console.warn("⏳ لم يتم التعرف على Telegram ID بعد، جاري المحاولة...");
+            console.warn("⏳ انتظار الحصول على معرّف Telegram...");
             return; 
         }
 
@@ -120,16 +123,17 @@ window.walletModule = (function () {
             const data = await res.json();
             
             if (data.success) {
-                // تمرير الأرصدة الحقيقية للواجهة
+                // نمرر البيانات القادمة من السيرفر مباشرة للتطبيق
                 applyNewBalances(data.zn_balance, data.usdt_balance, data.znx_balance);
             }
         } catch (err) {
-            console.error("❌ خطأ في الاتصال بسيرفر Railway:", err);
+            console.error("❌ خطأ في الاتصال بسيرفر الأرصدة:", err);
         }
     }
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
+        // تحديث كل 3 ثواني للحفاظ على الانعكاس اللحظي
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
         }, 3000);
@@ -227,7 +231,7 @@ window.walletModule = (function () {
 
         isWalletRendered = true;
         
-        // 🎯 تأخير الجلب الأول قليلاً حتى يأخذ التليجرام وقته في تهيئة الـ ID
+        // 🎯 تأخير أولي بسيط لضمان توفر معرّف Telegram
         setTimeout(() => {
             fetchWalletBalances(true);
             startAutoPolling();
