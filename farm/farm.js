@@ -240,44 +240,52 @@ window.closeAutoClaimModal = function() {
         } catch (e) {}
     }
 
-    // 🎨 اللمسة الفنية: دالة تنسيق الأرصدة الكبيرة مع اختصارات وشفافية للواجهة العليا
+    // 🎨 اللمسة الفنية: دالة تنسيق الأرصدة (رقمين عشريين فقط بشكل إجباري، مع اختصارات وشفافية احترافية)
     function formatSmartBalanceHTML(val) {
+        if (typeof val === 'string') {
+            val = val.replace(/[^0-9.-]/g, '');
+        }
         let num = parseFloat(val || 0);
         if (isNaN(num)) num = 0;
 
+        let suffix = "";
+        let formattedStr = "";
+
         if (num >= 1000000000) {
-            let str = (num / 1000000000).toFixed(2);
-            let parts = str.split('.');
-            return `${parts[0]}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${parts[1]}B</span>`;
-        }
-        if (num >= 1000000) {
-            let str = (num / 1000000).toFixed(2);
-            let parts = str.split('.');
-            return `${parts[0]}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${parts[1]}M</span>`;
-        }
-        if (num >= 1000) {
-            let str = (num / 1000).toFixed(2);
-            let parts = str.split('.');
-            return `${parts[0]}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${parts[1]}K</span>`;
+            formattedStr = (num / 1000000000).toFixed(2);
+            suffix = "B";
+        } else if (num >= 1000000) {
+            formattedStr = (num / 1000000).toFixed(2);
+            suffix = "M";
+        } else if (num >= 1000) {
+            formattedStr = (num / 1000).toFixed(2);
+            suffix = "K";
+        } else {
+            // تثبيت رقمين عشريين فقط لجميع الأرصدة لمنع الأرقام الطويلة (مثال: 33.60 بدلاً من 33.6000)
+            formattedStr = num.toFixed(2);
         }
 
-        let fixedStr = num.toFixed(4);
-        let parts = fixedStr.split('.');
+        let parts = formattedStr.split('.');
         let intPart = parts[0];
-        let decPart = parts[1] || '0000';
-        return `${intPart}<span style="font-size: 0.75em; opacity: 0.85; font-weight: normal; margin: 0 1px;">.${decPart}</span>`;
+        let decPart = parts[1] || '00';
+
+        // دمج الكسر وحرف الاختصار في عنصر واحد مصغر وشفاف ومريح للعين
+        return `${intPart}<span style="font-size: 0.72em; opacity: 0.75; font-weight: 500; margin-left: 2px;">.${decPart}${suffix}</span>`;
     }
 
-    // تُستخدم للنصوص المباشرة فقط (مثل التنبيهات)
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
-        let parts = num.toFixed(4).split('.');
-        let decimals = parts[1].replace(/0+$/, '');
-        if (decimals.length < 2) decimals = (decimals + '00').slice(0, 2);
-        return `${parts[0]}.${decimals}`;
+        return num.toFixed(2); // توحيد رقمين عشريين للنصوص المباشرة
     }
 
+    function formatUsdBalance(val) {
+        const num = parseFloat(val || 0);
+        if (isNaN(num) || num === 0) return "0.00";
+        return num.toFixed(2); // توحيد رقمين عشريين للنصوص المباشرة
+    }
+
+    // دالة خاصة بالعداد المباشر (المخزن) لتظل تتحرك بسلاسة
     function formatStorageBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.000000";
