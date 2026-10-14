@@ -28,7 +28,6 @@ def format_iso(dt):
         s = s[:-6] + 'Z'
     return s
 
-
 # ==================== Supabase PostgreSQL Pool ====================
 db_pool = None
 
@@ -46,7 +45,6 @@ def get_database_url():
         db_url += f"{separator}sslmode=require"
         
     return db_url
-
 
 def init_db_pool():
     """تأسيس بركة اتصالات خفيفة للغاية وخالية من أي عمليات ثقيلة"""
@@ -169,7 +167,6 @@ def init_db_pool():
 
     return db_pool
 
-
 @contextmanager
 def get_db_connection():
     """مستلم اتصالات خفيف ومباشر"""
@@ -182,10 +179,8 @@ def get_db_connection():
         if conn:
             pool_obj.putconn(conn)
 
-
 def get_db():
     return init_db_pool()
-
 
 # ==================== Core Minimal Functions ====================
 
@@ -194,15 +189,19 @@ def _sanitize_id(sid):
         return None
     return str(sid).strip()
 
-
 def get_user(telegram_id):
+    """جلب بيانات المستخدم، بالبحث عن tg_id أو user_id أو telegram_id"""
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
         return None
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s", (clean_id,))
+                cur.execute("""
+                    SELECT * FROM users 
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                    LIMIT 1
+                """, (clean_id, clean_id, clean_id))
                 row = cur.fetchone()
                 if row:
                     d = dict(row)
@@ -215,6 +214,31 @@ def get_user(telegram_id):
         print(f"❌ خطأ get_user: {e}")
         return None
 
+def get_user_balances(telegram_id):
+    """دالة مخصصة وسريعة لجلب الأرصدة الثلاثة فقط"""
+    clean_id = _sanitize_id(telegram_id)
+    if not clean_id:
+        return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0)
+                    FROM users 
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                    LIMIT 1
+                """, (clean_id, clean_id, clean_id))
+                row = cur.fetchone()
+                if row:
+                    return {
+                        'zn_balance': float(row[0]),
+                        'usdt_balance': float(row[1]),
+                        'znx_balance': float(row[2])
+                    }
+                return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
+    except Exception as e:
+        print(f"❌ خطأ get_user_balances: {e}")
+        return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
 
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
     clean_id = _sanitize_id(telegram_id)
@@ -236,34 +260,26 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
         print(f"❌ خطأ init_user: {e}")
         return {}
 
-
 def is_user_banned(telegram_id):
     return False
-
 
 def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
     return {"allowed": True}
 
-
 def update_user(telegram_id, updates_dict):
     return True
-
 
 def update_user_last_active(user_id):
     return True
 
-
 def atomic_update_balance(telegram_id, amount_change, is_usd=False):
     return True, 0.0
-
 
 def get_leaderboard_data(limit=50, user_id=None):
     return {"success": True, "leaderboard": [], "my_rank": "غير مصنف"}
 
-
 def get_user_data(telegram_id):
     return get_user(telegram_id)
-
 
 # تشغيل التهيئة الأولية عند الاستيراد
 try:
