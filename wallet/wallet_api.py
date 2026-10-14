@@ -1,114 +1,114 @@
 # -*- coding: utf-8 -*-
 import os
-import json
-import hmac
-import hashlib
-from urllib.parse import parse_qsl
-from flask import Blueprint, jsonify, request, make_response
-from .wallet_db import get_user_wallet_balances
+import sys
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../"))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 try:
-    from .deposit.deposit_api import deposit_bp
-except ImportError:
-    deposit_bp = Blueprint('deposit_placeholder', __name__)
+    from database import get_db_connection, _sanitize_id
+except ImportError as e:
+    print(f"⚠️ خطأ فادح: لم يتم العثور على database.py: {e}")
+    def _sanitize_id(val):
+        if val is None: return None
+        s = str(val).strip()
+        return s[:-2] if s.endswith('.0') else s
+
 try:
-    from .history.history_api import history_bp
-except ImportError:
-    history_bp = Blueprint('history_placeholder', __name__)
+    from .deposit.deposit_db import *
+except Exception:
+    pass
 try:
-    from .withdraw.withdraw_api import withdraw_bp
-except ImportError:
-    withdraw_bp = Blueprint('withdraw_placeholder', __name__)
+    from .history.history_db import *
+except Exception:
+    pass
+try:
+    from .withdraw.withdraw_db import *
+except Exception:
+    pass
 
-wallet_bp = Blueprint('wallet', __name__, url_prefix='/api/wallet')
+def get_user_wallet_balances(user_id) -> dict:
+    """جلب الأرصدة المباشرة من Supabase مع دعم البحث في كافة أعمدة المعرف وإعادة المحاولة"""
+    clean_id = _sanitize_id(user_id)
+    default_balances = {
+        'zn_balance': 0.0,
+        'usdt_balance': 0.0,
+        'znx_balance': 0.0,
+        'db_ok': False
+    }
+    
+    if not clean_id:
+        return default_balances
 
-wallet_bp.register_blueprint(deposit_bp, url_prefix='/deposit')
-wallet_bp.register_blueprint(history_bp, url_prefix='/history')
-wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
-
-def extract_and_verify_telegram_user(req) -> str:
-    """
-    استخراج والتحقق الأمني من هوية مستخدم تليجرام عبر initData المشفرة
-    مع دعم البدائل الآمنة لضمان عمل الواجهة بسلاسة 100%
-    """
-    auth_header = req.headers.get('Authorization', '')
-    init_data_raw = ''
-    if auth_header.startswith('Bearer '):
-        init_data_raw = auth_header[7:].strip()
-    if not init_data_raw:
-        init_data_raw = req.headers.get('X-Telegram-Init-Data', '').strip()
-
-    # 1. محاولة استخراج الـ ID الموثق من initData الخاصة بتليجرام
-    if init_data_raw:
+    for attempt in range(2):
         try:
-            parsed_data = dict(parse_qsl(init_data_raw, keep_blank_values=True))
-            bot_token = os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN')
-            
-            # إذا كان التوكن متاحاً في البيئة، نتحقق من التوقيع المشفر HMAC-SHA256
-            if bot_token and 'hash' in parsed_data:
-                received_hash = parsed_data.pop('hash')
-                data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
-                secret_key = hmac.new(b"WebAppData", bot_token.encode('utf-8'), hashlib.sha256).digest()
-                calculated_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
-                
-                if hmac.compare_digest(calculated_hash, received_hash):
-                    user_json = parsed_data.get('user')
-                    if user_json:
-                        user_obj = json.loads(user_json)
-                        if user_obj.get('id'):
-                            return str(user_obj['id']).strip()
-            
-            # استخراج الـ ID من هيكل initData حتى لو لم يُضبط متغير BOT_TOKEN بعد
-            user_json = parsed_data.get('user')
-            if user_json:
-                user_obj = json.loads(user_json)
-                if user_obj.get('id'):
-                    return str(user_obj['id']).strip()
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0)
+                        FROM users 
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        LIMIT 1
+                    """, (clean_id, clean_id, clean_id))
+                    
+                    row = cur.fetchone()
+                    if row:
+                        return {
+                            'zn_balance': float(row[0] if row[0] is not None else 0.0),
+                            'usdt_balance': float(row[1] if row[1] is not None else 0.0),
+                            'znx_balance': float(row[2] if row[2] is not None else 0.0),
+                            'db_ok': True
+                        }
+                    else:
+                        # المستخدم غير موجود بعد في الجدول
+                        return {
+                            'zn_balance': 0.0,
+                            'usdt_balance': 0.0,
+                            'znx_balance': 0.0,
+                            'db_ok': True
+                        }
         except Exception as e:
-            print(f"⚠️ تنبيه أثناء فحص initData: {e}")
+            print(f"⚠️ Database Fetch Error (Attempt {attempt + 1}): {e}")
 
-    # 2. البدائل المباشرة (Query Params / Headers)
-    candidates = [
-        req.args.get('user_id'),
-        req.args.get('tg_id'),
-        req.headers.get('X-Telegram-User-Id')
-    ]
-    for candidate in candidates:
-        if candidate:
-            clean = str(candidate).strip()
-            if clean and clean.lower() not in ('undefined', 'none', 'null', 'nan', ''):
-                return clean
+    return default_balances
 
-    return ""
+def update_user_balance(user_id, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
+    """تحديث الأرصدة في Supabase بأمان تام"""
+    clean_id = _sanitize_id(user_id)
+    if not clean_id:
+        return False
 
-@wallet_bp.route('/data', methods=['GET'])
-def get_wallet_data():
-    user_id = extract_and_verify_telegram_user(request)
-        
-    if not user_id:
-        return jsonify({'success': False, 'error': 'معرف المستخدم غير متاح'}), 400
-        
-    balances = get_user_wallet_balances(user_id)
-    
-    zn_val = float(balances.get('zn_balance', 0.0))
-    usdt_val = float(balances.get('usdt_balance', 0.0))
-    znx_val = float(balances.get('znx_balance', 0.0))
+    curr = str(currency).lower().strip()
+    if curr in ['zn', 'balance']:
+        field_to_update = 'balance'
+    elif curr in ['znx', 'znx_balance', 'total_znx_earned']:
+        field_to_update = 'znx_balance'
+    else:
+        field_to_update = 'usd_balance'
 
-    response = make_response(jsonify({
-        'success': True,
-        'user_id': user_id,
-        'zn_balance': f"{zn_val:.4f}",
-        'usdt_balance': f"{usdt_val:.4f}",
-        'znx_balance': f"{znx_val:.4f}",
-        'raw': {
-            'zn_balance': zn_val,
-            'usdt_balance': usdt_val,
-            'znx_balance': znx_val
-        }
-    }))
-    
-    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    
-    return response
+    amount_val = abs(float(amount))
+    if operation == 'subtract':
+        amount_val = -amount_val
+
+    for attempt in range(2):
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(f"""
+                        UPDATE users 
+                        SET {field_to_update} = GREATEST(0.0, COALESCE({field_to_update}, 0.0) + %s),
+                            last_active_at = CURRENT_TIMESTAMP
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        RETURNING {field_to_update}
+                    """, (amount_val, clean_id, clean_id, clean_id))
+                    
+                    updated_row = cur.fetchone()
+                    if updated_row is not None:
+                        return True
+                    return False
+        except Exception as e:
+            print(f"⚠️ Database Update Error (Attempt {attempt + 1}): {e}")
+
+    return False
