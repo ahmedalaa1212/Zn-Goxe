@@ -22,25 +22,22 @@ wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
 
 @wallet_bp.route('/data', methods=['GET'])
 def get_wallet_data():
-    """جلب الأرصدة من Supabase بشكل مباشر"""
-    
-    # الحصول على user_id بكل الطرق الممكنة لضمان عدم إرجاع السيرفر لبيانات أصفار
     user_id = request.args.get('user_id')
     
     if not user_id or user_id in ['undefined', 'None', '']:
         user_id = request.headers.get('X-Telegram-User-Id')
         
     if not user_id or user_id in ['undefined', 'None', '']:
-        return jsonify({'success': False, 'error': 'معرف المستخدم غير متاح'}), 400
+        return jsonify({'success': False, 'error': 'Missing User ID'}), 400
         
     balances = get_user_wallet_balances(user_id)
     
-    # إرسال القيم كسلاسل نصية (Strings) لمنع أخطاء الجافاسكريبت
+    # تنسيق الأرقام هنا كسلاسل نصية بـ 4 أصفار عشرية لضمان عدم حدوث خطأ في الجافاسكريبت
     response = make_response(jsonify({
         'success': True,
-        'zn_balance': str(balances.get('zn_balance', 0.0)),
-        'usdt_balance': str(balances.get('usdt_balance', 0.0)),
-        'znx_balance': str(balances.get('znx_balance', 0.0))
+        'zn_balance': f"{balances.get('zn_balance', 0.0):.4f}",
+        'usdt_balance': f"{balances.get('usdt_balance', 0.0):.4f}",
+        'znx_balance': f"{balances.get('znx_balance', 0.0):.4f}"
     }))
     
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
