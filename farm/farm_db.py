@@ -4,6 +4,7 @@ farm_db.py - موديول إدارة المزرعة والتعدين المرب�
 مُعالج من بطء الـ Cooldown ومشكلة تحميل بيانات المتجر والباقات ⚡
 تم تعديله لفصل الإعدادات (farm_settings و shop_settings) لتطابق هيكلة Firebase
 ✅ تم تطبيق القاعدة 7: Atomic Updates & COALESCE لمنع الأرصدة السالبة وقيم Null
+✅ تم حل مشكلة القفزات عند الترقية (Auto-Claim on Upgrade)
 """
 import time
 import json
@@ -645,11 +646,17 @@ def buy_upgrade_db(user_id_str, level):
                 now = datetime.now(timezone.utc)
                 now_iso = format_iso(now)
 
+                # 🔥 تجميع الرصيد المعلق قبل الترقية لتجنب القفزات!
+                current_max_cap = calculate_user_max_cap(user_data, game_settings)
+                pending_amount = calculate_accrued_mined(user_data, now, current_max_cap)
+
                 current_balance = float(user_data.get("balance") or 0.0)
                 current_usd_balance = float(user_data.get("usd_balance") or 0.0)
 
-                if current_balance < cost_zn:
-                    return {"success": False, "error": f"رصيد العملات غير كافٍ! سعر الترقية {cost_zn:,.0f} ZN"}
+                total_zn = current_balance + pending_amount
+
+                if total_zn < cost_zn:
+                    return {"success": False, "error": f"رصيد العملات غير كافٍ! السعر {cost_zn:,.0f} ZN (مشمولاً المحصول)"}
 
                 if cost_usd > 0 and current_usd_balance < cost_usd:
                     return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
@@ -668,17 +675,20 @@ def buy_upgrade_db(user_id_str, level):
                 upgrades[lvl_key] = current_count + 1
                 total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
 
-                # 🚀 تطبيق التحديث الذري لمنع الرصيد السالب بشكل قاطع
+                # 🚀 تطبيق التحديث الذري + حفظ الرصيد المعلق + إعادة تعيين وقت التجميع لمنع القفزات!
                 cur.execute("""
                     UPDATE users SET
-                        balance = GREATEST(0.0, COALESCE(balance, 0.0) - %s),
+                        balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s - %s),
                         usd_balance = GREATEST(0.0, COALESCE(usd_balance, 0.0) - %s),
                         hourly_rate = GREATEST(0.10, COALESCE(hourly_rate, 0.10) + %s),
                         upgrades = %s,
-                        upgrades_count = %s
+                        upgrades_count = %s,
+                        last_claim_time = %s,
+                        mined_points = COALESCE(mined_points, total_mined, 0.0) + %s,
+                        total_mined = COALESCE(total_mined, mined_points, 0.0) + %s
                     WHERE tg_id = %s
                     RETURNING balance, usd_balance, hourly_rate
-                """, (cost_zn, cost_usd, rate_bonus, Json(upgrades), total_upgrades_count, str_uid))
+                """, (pending_amount, cost_zn, cost_usd, rate_bonus, Json(upgrades), total_upgrades_count, now, pending_amount, pending_amount, str_uid))
                 
                 updated_row = cur.fetchone()
                 db_new_balance = float(updated_row['balance'])
@@ -728,24 +738,33 @@ def buy_storage_db(user_id_str):
                 cost_zn = float(next_cfg.get("cost_zn", 0.0)) if isinstance(next_cfg, dict) else 0.0
                 cost_usd = float(next_cfg.get("cost_usd", 0.0)) if isinstance(next_cfg, dict) else 0.0
 
+                # 🔥 تجميع الرصيد المعلق قبل الترقية لتجنب القفزات!
+                current_max_cap = calculate_user_max_cap(user_data, game_settings)
+                pending_amount = calculate_accrued_mined(user_data, now, current_max_cap)
+
                 current_balance = float(user_data.get("balance") or 0.0)
                 current_usd_balance = float(user_data.get("usd_balance") or 0.0)
 
-                if current_balance < cost_zn:
-                    return {"success": False, "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost_zn:,.0f} ZN"}
+                total_zn = current_balance + pending_amount
+
+                if total_zn < cost_zn:
+                    return {"success": False, "error": f"رصيدك غير كافٍ! السعر {cost_zn:,.0f} ZN (مشمولاً المحصول)"}
 
                 if cost_usd > 0 and current_usd_balance < cost_usd:
                     return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
-                # 🚀 تطبيق التحديث الذري 
+                # 🚀 تطبيق التحديث الذري + إضافة الرصيد المعلق + إعادة تعيين وقت التجميع لمنع القفزات!
                 cur.execute("""
                     UPDATE users SET
-                        balance = GREATEST(0.0, COALESCE(balance, 0.0) - %s),
+                        balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s - %s),
                         usd_balance = GREATEST(0.0, COALESCE(usd_balance, 0.0) - %s),
-                        storage_level = %s
+                        storage_level = %s,
+                        last_claim_time = %s,
+                        mined_points = COALESCE(mined_points, total_mined, 0.0) + %s,
+                        total_mined = COALESCE(total_mined, mined_points, 0.0) + %s
                     WHERE tg_id = %s
                     RETURNING balance, usd_balance
-                """, (cost_zn, cost_usd, next_level, str_uid))
+                """, (pending_amount, cost_zn, cost_usd, next_level, now, pending_amount, pending_amount, str_uid))
                 
                 updated_row = cur.fetchone()
                 db_new_balance = float(updated_row['balance'])
