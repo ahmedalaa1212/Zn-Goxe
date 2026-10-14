@@ -28,11 +28,13 @@ window.walletModule = (function () {
         return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
     }
 
+    // تحديث كافة عناصر الـ DOM التي تعرض الأرصدة
     function directUpdateUI(znVal, usdtVal, znxVal) {
         const newZnHTML = formatSmartBalanceHTML(znVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
         const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
+        // تحديث المربعات الكبيرة داخل المحفظة
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display') || document.getElementById('usd-balance-display');
         const znxElem = document.getElementById('znx-balance-display');
@@ -41,12 +43,13 @@ window.walletModule = (function () {
         if (usdtElem) usdtElem.innerHTML = newUsdtHTML;
         if (znxElem) znxElem.innerHTML = newZnxHTML;
 
+        // تحديث كل الأشرطة العلوية في كل الواجهات (المزرعة، المتجر، إلخ)
         const topBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
         topBalances.forEach(el => {
             if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display' && el.id !== 'usdt-balance-display' && el.id !== 'usd-balance-display') {
-                if (el.textContent.includes('ZNX')) {
+                if (el.textContent.includes('ZNX') || el.id.includes('znx')) {
                     el.innerHTML = `${newZnxHTML} ZNX`;
-                } else if (el.textContent.includes('ZN')) {
+                } else if (el.textContent.includes('ZN') || el.id.includes('zn')) {
                     el.innerHTML = `${newZnHTML} ZN`;
                 } else {
                     el.innerHTML = newZnHTML;
@@ -60,6 +63,7 @@ window.walletModule = (function () {
         const newUsdt = parseFloat(usdt ?? 0) || 0;
         const newZnx = parseFloat(znx ?? 0) || 0;
 
+        // تحديث الكائنات العامة (Global State) لتستخدمها باقي الواجهات
         if (!window.userState) window.userState = {};
         window.userState.balance = newZn;
         window.userState.zn_balance = newZn;
@@ -72,7 +76,7 @@ window.walletModule = (function () {
         window.PlayerData.usd_balance = newUsdt;
         window.PlayerData.znx_balance = newZnx;
 
-        // حفظ نسخة محلية للعرض اللحظي عند التنقل بين التبويبات
+        // حفظ الرصيد محلياً للتحميل الفوري المرة القادمة
         try {
             localStorage.setItem('zn_cached_balances', JSON.stringify({
                 zn: newZn,
@@ -82,22 +86,27 @@ window.walletModule = (function () {
             }));
         } catch (e) {}
 
+        // تحديث الواجهة مباشرة
         directUpdateUI(newZn, newUsdt, newZnx);
 
+        // إطلاق الحدث ليخبر باقي النظام أن الرصيد تغير (منع التكرار اللانهائي عبر isSyncingState)
         if (!isSyncingState) {
             isSyncingState = true;
-            window.dispatchEvent(new CustomEvent('userStateUpdated'));
+            window.dispatchEvent(new CustomEvent('userStateUpdated', {
+                detail: { source: 'wallet_fetch' }
+            }));
             isSyncingState = false;
         }
     }
 
-    // عرض فوري للأرصدة المخزنة في الذاكرة قبل انتظار رد السيرفر
     function renderImmediateCachedBalances() {
+        // الاعتماد على Global State أولاً
         const st = window.userState || window.PlayerData || {};
         let zn = st.balance ?? st.zn_balance;
         let usdt = st.usd_balance ?? st.usdt_balance;
-        let znx = st.znx_balance;
+        let znx = st.znx_balance ?? st.total_znx_earned;
 
+        // إذا كانت فارغة، استخدم LocalStorage
         if (zn === undefined && usdt === undefined && znx === undefined) {
             try {
                 const cached = JSON.parse(localStorage.getItem('zn_cached_balances') || 'null');
@@ -114,7 +123,6 @@ window.walletModule = (function () {
         }
     }
 
-    // 🎯 دالة شاملة لاستخراج المعرف الحقيقي من كافة المصادر الممكنة
     function getValidUserId() {
         const tg = window.Telegram?.WebApp;
         let id = tg?.initDataUnsafe?.user?.id;
@@ -160,7 +168,8 @@ window.walletModule = (function () {
 
     async function fetchWalletBalances(force = false) {
         const now = Date.now();
-        if (!force && lastFetchTime && (now - lastFetchTime < 800)) {
+        // تقليل مدة الكاش إلى 500 ملي ثانية للسماح بتحديثات أسرع
+        if (!force && lastFetchTime && (now - lastFetchTime < 500)) {
             return;
         }
 
@@ -169,7 +178,6 @@ window.walletModule = (function () {
         const initData = tg?.initData || '';
 
         if (!userId && !initData) {
-            // إعادة محاولة سريعة كل 250ms حتى يجهز التليجرام
             if (!fastRetryTimer) {
                 fastRetryTimer = setTimeout(() => {
                     fastRetryTimer = null;
@@ -206,9 +214,10 @@ window.walletModule = (function () {
 
     function startAutoPolling() {
         if (pollInterval) clearInterval(pollInterval);
+        // تحديث من السيرفر كل 2.5 ثانية (سريع وخفيف)
         pollInterval = setInterval(() => {
             fetchWalletBalances(true);
-        }, 3000);
+        }, 2500);
     }
 
     async function ensureSubModuleScriptLoaded(tabName) {
@@ -289,18 +298,26 @@ window.walletModule = (function () {
     }
 
     function init(force = false) {
-        // ربط الأحداث العامة مرة واحدة فقط دون إيقاف دالة init عند فتح المحفظة مجدداً
         if (!eventsBound) {
             eventsBound = true;
+            
+            // جلب الأرصدة عند العودة للتطبيق
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) fetchWalletBalances(true);
             });
-            window.addEventListener('userStateUpdated', () => {
-                if (!isSyncingState) renderImmediateCachedBalances();
+            
+            // 🎯 الاستماع لأي تحديث يحدث في أي مكان في التطبيق (المزرعة، المتجر...)
+            window.addEventListener('userStateUpdated', (e) => {
+                // منع حلقة مفرغة: لا نحدث إذا كان التحديث قادماً منا
+                if (e && e.detail && e.detail.source === 'wallet_fetch') return;
+                
+                // تحديث الواجهة فوراً بما هو موجود في Global State
+                if (!isSyncingState) {
+                    renderImmediateCachedBalances();
+                }
             });
         }
 
-        // عرض الرصيد المتاح فوراً في نفس اللحظة (0ms) ثم تحديثه من السيرفر
         renderImmediateCachedBalances();
         fetchWalletBalances(true);
         startAutoPolling();
