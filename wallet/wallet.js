@@ -22,8 +22,31 @@ window.walletModule = (function () {
         return num.toFixed(4);
     }
 
+    // ✅ تم التعديل هنا: إضافة الاختصارات (K, M, B) إلى المحفظة
     function formatSmartBalanceHTML(val) {
-        const plainStr = formatSmartBalance(val);
+        if (typeof val === 'string') {
+            val = val.replace(/[^0-9.-]/g, '');
+        }
+        let num = parseFloat(val || 0);
+        if (isNaN(num)) num = 0;
+
+        if (num >= 1000000000) {
+            let str = (num / 1000000000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}B</span>`;
+        }
+        if (num >= 1000000) {
+            let str = (num / 1000000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}M</span>`;
+        }
+        if (num >= 1000) {
+            let str = (num / 1000).toFixed(2);
+            let parts = str.split('.');
+            return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}K</span>`;
+        }
+
+        let plainStr = num.toFixed(4);
         const parts = plainStr.split('.');
         return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
     }
