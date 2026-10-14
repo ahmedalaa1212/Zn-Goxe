@@ -233,7 +233,6 @@ if (tg) {
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
 }
 
-// دالة الحماية المباشرة ضد هجمات XSS وحقن النصوص
 function escapeHTML(str) {
     if (str === null || str === undefined) return '';
     return String(str)
@@ -245,7 +244,6 @@ function escapeHTML(str) {
 }
 window.escapeHTML = escapeHTML;
 
-// رابط السيرفر الأساسي لمنع أخطاء المسارات النسبية
 window.API_BASE_URL = window.API_BASE_URL || 'https://zn-goxe-production.up.railway.app';
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 1.32;
 window.serverTimeOffset = 0;
@@ -378,7 +376,6 @@ window.addEventListener('beforeunload', () => {
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
 
-    // جلب أو توليد معرّف الجهاز وبصمته الرقمية
     let deviceId = null;
     let fingerprint = null;
     try {
@@ -753,34 +750,49 @@ window.updateClaimButtonState = function() {
 // ==========================================
 // 7. العداد البصري التدريجي وتنسيق الأرقام
 // ==========================================
+
+// 🎨 اللمسة الفنية: توحيد الأرقام الكبيرة برقمين عشريين فقط واختصارات جذابة
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
-    const num = parseFloat(val);
-    return num.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 6
-    });
+    let num = parseFloat(val);
+    
+    if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
+    if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(2) + 'K';
+    
+    return num.toFixed(2); // دائماً رقمين عشريين
 };
 
+// 🎨 اللمسة الفنية: دالة الـ HTML للشفافية وتصغير الكسر والاختصار
 window.formatNumberHTML = function(val) {
     if (val === undefined || val === null || isNaN(val)) {
-        return `0<span style="font-size:0.8em; opacity:0.75; font-weight:normal;">.00</span>`;
+        return `0<span style="font-size:0.75em; opacity:0.85; font-weight:normal; margin-left: 2px;">.00</span>`;
     }
     let num = parseFloat(val);
     let suffix = '';
-    if (Math.abs(num) >= 1e9) { num /= 1e9; suffix = 'B'; }
-    else if (Math.abs(num) >= 1e6) { num /= 1e6; suffix = 'M'; }
+    let formattedStr = '';
 
-    const formattedStr = num.toLocaleString('en-US', { 
-        minimumFractionDigits: 2, 
-        maximumFractionDigits: 6 
-    });
+    if (num >= 1000000000) { 
+        formattedStr = (num / 1000000000).toFixed(2); 
+        suffix = 'B'; 
+    }
+    else if (num >= 1000000) { 
+        formattedStr = (num / 1000000).toFixed(2); 
+        suffix = 'M'; 
+    }
+    else if (num >= 1000) { 
+        formattedStr = (num / 1000).toFixed(2); 
+        suffix = 'K'; 
+    }
+    else {
+        formattedStr = num.toFixed(2); // رقمين عشريين كحد أقصى للرقم العادي
+    }
 
     const parts = formattedStr.split('.');
-    if (parts.length > 1) {
-        return `${parts[0]}<span style="font-size:0.8em; opacity:0.75; font-weight:normal;">.${parts[1]}</span>${suffix}`;
-    }
-    return `${formattedStr}${suffix}`;
+    const intPart = parts[0];
+    const decPart = parts[1] || '00';
+
+    return `${intPart}<span style="font-size:0.72em; opacity:0.75; font-weight:500; margin-left: 2px;">.${decPart}${suffix}</span>`;
 };
 
 let visualBalance = null;
@@ -873,6 +885,7 @@ window.updateUI = function() {
         if (el.tagName === 'INPUT') {
             el.value = rawUsd;
         } else {
+            // إضافة $ قبل التنسيق المصغر
             el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
         }
     });
@@ -1334,10 +1347,8 @@ window.switchView = async function(viewName) {
 document.addEventListener('DOMContentLoaded', async () => {
     hideLoadingScreen();
 
-    // إرسال إشارة النشاط اليومي مباشرة فور تحميل الصفحة
     sendUserPing();
 
-    // تهيئة بصمة الجهاز ومعرف الجهاز مبكراً
     try {
         await window.getOrCreateDeviceId();
         await window.getDeviceFingerprint();
@@ -1355,9 +1366,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
         await window.fetchAPI('/api/user/info');
-    } catch (e) {
-        console.warn("⚠️ تعذر جلب بيانات المستخدم المبدئية عند الإقلاع:", e);
-    }
+    } catch (e) {}
 
     if (window.userState?.tg_id) {
         window.initFirebaseRealtimeSync(window.userState.tg_id);
