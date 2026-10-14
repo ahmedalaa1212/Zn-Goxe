@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
-import math
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../"))
@@ -9,9 +8,13 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 try:
-    from database import get_db_connection, init_user
+    from database import get_db_connection, _sanitize_id
 except ImportError as e:
     print(f"⚠️ خطأ فادح: لم يتم العثور على database.py: {e}")
+    def _sanitize_id(val):
+        if val is None: return None
+        s = str(val).strip()
+        return s[:-2] if s.endswith('.0') else s
 
 try:
     from .deposit.deposit_db import *
@@ -26,100 +29,86 @@ try:
 except Exception:
     pass
 
-def _clean_user_id(user_id) -> str:
-    if user_id is None:
-        return ""
-    s = str(user_id).strip()
-    if s.lower() in ('none', 'undefined', 'null', 'nan', ''):
-        return ""
-    # السماح فقط بالأرقام والمعرفات الآمنة لمنع أي حقن
-    return "".join(ch for ch in s if ch.isalnum() or ch in ('_', '-'))
-
 def get_user_wallet_balances(user_id) -> dict:
-    """جلب الأرصدة المباشرة من Supabase بسرعة وموثوقية عالية"""
-    str_user_id = _clean_user_id(user_id)
-    default_balances = {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
+    """جلب الأرصدة المباشرة من Supabase مع دعم البحث في كافة أعمدة المعرف وإعادة المحاولة"""
+    clean_id = _sanitize_id(user_id)
+    default_balances = {
+        'zn_balance': 0.0,
+        'usdt_balance': 0.0,
+        'znx_balance': 0.0,
+        'db_ok': False
+    }
     
-    if not str_user_id:
+    if not clean_id:
         return default_balances
 
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                # البحث في الأعمدة الثلاثة لضمان العثور على المستخدم دائماً
-                cur.execute("""
-                    SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0)
-                    FROM users 
-                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                    LIMIT 1
-                """, (str_user_id, str_user_id, str_user_id))
-                
-                row = cur.fetchone()
-                if row:
-                    return {
-                        'zn_balance': float(row[0] if row[0] is not None else 0.0),
-                        'usdt_balance': float(row[1] if row[1] is not None else 0.0),
-                        'znx_balance': float(row[2] if row[2] is not None else 0.0)
-                    }
-                else:
-                    # إذا كان المستخدم جديداً ولم يُسجل بعد، نقوم بتهيئته
-                    try:
-                        init_user(str_user_id)
-                    except Exception:
-                        pass
-    except Exception as e:
-        print(f"⚠️ Database Fetch Error in wallet_db: {e}")
+    for attempt in range(2):
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0)
+                        FROM users 
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        LIMIT 1
+                    """, (clean_id, clean_id, clean_id))
+                    
+                    row = cur.fetchone()
+                    if row:
+                        return {
+                            'zn_balance': float(row[0] if row[0] is not None else 0.0),
+                            'usdt_balance': float(row[1] if row[1] is not None else 0.0),
+                            'znx_balance': float(row[2] if row[2] is not None else 0.0),
+                            'db_ok': True
+                        }
+                    else:
+                        # المستخدم غير موجود بعد في الجدول
+                        return {
+                            'zn_balance': 0.0,
+                            'usdt_balance': 0.0,
+                            'znx_balance': 0.0,
+                            'db_ok': True
+                        }
+        except Exception as e:
+            print(f"⚠️ Database Fetch Error (Attempt {attempt + 1}): {e}")
 
     return default_balances
 
 def update_user_balance(user_id, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تحديث الأرصدة في Supabase بأمان ذري يمنع التلاعب أو الرصيد السالب"""
-    str_user_id = _clean_user_id(user_id)
-    if not str_user_id:
-        return False
-
-    try:
-        raw_amount = float(amount)
-        if math.isnan(raw_amount) or math.isinf(raw_amount) or raw_amount < 0:
-            print("⚠️ محاولة إدخال قيمة غير صالحة في الرصيد!")
-            return False
-    except (ValueError, TypeError):
+    """تحديث الأرصدة في Supabase بأمان تام"""
+    clean_id = _sanitize_id(user_id)
+    if not clean_id:
         return False
 
     curr = str(currency).lower().strip()
-    if curr in ('zn', 'balance', 'zn_balance'):
+    if curr in ['zn', 'balance']:
         field_to_update = 'balance'
-    elif curr in ('znx', 'znx_balance', 'total_znx_earned'):
+    elif curr in ['znx', 'znx_balance', 'total_znx_earned']:
         field_to_update = 'znx_balance'
-    elif curr in ('usd', 'usdt', 'usd_balance', 'usdt_balance'):
-        field_to_update = 'usd_balance'
     else:
-        return False
+        field_to_update = 'usd_balance'
 
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                if operation == 'subtract':
-                    # خصم مشروط بتوفر الرصيد الكافي لمنع السحب على المكشوف (Race Condition Protection)
-                    cur.execute(f"""
-                        UPDATE users 
-                        SET {field_to_update} = COALESCE({field_to_update}, 0.0) - %s,
-                            last_active_at = CURRENT_TIMESTAMP
-                        WHERE (tg_id = %s OR user_id = %s OR telegram_id = %s)
-                          AND COALESCE({field_to_update}, 0.0) >= %s
-                        RETURNING {field_to_update}
-                    """, (raw_amount, str_user_id, str_user_id, str_user_id, raw_amount))
-                else:
+    amount_val = abs(float(amount))
+    if operation == 'subtract':
+        amount_val = -amount_val
+
+    for attempt in range(2):
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
                     cur.execute(f"""
                         UPDATE users 
                         SET {field_to_update} = GREATEST(0.0, COALESCE({field_to_update}, 0.0) + %s),
                             last_active_at = CURRENT_TIMESTAMP
                         WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                         RETURNING {field_to_update}
-                    """, (raw_amount, str_user_id, str_user_id, str_user_id))
-                
-                updated_row = cur.fetchone()
-                return updated_row is not None
-    except Exception as e:
-        print(f"⚠️ Database Update Error in wallet_db: {e}")
-        return False
+                    """, (amount_val, clean_id, clean_id, clean_id))
+                    
+                    updated_row = cur.fetchone()
+                    if updated_row is not None:
+                        return True
+                    return False
+        except Exception as e:
+            print(f"⚠️ Database Update Error (Attempt {attempt + 1}): {e}")
+
+    return False
