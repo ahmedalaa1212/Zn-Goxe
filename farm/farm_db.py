@@ -3,6 +3,7 @@
 farm_db.py - موديول إدارة المزرعة والتعدين المربوط بـ Supabase (PostgreSQL)
 مُعالج من بطء الـ Cooldown ومشكلة تحميل بيانات المتجر والباقات ⚡
 تم تعديله لفصل الإعدادات (farm_settings و shop_settings) لتطابق هيكلة Firebase
+✅ تم تطبيق القاعدة 7: Atomic Updates & COALESCE لمنع الأرصدة السالبة وقيم Null
 """
 import time
 import json
@@ -347,7 +348,7 @@ def calculate_user_max_cap(user_data, settings=None):
         settings = get_game_settings()
     stg_lvl = user_data.get("storage_level", 0)
     base_cap = get_base_storage_capacity(stg_lvl, settings)
-    extra_cap = max(0.0, float(user_data.get("extra_storage", 0.0)))
+    extra_cap = max(0.0, float(user_data.get("extra_storage", 0.0) or 0.0))
     total_cap = base_cap + extra_cap
     return min(round(total_cap, 4), MAX_SAFE_STORAGE_CAP)
 
@@ -369,7 +370,7 @@ def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None
     if not start_dt or not end_dt or end_dt <= start_dt:
         return 0.0
     
-    safe_rate = max(0.0, min(float(hourly_rate), MAX_SAFE_HOURLY_RATE))
+    safe_rate = max(0.0, min(float(hourly_rate or 0.0), MAX_SAFE_HOURLY_RATE))
     seconds_passed = (end_dt - start_dt).total_seconds()
     
     if seconds_passed <= 0:
@@ -396,7 +397,7 @@ def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None
 
 def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
     last_claim_str = user_data.get("last_claim_time")
-    hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
+    hourly_rate = min(float(user_data.get("hourly_rate") or 0.10), MAX_SAFE_HOURLY_RATE)
 
     last_claim = safe_parse_datetime(last_claim_str, now_dt)
     if not last_claim:
@@ -439,9 +440,10 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
         if exp_dt is None or exp_dt > now_dt:
             is_active = True
 
-    user_data["balance"] = min(max(0.0, float(user_data.get("balance", 0.0))), MAX_SAFE_BALANCE)
-    user_data["usd_balance"] = min(max(0.0, float(user_data.get("usd_balance", 0.0))), 1000000.0)
-    user_data["hourly_rate"] = min(max(0.10, float(user_data.get("hourly_rate", 0.10))), MAX_SAFE_HOURLY_RATE)
+    # 🛡️ الحماية باستخدام or 0.0 لتجنب أخطاء Null من القاعدة
+    user_data["balance"] = min(max(0.0, float(user_data.get("balance") or 0.0)), MAX_SAFE_BALANCE)
+    user_data["usd_balance"] = min(max(0.0, float(user_data.get("usd_balance") or 0.0)), 1000000.0)
+    user_data["hourly_rate"] = min(max(0.10, float(user_data.get("hourly_rate") or 0.10)), MAX_SAFE_HOURLY_RATE)
 
     user_data["bot_active"] = is_active
     user_data["is_auto_bot_active"] = is_active
@@ -458,7 +460,14 @@ def get_or_create_user_farm_data(user_id_str):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM users WHERE tg_id = %s", (str_uid,))
+                # 🚀 استخدام COALESCE للحماية أثناء القراءة (القاعدة 7)
+                cur.execute("""
+                    SELECT *, 
+                           COALESCE(balance, 0.0) as balance, 
+                           COALESCE(usd_balance, 0.0) as usd_balance,
+                           COALESCE(hourly_rate, 0.10) as hourly_rate
+                    FROM users WHERE tg_id = %s
+                """, (str_uid,))
                 user_row = cur.fetchone()
 
                 if not user_row:
@@ -489,8 +498,8 @@ def get_or_create_user_farm_data(user_id_str):
         elif not user_data.get("daily_history"):
             user_data["daily_history"] = []
 
-        user_data["boost_claims_count"] = int(user_data.get("boost_claims_count", 0) or 0)
-        user_data["daily_claims_count"] = int(user_data.get("daily_claims_count", 0) or 0)
+        user_data["boost_claims_count"] = int(user_data.get("boost_claims_count") or 0)
+        user_data["daily_claims_count"] = int(user_data.get("daily_claims_count") or 0)
 
         user_data = calculate_user_effective_stats(user_data, game_settings, now)
         expected_max_cap = calculate_user_max_cap(user_data, game_settings)
@@ -500,7 +509,7 @@ def get_or_create_user_farm_data(user_id_str):
         if not last_claim_dt or last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
             last_claim_dt = now
 
-        hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
+        hourly_rate = min(float(user_data.get("hourly_rate") or 0.10), MAX_SAFE_HOURLY_RATE)
 
         unclaimed_val = calculate_accrued_mined(user_data, now, expected_max_cap)
         user_data["unclaimed"] = unclaimed_val
@@ -571,29 +580,31 @@ def claim_mined_tokens_db(user_id_str):
                 if mined_amount <= 0:
                     return {"success": False, "error": "المخزن فارغ حالياً"}
 
-                current_balance = float(user_data.get("balance", 0.0))
-                current_mined_points = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
-
-                new_balance = round(min(current_balance + mined_amount, MAX_SAFE_BALANCE), 8)
-                new_mined_points = round(current_mined_points + mined_amount, 8)
                 now_iso = format_iso(now)
 
+                # 🚀 تطبيق التحديث الذري باستخدام GREATEST و COALESCE
                 cur.execute("""
                     UPDATE users SET
-                        balance = %s,
-                        mined_points = %s,
-                        total_mined = %s,
+                        balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s),
+                        mined_points = COALESCE(mined_points, total_mined, 0.0) + %s,
+                        total_mined = COALESCE(total_mined, mined_points, 0.0) + %s,
                         last_claim_time = %s,
                         last_daily_claim_date = %s
                     WHERE tg_id = %s
-                """, (new_balance, new_mined_points, new_mined_points, now, today_utc_str, str_uid))
+                    RETURNING balance, usd_balance, mined_points
+                """, (mined_amount, mined_amount, mined_amount, now, today_utc_str, str_uid))
+                
+                updated_row = cur.fetchone()
+                db_new_balance = float(updated_row['balance'])
+                db_usd_balance = float(updated_row['usd_balance'])
+                db_new_mined_points = float(updated_row['mined_points'])
 
                 return {
                     "success": True,
-                    "new_balance": new_balance,
-                    "new_usd_balance": float(user_data.get("usd_balance", 0.0)),
-                    "total_mined": new_mined_points,
-                    "mined_points": new_mined_points,
+                    "new_balance": db_new_balance,
+                    "new_usd_balance": db_usd_balance,
+                    "total_mined": db_new_mined_points,
+                    "mined_points": db_new_mined_points,
                     "last_claim_time": now_iso,
                     "last_claim_ad_date": today_utc_str,
                     "base_unclaimed": 0.0,
@@ -634,8 +645,8 @@ def buy_upgrade_db(user_id_str, level):
                 now = datetime.now(timezone.utc)
                 now_iso = format_iso(now)
 
-                current_balance = float(user_data.get("balance", 0.0))
-                current_usd_balance = float(user_data.get("usd_balance", 0.0))
+                current_balance = float(user_data.get("balance") or 0.0)
+                current_usd_balance = float(user_data.get("usd_balance") or 0.0)
 
                 if current_balance < cost_zn:
                     return {"success": False, "error": f"رصيد العملات غير كافٍ! سعر الترقية {cost_zn:,.0f} ZN"}
@@ -654,29 +665,31 @@ def buy_upgrade_db(user_id_str, level):
                 if current_count >= 15:
                     return {"success": False, "error": "لقد وصلت للحد الأقصى للشراء لهذا المستوى (15/15)"}
 
-                new_balance = round(max(0.0, current_balance - cost_zn), 8)
-                new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
-                current_hourly_rate = float(user_data.get("hourly_rate", 0.10))
-                new_hourly_rate = round(min(current_hourly_rate + rate_bonus, MAX_SAFE_HOURLY_RATE), 4)
-
                 upgrades[lvl_key] = current_count + 1
                 total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
 
+                # 🚀 تطبيق التحديث الذري لمنع الرصيد السالب بشكل قاطع
                 cur.execute("""
                     UPDATE users SET
-                        balance = %s,
-                        usd_balance = %s,
-                        hourly_rate = %s,
+                        balance = GREATEST(0.0, COALESCE(balance, 0.0) - %s),
+                        usd_balance = GREATEST(0.0, COALESCE(usd_balance, 0.0) - %s),
+                        hourly_rate = GREATEST(0.10, COALESCE(hourly_rate, 0.10) + %s),
                         upgrades = %s,
                         upgrades_count = %s
                     WHERE tg_id = %s
-                """, (new_balance, new_usd_balance, new_hourly_rate, Json(upgrades), total_upgrades_count, str_uid))
+                    RETURNING balance, usd_balance, hourly_rate
+                """, (cost_zn, cost_usd, rate_bonus, Json(upgrades), total_upgrades_count, str_uid))
+                
+                updated_row = cur.fetchone()
+                db_new_balance = float(updated_row['balance'])
+                db_usd_balance = float(updated_row['usd_balance'])
+                db_new_hourly = float(updated_row['hourly_rate'])
 
                 return {
                     "success": True,
-                    "new_balance": new_balance,
-                    "new_usd_balance": new_usd_balance,
-                    "new_hourly_rate": new_hourly_rate,
+                    "new_balance": db_new_balance,
+                    "new_usd_balance": db_usd_balance,
+                    "new_hourly_rate": db_new_hourly,
                     "upgrades": upgrades,
                     "upgrades_count": total_upgrades_count,
                     "server_time": now_iso
@@ -714,10 +727,9 @@ def buy_storage_db(user_id_str):
                 next_cfg = storage_cfgs[str(next_level)]
                 cost_zn = float(next_cfg.get("cost_zn", 0.0)) if isinstance(next_cfg, dict) else 0.0
                 cost_usd = float(next_cfg.get("cost_usd", 0.0)) if isinstance(next_cfg, dict) else 0.0
-                new_capacity = float(next_cfg.get("capacity", 0.5)) if isinstance(next_cfg, dict) else float(next_cfg)
 
-                current_balance = float(user_data.get("balance", 0.0))
-                current_usd_balance = float(user_data.get("usd_balance", 0.0))
+                current_balance = float(user_data.get("balance") or 0.0)
+                current_usd_balance = float(user_data.get("usd_balance") or 0.0)
 
                 if current_balance < cost_zn:
                     return {"success": False, "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost_zn:,.0f} ZN"}
@@ -725,21 +737,24 @@ def buy_storage_db(user_id_str):
                 if cost_usd > 0 and current_usd_balance < cost_usd:
                     return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
-                new_balance = round(max(0.0, current_balance - cost_zn), 8)
-                new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
-
+                # 🚀 تطبيق التحديث الذري 
                 cur.execute("""
                     UPDATE users SET
-                        balance = %s,
-                        usd_balance = %s,
+                        balance = GREATEST(0.0, COALESCE(balance, 0.0) - %s),
+                        usd_balance = GREATEST(0.0, COALESCE(usd_balance, 0.0) - %s),
                         storage_level = %s
                     WHERE tg_id = %s
-                """, (new_balance, new_usd_balance, next_level, str_uid))
+                    RETURNING balance, usd_balance
+                """, (cost_zn, cost_usd, next_level, str_uid))
+                
+                updated_row = cur.fetchone()
+                db_new_balance = float(updated_row['balance'])
+                db_usd_balance = float(updated_row['usd_balance'])
 
                 return {
                     "success": True,
-                    "new_balance": new_balance,
-                    "new_usd_balance": new_usd_balance,
+                    "new_balance": db_new_balance,
+                    "new_usd_balance": db_usd_balance,
                     "storage_level": next_level,
                     "server_time": now_iso
                 }
@@ -784,11 +799,6 @@ def claim_daily_reward_db(user_id_str):
                 reward_index = min(max(effective_daily_day - 1, 0), 29)
                 reward_amount = float(parsed_rewards[reward_index])
 
-                current_balance = float(user_data.get("balance", 0.0))
-                new_balance = round(min(current_balance + reward_amount, MAX_SAFE_BALANCE), 8)
-                new_ads_watched = int(user_data.get("ads_watched", 0) or 0) + 1
-
-                daily_claims_count = int(user_data.get("daily_claims_count", 0) or 0) + 1
                 daily_history = user_data.get("daily_history") or []
                 if isinstance(daily_history, str):
                     try: daily_history = json.loads(daily_history)
@@ -805,28 +815,36 @@ def claim_daily_reward_db(user_id_str):
                 }
                 daily_history.append(new_daily_entry)
 
+                # 🚀 تحديث ذري للرصيد والمكافآت والعدادات
                 cur.execute("""
                     UPDATE users SET
-                        balance = %s,
+                        balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s),
                         daily_day = %s,
                         daily_streak = %s,
                         last_daily_claim_date = %s,
-                        ads_watched = %s,
-                        daily_claims_count = %s,
+                        ads_watched = COALESCE(ads_watched, 0) + 1,
+                        daily_claims_count = COALESCE(daily_claims_count, 0) + 1,
                         daily_history = %s
                     WHERE tg_id = %s
-                """, (new_balance, effective_daily_day, effective_daily_day, today_str, new_ads_watched, daily_claims_count, Json(daily_history), str_uid))
+                    RETURNING balance, usd_balance, ads_watched, daily_claims_count
+                """, (reward_amount, effective_daily_day, effective_daily_day, today_str, Json(daily_history), str_uid))
+                
+                updated_row = cur.fetchone()
+                db_new_balance = float(updated_row['balance'])
+                db_usd_balance = float(updated_row['usd_balance'])
+                db_ads_watched = int(updated_row['ads_watched'])
+                db_daily_count = int(updated_row['daily_claims_count'])
 
                 return {
                     "success": True,
-                    "new_balance": new_balance,
-                    "new_usd_balance": float(user_data.get("usd_balance", 0.0)),
+                    "new_balance": db_new_balance,
+                    "new_usd_balance": db_usd_balance,
                     "reward_amount": reward_amount,
                     "daily_day": effective_daily_day,
                     "daily_streak": effective_daily_day,
                     "last_daily_claim_date": today_str,
-                    "ads_watched": new_ads_watched,
-                    "daily_claims_count": daily_claims_count,
+                    "ads_watched": db_ads_watched,
+                    "daily_claims_count": db_daily_count,
                     "server_time": now_iso
                 }
 
@@ -860,7 +878,6 @@ def claim_daily_boost_db(user_id_str):
                             rem_mins = int((10800 - elapsed_seconds) // 60)
                             return {"success": False, "error": f"الرجاء الانتظار {rem_mins} دقيقة قبل تفعيل المعزز مجدداً"}
 
-                boost_claims_count = int(user_data.get("boost_claims_count", 0) or 0) + 1
                 boost_history = user_data.get("boost_history") or []
                 if isinstance(boost_history, str):
                     try: boost_history = json.loads(boost_history)
@@ -876,21 +893,26 @@ def claim_daily_boost_db(user_id_str):
                 }
                 boost_history.append(new_boost_entry)
 
+                # 🚀 تحديث آمن للعدادات باستخدام COALESCE
                 cur.execute("""
                     UPDATE users SET
                         last_boost_time = %s,
-                        ads_watched = ads_watched + 1,
-                        boost_claims_count = %s,
+                        ads_watched = COALESCE(ads_watched, 0) + 1,
+                        boost_claims_count = COALESCE(boost_claims_count, 0) + 1,
                         boost_history = %s
                     WHERE tg_id = %s
-                """, (now, boost_claims_count, Json(boost_history), str_uid))
+                    RETURNING boost_claims_count
+                """, (now, Json(boost_history), str_uid))
+                
+                updated_row = cur.fetchone()
+                db_boost_count = int(updated_row['boost_claims_count'])
 
                 return {
                     "success": True,
                     "boost_rate_bonus": 0.10,
                     "boost_duration_hours": 2,
                     "last_boost_time": now_iso,
-                    "boost_claims_count": boost_claims_count,
+                    "boost_claims_count": db_boost_count,
                     "server_time": now_iso
                 }
 
@@ -903,10 +925,15 @@ def get_mining_leaderboard_db(limit=10):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 🚀 تطبيق القاعدة 7 (استخدام COALESCE لمنع أي Null عند الجلب والترتيب)
                 cur.execute("""
-                    SELECT tg_id, first_name, mined_points, total_mined, balance, hourly_rate
+                    SELECT tg_id, first_name, 
+                           COALESCE(mined_points, total_mined, 0.0) as mined_points,
+                           COALESCE(total_mined, mined_points, 0.0) as total_mined,
+                           COALESCE(balance, 0.0) as balance, 
+                           COALESCE(hourly_rate, 0.10) as hourly_rate
                     FROM users
-                    ORDER BY mined_points DESC
+                    ORDER BY COALESCE(mined_points, total_mined, 0.0) DESC
                     LIMIT %s
                 """, (limit,))
                 rows = cur.fetchall()
@@ -914,15 +941,15 @@ def get_mining_leaderboard_db(limit=10):
                 leaderboard = []
                 for rank, row in enumerate(rows, start=1):
                     d = dict(row)
-                    total_m = float(d.get('mined_points') or d.get('total_mined') or 0.0)
+                    total_m = float(d.get('mined_points') or 0.0)
                     leaderboard.append({
                         "rank": rank,
                         "tg_id": str(d.get('tg_id')),
                         "name": str(d.get('first_name') or 'لاعب'),
                         "total_mined": round(total_m, 8),
                         "mined_points": round(total_m, 8),
-                        "balance": round(float(d.get('balance', 0.0)), 8),
-                        "hourly_rate": round(float(d.get('hourly_rate', 0.10)), 4)
+                        "balance": round(float(d.get('balance') or 0.0), 8),
+                        "hourly_rate": round(float(d.get('hourly_rate') or 0.10), 4)
                     })
                 return leaderboard
     except Exception as e:
