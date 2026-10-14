@@ -121,6 +121,8 @@ window.closeAutoClaimModal = function() {
         window.userState = Object.assign(window.userState || {}, patch);
         window.PlayerData = Object.assign(window.PlayerData || {}, patch);
         saveCachedData(window.userState);
+        // إطلاق الحدث لإعلام باقي الأجزاء بالتحديث
+        window.dispatchEvent(new CustomEvent('userStateUpdated'));
     }
     window.updateState = updateState;
 
@@ -290,6 +292,7 @@ window.closeAutoClaimModal = function() {
         if (newBalance !== undefined && newBalance !== null) {
             const val = parseFloat(newBalance);
             patch.balance = val;
+            patch.zn_balance = val; // تحديث كلا الاسمين للتوافق
             const balEl = document.getElementById('farm-balance');
             if (balEl) balEl.innerText = `${formatZnBalance(val)} ZN`;
         }
@@ -297,6 +300,7 @@ window.closeAutoClaimModal = function() {
         if (newUsdBalance !== undefined && newUsdBalance !== null) {
             const usdVal = parseFloat(newUsdBalance);
             patch.usd_balance = usdVal;
+            patch.usdt_balance = usdVal; // تحديث كلا الاسمين للتوافق
             const usdEl = document.getElementById('farm-usd-balance');
             if (usdEl) usdEl.innerText = formatUsdBalance(usdVal);
         }
@@ -954,6 +958,14 @@ window.closeAutoClaimModal = function() {
 
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
+
+    // 🎯 إضافة المستمع لحدث تحديث الأرصدة القادم من المحفظة أو المتجر
+    window.addEventListener('userStateUpdated', (e) => {
+        // نحدث الواجهة فقط إذا لم تكن المزرعة في منتصف عملية أخرى
+        if (!isFetching && !isClaimingMain && !isAutoClaiming && !isUpgradingStorage && upgradingLevel === null) {
+            window.updateFarmUI();
+        }
+    });
 
     // --- معالجات الترقية والاستلام ---
     window.handleStorageUpgrade = async function() {
