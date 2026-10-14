@@ -642,39 +642,11 @@ window.closeAutoClaimModal = function() {
 
                     const serverTimeMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
 
-                    // --- إصلاح قفزات التعدين (Anti-Jump Sync Logic) ---
-                    const localState = getState();
-                    const localLastClaim = localState.last_claim_time || "";
-                    const serverLastClaim = resData.player.last_claim_time || "";
-                    
-                    let serverUnclaimed = parseFloat(resData.player.unclaimed || 0);
-                    let newAccrualTime = resData.player.last_accrual_time ? parseServerDateMs(resData.player.last_accrual_time) : serverTimeMs;
-
-                    // 1. منع تراجع الرصيد أو تصفيره إذا كانت الحالة المحلية أحدث ولم يحدث claim جديد
-                    if (localLastClaim === serverLastClaim && localState.unclaimed > serverUnclaimed) {
-                        serverUnclaimed = parseFloat(localState.base_unclaimed !== undefined ? localState.base_unclaimed : localState.unclaimed);
-                        newAccrualTime = localState.last_accrual_time || newAccrualTime;
-                    } 
-                    // 2. معالجة القفزة بشكل صريح وتحويلها لكتلة أساسية عند أول تحميل لمنع القفزات في الـ Interval
-                    else if (serverUnclaimed === 0 && serverLastClaim) {
-                        let claimMs = parseServerDateMs(serverLastClaim);
-                        let secondsPassed = Math.max(0, (serverTimeMs - claimMs) / 1000);
-                        let baseRate = parseFloat(resData.player.hourly_rate ?? 0.1);
-                        let boostRate = getActiveBoostRate(resData.player);
-                        let accumulated = ((baseRate + boostRate) / 3600.0) * secondsPassed;
-                        let maxC = parseFloat(resData.player.max_cap ?? 0.5);
-                        if (accumulated > maxC) accumulated = maxC;
-                        
-                        serverUnclaimed = accumulated;
-                        newAccrualTime = serverTimeMs;
-                    }
-                    // ----------------------------------------------------
-
                     const newState = Object.assign({}, resData.player, {
                         bot_active: isBotActive,
-                        base_unclaimed: serverUnclaimed,
-                        unclaimed: serverUnclaimed,
-                        last_accrual_time: newAccrualTime
+                        base_unclaimed: parseFloat(resData.player.unclaimed || 0),
+                        unclaimed: parseFloat(resData.player.unclaimed || 0),
+                        last_accrual_time: serverTimeMs
                     });
 
                     updateState(newState);
@@ -741,7 +713,10 @@ window.closeAutoClaimModal = function() {
                 const costUsd = typeof nextCfg === 'object' ? (nextCfg.cost_usd ?? 0) : 0;
                 const costStrZn = formatCompactCost(costZn);
                 const costStrUsd = costUsd > 0 ? ` + $${costUsd.toFixed(2)}` : '';
-                const canAfford = (bal >= costZn) && (usdBal >= costUsd);
+                
+                // إضافة الرصيد المعلق لرصيد المستخدم في الواجهة للسماح بالترقية
+                const currentUnclaim = parseFloat(getState().unclaimed || 0);
+                const canAfford = ((bal + currentUnclaim) >= costZn) && (usdBal >= costUsd);
 
                 upgradeStgBtn.innerText = isUpgradingStorage ? "جاري الترقية... ⏳" : `ترقية المخزن Lvl ${nextLvl + 1} (${costStrZn} ZN${costStrUsd}) 📦`;
                 upgradeStgBtn.disabled = !canAfford || isUpgradingStorage;
@@ -754,6 +729,7 @@ window.closeAutoClaimModal = function() {
             const currentUpgrades = pData.upgrades || {};
             let fieldsHTML = '';
             const isAnyUpgrading = (upgradingLevel !== null);
+            const currentUnclaim = parseFloat(pData.unclaimed || 0);
 
             for (let i = 1; i <= 8; i++) {
                 let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
@@ -767,7 +743,9 @@ window.closeAutoClaimModal = function() {
 
                 let costStrZn = formatCompactCost(costZn);
                 let costStrUsd = costUsd > 0 ? `+$${costUsd.toFixed(2)}` : '';
-                let canAfford = (bal >= costZn) && (usdBal >= costUsd);
+                
+                // إضافة الرصيد المعلق
+                let canAfford = ((bal + currentUnclaim) >= costZn) && (usdBal >= costUsd);
                 let isThisCardUpgrading = (upgradingLevel === i);
 
                 if (isMax) {
@@ -1014,20 +992,29 @@ window.closeAutoClaimModal = function() {
         const costUsd = typeof nextCfg === 'object' ? (nextCfg.cost_usd ?? 0) : 0;
         const bal = getStoredBalance();
         const usdBal = getStoredUsdBalance();
+        
+        // حساب الرصيد الإجمالي (الأساسي + المعلق)
+        const currentUnclaim = parseFloat(pData.unclaimed || 0);
+        const totalAvailableZn = bal + currentUnclaim;
 
-        if (bal < costZn || usdBal < costUsd) {
+        if (totalAvailableZn < costZn || usdBal < costUsd) {
             showToast("❌ رصيدك غير كافٍ لترقية المخزن");
             return;
         }
 
         isUpgradingStorage = true;
-        accrueCurrentMining();
         const stateBackup = cloneCurrentState();
 
-        setStoredBalance(Math.max(0, bal - costZn), Math.max(0, usdBal - costUsd));
+        // تحديث الواجهة فوراً (صفر المعلق واخصم الثمن وضع الباقي في الرصيد)
+        const nowMs = getAdjustedNowMs();
+        setStoredBalance(Math.max(0, totalAvailableZn - costZn), Math.max(0, usdBal - costUsd));
         updateState({
             storage_level: nextLvl,
-            max_cap: nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : getState().max_cap
+            max_cap: nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : getState().max_cap,
+            unclaimed: 0.0,
+            base_unclaimed: 0.0,
+            last_claim_time: new Date(nowMs).toISOString(),
+            last_accrual_time: nowMs
         });
         window.updateFarmUI();
 
@@ -1037,9 +1024,13 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
+                // التأكيد على التصفير من السيرفر
                 updateState({
                     storage_level: resData.storage_level !== undefined ? resData.storage_level : nextLvl,
-                    max_cap: resData.max_cap !== undefined ? parseFloat(resData.max_cap) : parseFloat(nextCfg.capacity)
+                    unclaimed: 0.0,
+                    base_unclaimed: 0.0,
+                    last_claim_time: resData.server_time,
+                    last_accrual_time: parseServerDateMs(resData.server_time)
                 });
 
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
@@ -1066,8 +1057,12 @@ window.closeAutoClaimModal = function() {
 
         const currentBal = getStoredBalance();
         const currentUsdBal = getStoredUsdBalance();
+        
+        // حساب الرصيد الإجمالي
+        const currentUnclaim = parseFloat(getState().unclaimed || 0);
+        const totalAvailableZn = currentBal + currentUnclaim;
 
-        if (currentBal < costZn || currentUsdBal < costUsd) {
+        if (totalAvailableZn < costZn || currentUsdBal < costUsd) {
             let msg = `❌ رصيدك غير كافٍ! سعر الترقية: ${costZn.toLocaleString()} ZN`;
             if (costUsd > 0) msg += ` + $${costUsd.toFixed(2)} USD`;
             showToast(msg);
@@ -1075,10 +1070,11 @@ window.closeAutoClaimModal = function() {
         }
 
         upgradingLevel = level;
-        accrueCurrentMining();
         const stateBackup = cloneCurrentState();
 
-        setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
+        // تحديث الواجهة فوراً
+        const nowMs = getAdjustedNowMs();
+        setStoredBalance(Math.max(0, totalAvailableZn - costZn), Math.max(0, currentUsdBal - costUsd));
 
         const stateObj = getState();
         const upgradesObj = Object.assign({}, stateObj.upgrades || {});
@@ -1090,7 +1086,11 @@ window.closeAutoClaimModal = function() {
 
         updateState({
             upgrades: upgradesObj,
-            hourly_rate: addRate > 0 ? (currentHourly + addRate) : currentHourly
+            hourly_rate: addRate > 0 ? (currentHourly + addRate) : currentHourly,
+            unclaimed: 0.0,
+            base_unclaimed: 0.0,
+            last_claim_time: new Date(nowMs).toISOString(),
+            last_accrual_time: nowMs
         });
         window.updateFarmUI();
 
@@ -1101,7 +1101,12 @@ window.closeAutoClaimModal = function() {
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
                 const newHourly = resData.new_hourly_rate ?? resData.hourly_rate ?? resData.rate;
-                const patch = {};
+                const patch = {
+                    unclaimed: 0.0,
+                    base_unclaimed: 0.0,
+                    last_claim_time: resData.server_time,
+                    last_accrual_time: parseServerDateMs(resData.server_time)
+                };
                 if (newHourly !== undefined && newHourly !== null) patch.hourly_rate = parseFloat(newHourly);
                 if (resData.upgrades) patch.upgrades = resData.upgrades;
 
