@@ -7,7 +7,8 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 try:
-    from database import get_db_connection
+    # استيراد الدوال المركزية من database.py
+    from database import get_db_connection, get_user_balances
 except ImportError as e:
     print(f"⚠️ خطأ فادح: لم يتم العثور على database.py: {e}")
 
@@ -22,39 +23,20 @@ try:
 except Exception: pass
 
 def get_user_wallet_balances(user_id) -> dict:
-    """جلب الأرصدة المباشرة من Supabase"""
-    str_user_id = str(user_id).strip()
-    default_balances = {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
-    
-    if not str_user_id or str_user_id in ['None', 'undefined', '']:
-        return default_balances
-
+    """جلب الأرصدة بالاعتماد على الدالة المركزية في database.py لضمان التطابق"""
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                # استعلام صارم باستخدام tg_id المطابق لقاعدة البيانات
-                cur.execute("""
-                    SELECT balance, usd_balance, znx_balance 
-                    FROM users 
-                    WHERE tg_id = %s
-                    LIMIT 1
-                """, (str_user_id,))
-                
-                row = cur.fetchone()
-                if row:
-                    return {
-                        'zn_balance': float(row[0] if row[0] is not None else 0.0),
-                        'usdt_balance': float(row[1] if row[1] is not None else 0.0),
-                        'znx_balance': float(row[2] if row[2] is not None else 0.0)
-                    }
+        # استخدام الدالة من database.py مباشرة
+        return get_user_balances(user_id)
     except Exception as e:
-        print(f"⚠️ Database Fetch Error: {e}")
-
-    return default_balances
+        print(f"⚠️ خطأ في توجيه get_user_wallet_balances: {e}")
+        return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
 
 def update_user_balance(user_id, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
     """تحديث الأرصدة في Supabase بأمان"""
     str_user_id = str(user_id).strip()
+    if not str_user_id or str_user_id in ['None', 'undefined', '']:
+        return False
+        
     curr = str(currency).lower()
     
     if curr in ['zn', 'balance']:
@@ -71,12 +53,13 @@ def update_user_balance(user_id, amount: float, currency: str = 'zn', operation:
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # تحديث قوي يضمن التطابق مع tg_id أو user_id
                 cur.execute(f"""
                     UPDATE users 
                     SET {field_to_update} = GREATEST(0.0, COALESCE({field_to_update}, 0.0) + %s)
-                    WHERE tg_id = %s
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                     RETURNING {field_to_update}
-                """, (amount_val, str_user_id))
+                """, (amount_val, str_user_id, str_user_id, str_user_id))
                 
                 updated_row = cur.fetchone()
                 if updated_row is not None:
