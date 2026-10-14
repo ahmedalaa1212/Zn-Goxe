@@ -308,8 +308,13 @@ window.closeAutoClaimModal = function() {
         updateState(patch);
     }
 
+    // تم تعديل الدالة لاستخدام UTC صريح 100% لمنع مشاكل الـ Timezone
     function getTodayUTCStr() {
-        return new Date(getAdjustedNowMs()).toISOString().split('T')[0];
+        const now = new Date(getAdjustedNowMs());
+        const y = now.getUTCFullYear();
+        const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(now.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
     
     function getTimeUntilUTCMidnight() {
@@ -635,14 +640,41 @@ window.closeAutoClaimModal = function() {
                         ? resData.bot_active
                         : (resData.player.bot_active !== undefined ? resData.player.bot_active : (resData.player.is_auto_bot_active === true));
 
-                    const serverUnclaimed = parseFloat(resData.player.unclaimed || 0);
                     const serverTimeMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
+
+                    // --- إصلاح قفزات التعدين (Anti-Jump Sync Logic) ---
+                    const localState = getState();
+                    const localLastClaim = localState.last_claim_time || "";
+                    const serverLastClaim = resData.player.last_claim_time || "";
+                    
+                    let serverUnclaimed = parseFloat(resData.player.unclaimed || 0);
+                    let newAccrualTime = resData.player.last_accrual_time ? parseServerDateMs(resData.player.last_accrual_time) : serverTimeMs;
+
+                    // 1. منع تراجع الرصيد أو تصفيره إذا كانت الحالة المحلية أحدث ولم يحدث claim جديد
+                    if (localLastClaim === serverLastClaim && localState.unclaimed > serverUnclaimed) {
+                        serverUnclaimed = parseFloat(localState.base_unclaimed !== undefined ? localState.base_unclaimed : localState.unclaimed);
+                        newAccrualTime = localState.last_accrual_time || newAccrualTime;
+                    } 
+                    // 2. معالجة القفزة بشكل صريح وتحويلها لكتلة أساسية عند أول تحميل لمنع القفزات في الـ Interval
+                    else if (serverUnclaimed === 0 && serverLastClaim) {
+                        let claimMs = parseServerDateMs(serverLastClaim);
+                        let secondsPassed = Math.max(0, (serverTimeMs - claimMs) / 1000);
+                        let baseRate = parseFloat(resData.player.hourly_rate ?? 0.1);
+                        let boostRate = getActiveBoostRate(resData.player);
+                        let accumulated = ((baseRate + boostRate) / 3600.0) * secondsPassed;
+                        let maxC = parseFloat(resData.player.max_cap ?? 0.5);
+                        if (accumulated > maxC) accumulated = maxC;
+                        
+                        serverUnclaimed = accumulated;
+                        newAccrualTime = serverTimeMs;
+                    }
+                    // ----------------------------------------------------
 
                     const newState = Object.assign({}, resData.player, {
                         bot_active: isBotActive,
                         base_unclaimed: serverUnclaimed,
                         unclaimed: serverUnclaimed,
-                        last_accrual_time: serverTimeMs
+                        last_accrual_time: newAccrualTime
                     });
 
                     updateState(newState);
