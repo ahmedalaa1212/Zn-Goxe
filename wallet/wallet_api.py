@@ -22,6 +22,9 @@ wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
 
 @wallet_bp.route('/data', methods=['GET'])
 def get_wallet_data():
+    """جلب الأرصدة من Supabase بشكل مباشر"""
+    
+    # الحصول على user_id بكل الطرق الممكنة لضمان عدم إرجاع السيرفر لبيانات أصفار
     user_id = request.args.get('user_id')
     
     if not user_id or user_id in ['undefined', 'None', '']:
@@ -32,6 +35,7 @@ def get_wallet_data():
         
     balances = get_user_wallet_balances(user_id)
     
+    # إرسال القيم كسلاسل نصية (Strings) لمنع أخطاء الجافاسكريبت
     response = make_response(jsonify({
         'success': True,
         'zn_balance': str(balances.get('zn_balance', 0.0)),
