@@ -22,7 +22,7 @@ window.walletModule = (function () {
         return num.toFixed(4);
     }
 
-    // ✅ تم التعديل هنا: إضافة الاختصارات (K, M, B) إلى المحفظة
+    // ✅ دالة الاختصارات للأرصدة العلوية والمربعة في المحفظة
     function formatSmartBalanceHTML(val) {
         if (typeof val === 'string') {
             val = val.replace(/[^0-9.-]/g, '');
@@ -57,7 +57,7 @@ window.walletModule = (function () {
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
         const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
-        // تحديث المربعات الكبيرة داخل المحفظة
+        // 1. تحديث المربعات الكبيرة داخل المحفظة
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display') || document.getElementById('usd-balance-display');
         const znxElem = document.getElementById('znx-balance-display');
@@ -66,9 +66,10 @@ window.walletModule = (function () {
         if (usdtElem) usdtElem.innerHTML = newUsdtHTML;
         if (znxElem) znxElem.innerHTML = newZnxHTML;
 
-        // تحديث كل الأشرطة العلوية في كل الواجهات (المزرعة، المتجر، إلخ)
+        // 2. تحديث كل الأشرطة العلوية في كل الواجهات
         const topBalances = document.querySelectorAll('#top-balance, #top-balance-shop, #header-zn-balance, .user-balance, .zn-balance-display');
         topBalances.forEach(el => {
+            // تجاهل المربعات الكبيرة للمحفظة التي تم تحديثها لتجنب التكرار
             if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display' && el.id !== 'usdt-balance-display' && el.id !== 'usd-balance-display') {
                 if (el.textContent.includes('ZNX') || el.id.includes('znx')) {
                     el.innerHTML = `${newZnxHTML} ZNX`;
