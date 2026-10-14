@@ -29,6 +29,21 @@ except ImportError:
 
 farm_bp = Blueprint('farm', __name__)
 
+# ==========================================
+# 🚀 إضافة خوارزمية منع الكاش للتحديث اللحظي (القاعدة 7)
+# ==========================================
+@farm_bp.after_request
+def add_cache_control_headers(response):
+    """
+    ضمان التحديث اللحظي (0ms Latency):
+    إجبار العميل (المتصفح/تيليجرام) على عدم تخزين الردود المتعلقة بالأرصدة
+    لضمان ظهور الأرقام الحقيقية فوراً عند كل طلب وعدم اختفاء الأرصدة.
+    """
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
 # مستويات الترقية المتاحة (1 إلى 9)
 VALID_UPGRADE_LEVELS = {str(i) for i in range(1, 10)}
 
