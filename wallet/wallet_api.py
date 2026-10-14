@@ -22,22 +22,27 @@ wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
 
 @wallet_bp.route('/data', methods=['GET'])
 def get_wallet_data():
+    # 🎯 ترتيب منطقي لجلب user_id
     user_id = request.args.get('user_id')
     
-    if not user_id or user_id in ['undefined', 'None', '']:
+    if not user_id or user_id in ['undefined', 'None', '', 'null']:
         user_id = request.headers.get('X-Telegram-User-Id')
         
-    if not user_id or user_id in ['undefined', 'None', '']:
-        return jsonify({'success': False, 'error': 'Missing User ID'}), 400
+    print(f"🔍 [Wallet API] استلام طلب جلب أرصدة للمستخدم: '{user_id}'")
+
+    if not user_id or user_id in ['undefined', 'None', '', 'null']:
+        print("❌ [Wallet API] لم يتم العثور على user_id صالح في الطلب.")
+        return jsonify({'success': False, 'error': 'معرف المستخدم غير متاح'}), 400
         
     balances = get_user_wallet_balances(user_id)
     
-    # تنسيق الأرقام هنا كسلاسل نصية بـ 4 أصفار عشرية لضمان عدم حدوث خطأ في الجافاسكريبت
+    print(f"📊 [Wallet API] الأرصدة المسترجعة للمستخدم {user_id}: {balances}")
+
     response = make_response(jsonify({
         'success': True,
-        'zn_balance': f"{balances.get('zn_balance', 0.0):.4f}",
-        'usdt_balance': f"{balances.get('usdt_balance', 0.0):.4f}",
-        'znx_balance': f"{balances.get('znx_balance', 0.0):.4f}"
+        'zn_balance': str(balances.get('zn_balance', 0.0)),
+        'usdt_balance': str(balances.get('usdt_balance', 0.0)),
+        'znx_balance': str(balances.get('znx_balance', 0.0))
     }))
     
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
