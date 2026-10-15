@@ -104,6 +104,13 @@ def prepare_ton_pay():
         return _no_cache_json({'success': True}, 200)
 
     try:
+        wallet_address = get_official_ton_wallet()
+        if not wallet_address:
+            return _no_cache_json({
+                'success': False,
+                'error': 'لم يتم ضبط عنوان محفظة الاستلام (TON_WALLET_ADDRESS) في متغيرات Railway!'
+            }, 400)
+
         data = request.get_json(silent=True) or request.form or {}
         package_id = data.get('package_id')
         
@@ -126,7 +133,6 @@ def prepare_ton_pay():
         ton_amount = round(usdt_amount / effective_price, 4)
         nano_ton = int(round(ton_amount * 1e9))
 
-        wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
         payload_memo = invoice.get('memo', '')
 
