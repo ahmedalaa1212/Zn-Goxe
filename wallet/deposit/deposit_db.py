@@ -15,8 +15,6 @@ try:
 except ImportError as e:
     print(f"⚠️ خطأ في الاستيراد من database.py: {e}")
 
-OFFICIAL_TON_WALLET = 'UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc'
-
 SEED_PACKAGES = [
     {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
     {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
@@ -28,11 +26,15 @@ SEED_PACKAGES = [
 _tables_initialized = False
 
 def get_official_ton_wallet():
-    """جلب عنوان محفظة TON الرسمية للمشروع"""
-    env_wallet = os.getenv('PROJECT_WALLET') or os.getenv('OFFICIAL_TON_WALLET') or os.getenv('TON_WALLET')
-    if env_wallet and str(env_wallet).strip():
-        return str(env_wallet).strip()
-    return OFFICIAL_TON_WALLET
+    """جلب عنوان محفظة TON للاستلام من متغيرات Railway فقط (بدون أي عناوين ثابتة)"""
+    env_wallet = (
+        os.getenv('TON_WALLET_ADDRESS')
+        or os.getenv('OFFICIAL_TON_WALLET')
+        or os.getenv('TON_WALLET')
+        or os.getenv('PROJECT_WALLET')
+        or ''
+    )
+    return str(env_wallet).strip()
 
 def init_deposit_tables():
     """تهيئة الجداول والتأكد من وجود كافة الأعمدة في Supabase دون تعارض"""
@@ -109,7 +111,6 @@ def get_active_deposit_packages():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # قراءة الأعمدة الـ 4 الأساسية الموجودة في جدول Supabase مباشرة
                 cur.execute("""
                     SELECT id, usdt_amount, COALESCE(is_active, TRUE), COALESCE(sort_order, id)
                     FROM deposit_packages
