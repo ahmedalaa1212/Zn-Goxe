@@ -10,29 +10,32 @@ window.depositModule = (function () {
     let priceRefreshTimer = null;
     let listenersBound = false;
 
-    // مسح أي كاش قديم للباقات كان مخزناً في المتصفح
     try {
         localStorage.removeItem('deposit_packages_cache');
     } catch (e) {}
 
-    // القاعدة 4: استخراج صارم لمعرف المستخدم
+    // استخراج شامل لمعرف المستخدم
     function getValidUserId() {
         const tg = window.Telegram?.WebApp;
         const urlParams = new URLSearchParams(window.location.search);
         const uid = tg?.initDataUnsafe?.user?.id ||
                     window.userState?.tg_id ||
+                    window.userState?.user_id ||
                     window.userState?.id ||
                     urlParams.get('user_id') ||
                     urlParams.get('tg_id') ||
+                    urlParams.get('uid') ||
+                    localStorage.getItem('tg_user_id') ||
                     localStorage.getItem('tg_id') ||
-                    localStorage.getItem('user_id');
+                    localStorage.getItem('user_id') ||
+                    sessionStorage.getItem('user_id');
         if (uid && String(uid) !== 'undefined' && String(uid) !== 'null') {
-            return String(uid);
+            return String(uid).trim();
         }
         return "0";
     }
 
-    // القاعدة 3: التحديث القسري لعناصر الأرصدة في الـ DOM
+    // تحديث عناصر الأرصدة في الواجهة فوراً
     function forceUpdateBalanceDOM(usdVal, znVal, znxVal) {
         if (usdVal !== undefined && usdVal !== null && !isNaN(parseFloat(usdVal))) {
             const formattedUsd = parseFloat(usdVal).toFixed(4);
@@ -54,13 +57,27 @@ window.depositModule = (function () {
         }
     }
 
+    // تحديث قائمة السجلات تلقائياً بعد أي عملية إيداع
+    function triggerHistoryRefresh() {
+        try {
+            if (window.historyModule) {
+                if (typeof window.historyModule.refresh === 'function') {
+                    window.historyModule.refresh();
+                } else if (typeof window.historyModule.init === 'function') {
+                    window.historyModule.init();
+                }
+            }
+        } catch (e) {
+            console.warn("⚠️ تعذر تحديث السجلات تلقائياً:", e);
+        }
+    }
+
     function formatShortAddress(address) {
         if (!address || typeof address !== 'string') return '';
         if (address.length <= 14) return address;
         return `${address.slice(0, 6)}...${address.slice(-6)}`;
     }
 
-    // تحديث واجهة الإيداع حسب حالة ربط المحفظة
     function updateWalletUI(wallet) {
         const connectView = document.getElementById('deposit-connect-view');
         const contentView = document.getElementById('deposit-content-view');
@@ -81,7 +98,6 @@ window.depositModule = (function () {
 
             loadPackages();
         } else {
-            // إذا لم يكن هناك محفظة مربوطة: إخفاء الباقات وكل شيء تماماً وإظهار شاشة ربط المحفظة فقط
             if (contentView) contentView.style.display = 'none';
             if (connectView) connectView.style.display = 'block';
             if (walletNameEl) walletNameEl.innerText = '';
@@ -216,7 +232,6 @@ window.depositModule = (function () {
         return tcInstance;
     }
 
-    // فتح نافذة اختيار المحافظ (Tonkeeper, Telegram Wallet, MyTonWallet, إلخ)
     async function openConnectModal() {
         const tc = await initTonConnect();
         if (!tc) {
@@ -235,7 +250,6 @@ window.depositModule = (function () {
         }
     }
 
-    // إلغاء ربط المحفظة وإخفاء كل شيء عدا شاشة الربط الأولى
     async function disconnectWallet() {
         try {
             const tc = await initTonConnect();
@@ -246,7 +260,6 @@ window.depositModule = (function () {
             console.warn("⚠️ خطأ أثناء قطع اتصال المحفظة:", e);
         }
 
-        // تنظيف بيانات جلسة TON Connect من المتصفح لضمان عدم بقاء أي محفظة معلقة
         try {
             Object.keys(localStorage).forEach((key) => {
                 if (key.startsWith('ton-connect-storage') || key.startsWith('ton-connect-ui')) {
@@ -333,6 +346,24 @@ window.depositModule = (function () {
         }).join('');
     }
 
+    async function cancelPendingInvoiceOnServer(memo, status = 'cancelled', reason = null, deleteIfCancelled = true) {
+        if (!memo) return;
+        try {
+            await fetch('/api/wallet/deposit/cancel_invoice', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    memo: memo,
+                    status: status,
+                    reason: reason,
+                    delete_if_cancelled: deleteIfCancelled
+                })
+            });
+        } catch (err) {
+            console.warn("⚠️ تعذر تحديث حالة الفاتورة الملغاة:", err);
+        }
+    }
+
     async function buyPackageWithTon(packageId) {
         lastSelectedPackageId = packageId;
 
@@ -352,6 +383,8 @@ window.depositModule = (function () {
         const tg = window.Telegram?.WebApp;
         const initData = tg?.initData || '';
         const userId = getValidUserId();
+        const senderWallet = tc.wallet?.account?.address || tc.account?.address || '';
+        let createdMemo = null;
 
         try {
             showModal("⏳ جاري تجهيز بيانات المعاملة...");
@@ -371,6 +404,7 @@ window.depositModule = (function () {
                     package_id: pkg.id,
                     usdt_amount: pkg.usdt_amount,
                     ton_price: tonPriceUsd,
+                    sender_wallet: senderWallet,
                     initData: initData,
                     user_id: userId
                 })
@@ -398,6 +432,7 @@ window.depositModule = (function () {
             }
 
             const rawMemo = prepData.payload_memo || prepData.memo;
+            createdMemo = rawMemo;
             const validPayloadBoc = textToTonCommentBoc(rawMemo);
 
             const msg = {
@@ -432,6 +467,8 @@ window.depositModule = (function () {
                     boc: boc,
                     package_id: pkg.id,
                     usdt_amount: pkg.usdt_amount,
+                    ton_amount: prepData.ton_amount,
+                    sender_wallet: senderWallet,
                     memo: rawMemo,
                     initData: initData,
                     user_id: userId
@@ -450,7 +487,6 @@ window.depositModule = (function () {
                 const newBal = parseFloat(verifyData.new_balance ?? verifyData.usd_balance ?? 0);
                 alert(`✅ تمت عملية الدفع بنجاح وزيادة الرصيد!\nرصيد الدولار الجديد: $${newBal.toFixed(2)} USDT`);
 
-                // القاعدة 2 والقاعدة 3: تحديث window.userState والـ DOM وبث الحدث لكل القوائم
                 if (!window.userState) window.userState = {};
                 window.userState.usd_balance = newBal;
                 window.userState.usdt_balance = newBal;
@@ -458,19 +494,33 @@ window.depositModule = (function () {
                 forceUpdateBalanceDOM(newBal);
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
 
+                // تحديث قائمة السجلات فوراً لتظهر المعاملة الجديدة
+                triggerHistoryRefresh();
                 closeModal();
             } else {
                 alert(`⚠️ ${verifyData.error || 'لم يتم تأكيد الشحن، يرجى المحاولة لاحقاً.'}`);
+                triggerHistoryRefresh();
                 closeModal();
             }
 
         } catch (e) {
             console.error("❌ خطأ عملية الشحن التلقائي:", e);
-            if (e.message && (e.message.includes('User rejected') || e.message.includes('Canceled') || e.message.includes('Reject'))) {
+            const isUserCancel = e.message && (
+                e.message.includes('User rejected') ||
+                e.message.includes('Canceled') ||
+                e.message.includes('Reject') ||
+                e.message.includes('Interrupted')
+            );
+
+            if (isUserCancel) {
+                // إذا ألغى المستخدم الدفع من المحفظة نحذف الفاتورة المبدئية حتى لا تعلق في السجلات
+                await cancelPendingInvoiceOnServer(createdMemo, 'cancelled', 'تم إلغاء العملية من قبل المستخدم', true);
                 alert("تم إلغاء عملية الدفع من قبل المستخدم.");
             } else {
+                await cancelPendingInvoiceOnServer(createdMemo, 'failed', e.message || 'خطأ أثناء تنفيذ الدفع', false);
                 alert(`حدث خطأ أثناء تنفيذ الدفع: ${e.message || 'خطأ غير معروف'}`);
             }
+            triggerHistoryRefresh();
             closeModal();
         }
     }
@@ -497,7 +547,6 @@ window.depositModule = (function () {
         if (listenersBound) return;
         listenersBound = true;
 
-        // القاعدة 1: الاستماع لتحديثات الرصيد
         window.addEventListener('userStateUpdated', (e) => {
             const state = e.detail || window.userState;
             if (state) {
@@ -508,7 +557,6 @@ window.depositModule = (function () {
             }
         });
 
-        // القاعدة 5: التحديث الفوري عند العودة للتطبيق
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && tcInstance?.connected) {
                 fetchTonLivePrice();
@@ -519,7 +567,6 @@ window.depositModule = (function () {
     function init() {
         bindEventsOnce();
 
-        // القاعدة 6: عرض الرصيد المبدئي المخزن محلياً ريثما يرد السيرفر
         try {
             const cachedUsd = localStorage.getItem('cached_usd_balance');
             if (cachedUsd !== null && !window.userState?.usd_balance) {
@@ -527,7 +574,6 @@ window.depositModule = (function () {
             }
         } catch (e) {}
 
-        // إظهار واجهة ربط المحفظة فقط بشكل مبدئي حتى يتم التحقق من حالة الربط
         updateWalletUI(tcInstance?.wallet || null);
 
         if (isInitializing) return;
