@@ -3,6 +3,7 @@ window.depositModule = (function () {
     let effectiveTonPrice = 1.4077;
     let currentPackages = [];
     let tcInstance = null;
+    let statusUnsubscribe = null;
     let lastSelectedPackageId = null;
     let scriptLoadingPromise = null;
     let isInitializing = false;
@@ -50,6 +51,41 @@ window.depositModule = (function () {
             document.querySelectorAll('#znx-balance, .znx-balance-display').forEach(el => {
                 el.innerText = `ZNX ${parseFloat(znxVal).toFixed(4)}`;
             });
+        }
+    }
+
+    function formatShortAddress(address) {
+        if (!address || typeof address !== 'string') return '';
+        if (address.length <= 14) return address;
+        return `${address.slice(0, 6)}...${address.slice(-6)}`;
+    }
+
+    // تحديث واجهة الإيداع حسب حالة ربط المحفظة
+    function updateWalletUI(wallet) {
+        const connectView = document.getElementById('deposit-connect-view');
+        const contentView = document.getElementById('deposit-content-view');
+        const walletNameEl = document.getElementById('connected-wallet-name');
+        const walletAddrEl = document.getElementById('connected-wallet-address');
+
+        const isConnected = Boolean(wallet && wallet.account && wallet.account.address);
+
+        if (isConnected) {
+            if (connectView) connectView.style.display = 'none';
+            if (contentView) contentView.style.display = 'block';
+
+            const appName = wallet.device?.appName || wallet.name || 'محفظة TON';
+            const rawAddress = wallet.account.address;
+
+            if (walletNameEl) walletNameEl.innerText = appName;
+            if (walletAddrEl) walletAddrEl.innerText = formatShortAddress(rawAddress);
+
+            loadPackages();
+        } else {
+            // إذا لم يكن هناك محفظة مربوطة: إخفاء الباقات وكل شيء تماماً وإظهار شاشة ربط المحفظة فقط
+            if (contentView) contentView.style.display = 'none';
+            if (connectView) connectView.style.display = 'block';
+            if (walletNameEl) walletNameEl.innerText = '';
+            if (walletAddrEl) walletAddrEl.innerText = '';
         }
     }
 
@@ -154,20 +190,74 @@ window.depositModule = (function () {
 
             if (TonConnectClass) {
                 const manifestUrl = `${window.location.origin}/tonconnect-manifest.json`;
-                const btnContainer = document.getElementById('ton-connect-btn-container');
 
                 if (!tcInstance) {
-                    const options = { manifestUrl: manifestUrl };
-                    if (btnContainer) options.buttonRootId = 'ton-connect-btn-container';
-                    tcInstance = new TonConnectClass(options);
-                } else if (btnContainer) {
-                    tcInstance.uiOptions = { buttonRootId: 'ton-connect-btn-container' };
+                    tcInstance = new TonConnectClass({
+                        manifestUrl: manifestUrl
+                    });
                 }
+
+                if (!statusUnsubscribe && typeof tcInstance.onStatusChange === 'function') {
+                    statusUnsubscribe = tcInstance.onStatusChange((wallet) => {
+                        updateWalletUI(wallet);
+                    });
+                }
+
+                if (tcInstance.connectionRestored) {
+                    await tcInstance.connectionRestored;
+                }
+
+                updateWalletUI(tcInstance.wallet || (tcInstance.connected ? { account: tcInstance.account, device: tcInstance.wallet?.device } : null));
             }
         } catch (e) {
             console.warn("⚠️ خطأ أثناء تهيئة TON Connect UI:", e);
+            updateWalletUI(null);
         }
         return tcInstance;
+    }
+
+    // فتح نافذة اختيار المحافظ (Tonkeeper, Telegram Wallet, MyTonWallet, إلخ)
+    async function openConnectModal() {
+        const tc = await initTonConnect();
+        if (!tc) {
+            alert("تعذر تحميل مكتبة ربط المحافظ. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.");
+            return;
+        }
+
+        try {
+            // إذا كان هناك اتصال معلق قديم، نفصله أولاً لكي تظهر قائمة كل المحافظ للمستخدم بحرية
+            if (tc.connected) {
+                updateWalletUI(tc.wallet);
+                return;
+            }
+            await tc.openModal();
+        } catch (e) {
+            console.warn("⚠️ تعذر فتح نافذة اختيار المحفظة:", e);
+        }
+    }
+
+    // إلغاء ربط المحفظة وإخفاء كل شيء عدا شاشة الربط الأولى
+    async function disconnectWallet() {
+        try {
+            const tc = await initTonConnect();
+            if (tc && tc.connected) {
+                await tc.disconnect();
+            }
+        } catch (e) {
+            console.warn("⚠️ خطأ أثناء قطع اتصال المحفظة:", e);
+        }
+
+        // تنظيف بيانات جلسة TON Connect من المتصفح لضمان عدم بقاء أي محفظة معلقة
+        try {
+            Object.keys(localStorage).forEach((key) => {
+                if (key.startsWith('ton-connect-storage') || key.startsWith('ton-connect-ui')) {
+                    localStorage.removeItem(key);
+                }
+            });
+        } catch (e) {}
+
+        closeModal();
+        updateWalletUI(null);
     }
 
     async function fetchTonLivePrice() {
@@ -246,33 +336,23 @@ window.depositModule = (function () {
 
     async function buyPackageWithTon(packageId) {
         lastSelectedPackageId = packageId;
+
+        const tc = await initTonConnect();
+        if (!tc || !tc.connected) {
+            updateWalletUI(null);
+            await openConnectModal();
+            return;
+        }
+
         const pkg = currentPackages.find(p => String(p.id) === String(packageId));
         if (!pkg) {
             alert("الباقة غير متوفرة حالياً");
             return;
         }
 
-        showModal("⏳ جاري الاتصال بمكتبة المحفظة...");
-
-        const tc = await initTonConnect();
         const tg = window.Telegram?.WebApp;
         const initData = tg?.initData || '';
         const userId = getValidUserId();
-
-        if (!tc) {
-            alert("تعذر الاتصال بمكتبة TON Connect. يرجى التحقق من الاتصال بالإنترنت والمحاولة مجدداً.");
-            closeModal();
-            return;
-        }
-
-        if (!tc.connected) {
-            try {
-                await tc.openModal();
-            } catch (e) {
-                closeModal();
-                return;
-            }
-        }
 
         try {
             showModal("⏳ جاري تجهيز بيانات المعاملة...");
@@ -328,7 +408,7 @@ window.depositModule = (function () {
                 messages: [msg]
             };
 
-            showModal("📲 يرجى تأكيد العملية داخل المحفظة...");
+            showModal("📲 يرجى تأكيد العملية داخل المحفظة المربوطة...");
 
             const txResult = await tc.sendTransaction(transaction);
             const boc = txResult?.boc;
@@ -424,7 +504,7 @@ window.depositModule = (function () {
 
         // القاعدة 5: التحديث الفوري عند العودة للتطبيق
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
+            if (document.visibilityState === 'visible' && tcInstance?.connected) {
                 fetchTonLivePrice();
             }
         });
@@ -441,22 +521,28 @@ window.depositModule = (function () {
             }
         } catch (e) {}
 
+        // إظهار واجهة ربط المحفظة فقط بشكل مبدئي حتى يتم التحقق من حالة الربط
+        updateWalletUI(tcInstance?.wallet || null);
+
         if (isInitializing) return;
         isInitializing = true;
 
-        initTonConnect();
-        loadPackages().finally(() => {
+        initTonConnect().finally(() => {
             isInitializing = false;
         });
 
         if (priceRefreshTimer) clearInterval(priceRefreshTimer);
         priceRefreshTimer = setInterval(() => {
-            fetchTonLivePrice();
-        }, 5000); // تحديث لحظي كل 5 ثوانٍ من Supabase
+            if (tcInstance && tcInstance.connected) {
+                fetchTonLivePrice();
+            }
+        }, 5000);
     }
 
     return {
         init,
+        openConnectModal,
+        disconnectWallet,
         selectPackage: buyPackageWithTon,
         buyPackageWithTon,
         retrySelectedPackage,
