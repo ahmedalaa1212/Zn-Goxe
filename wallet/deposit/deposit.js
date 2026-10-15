@@ -225,7 +225,6 @@ window.depositModule = (function () {
         }
 
         try {
-            // إذا كان هناك اتصال معلق قديم، نفصله أولاً لكي تظهر قائمة كل المحافظ للمستخدم بحرية
             if (tc.connected) {
                 updateWalletUI(tc.wallet);
                 return;
@@ -391,11 +390,18 @@ window.depositModule = (function () {
                 return;
             }
 
+            const destinationWallet = String(prepData.wallet_address || '').trim();
+            if (!destinationWallet) {
+                alert("⚠️ لم يتم ضبط عنوان محفظة الاستلام (TON_WALLET_ADDRESS) في إعدادات Railway!");
+                closeModal();
+                return;
+            }
+
             const rawMemo = prepData.payload_memo || prepData.memo;
             const validPayloadBoc = textToTonCommentBoc(rawMemo);
 
             const msg = {
-                address: prepData.wallet_address,
+                address: destinationWallet,
                 amount: String(prepData.nano_ton)
             };
 
