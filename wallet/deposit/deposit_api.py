@@ -13,8 +13,8 @@ from .deposit_db import (
 
 deposit_bp = Blueprint('deposit', __name__)
 
-# نسبة حد الأمان للإيداع (6% حماية للمشروع من تقلبات سعر السهم والرسوم)
-SAFETY_MARGIN_RATIO = 0.06  # 6%
+# نسبة حد الأمان للإيداع (3% حماية للمشروع من تقلبات سعر السهم والرسوم)
+SAFETY_MARGIN_RATIO = 0.03  # 3%
 
 # ذاكرة مؤقتة لتخزين سعر العملة لمنع الحظر وتقليل طلبات الشبكة (30 ثانية)
 _ton_price_cache = {
@@ -29,23 +29,17 @@ def get_live_ton_price():
     global _ton_price_cache
     now = time.time()
     
-    # إرجاع السعر المخزن إذا لم تتجاوز المدة 30 ثانية لتحديث السعر لحظياً دون تجاوز حد الطلبات (Rate Limit)
+    # إرجاع السعر المخزن إذا لم تتجاوز المدة 30 ثانية لتحديث السعر لحظياً دون تجاوز حد الطلبات
     if now - _ton_price_cache['timestamp'] < 30 and _ton_price_cache['price'] > 0:
         return _ton_price_cache['price']
 
-    # قائمة المصادر الموثوقة بالترتيب مع وقت استجابة قصير (Timeout 3s)
+    # قائمة المصادر الموثوقة بالترتيب
     sources = [
-        # 1. منصة Binance
         ("https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT", lambda d: float(d['price'])),
-        # 2. TonAPI الرسمية
         ("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", lambda d: float(d['rates']['TON']['prices']['USD'])),
-        # 3. منصة OKX
         ("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", lambda d: float(d['data'][0]['last'])),
-        # 4. منصة Bybit
         ("https://api.bybit.com/v5/market/tickers?category=spot&symbol=TONUSDT", lambda d: float(d['result']['list'][0]['lastPrice'])),
-        # 5. منصة Gate.io
         ("https://api.gateio.ws/api/v4/spot/tickers?currency_pair=TON_USDT", lambda d: float(d[0]['last'])),
-        # 6. CoinGecko
         ("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", lambda d: float(d['the-open-network']['usd']))
     ]
 
@@ -63,23 +57,19 @@ def get_live_ton_price():
                         _ton_price_cache['timestamp'] = now
                         return _ton_price_cache['price']
         except Exception:
-            continue  # الانتقال الفوري للمصدر التالي عند بطء أو حظر المصادر
+            continue  
 
     return _ton_price_cache['price']
 
-
 def get_effective_ton_price(live_price=None):
     """
-    حساب سعر TON الآمن للإيداع بعد خصم حد الأمان (6%).
-    مثال: إذا كان سعر السوق $1.4490، فإن السعر المحسوب للباقة = $1.4490 / 1.06 = $1.3670
-    مما يجعل المستخدم يدفع TON أكثر بنسبة 6% لحماية صاحب المشروع من التقلبات والرسوم.
+    حساب سعر TON الآمن للإيداع بعد خصم حد الأمان (3%).
     """
     if live_price is None or live_price <= 0:
         live_price = get_live_ton_price()
     
     effective_price = live_price / (1.0 + SAFETY_MARGIN_RATIO)
     return round(effective_price, 4)
-
 
 @deposit_bp.route('/packages', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def get_packages():
@@ -96,9 +86,9 @@ def get_packages():
             'success': True,
             'packages': packages,
             'official_wallet': official_wallet,
-            'ton_price': live_ton_price,             # سعر السوق الحقيقي اللحظي (مثال: 1.4490)
-            'effective_ton_price': effective_price, # سعر الحساب للإنشاء مع إضافة حد الأمان 6%
-            'safety_margin_percent': 6
+            'ton_price': live_ton_price,
+            'effective_ton_price': effective_price,
+            'safety_margin_percent': 3
         }))
         
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -111,7 +101,6 @@ def get_packages():
             'success': False,
             'error': f"فشل الاتصال بقاعدة البيانات: {str(exc)}"
         }), 500
-
 
 @deposit_bp.route('/prepare_ton_pay', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/create_invoice', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
@@ -128,9 +117,9 @@ def prepare_ton_pay():
 
         user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id') or 0
         try:
-            user_id = int(user_id)
+            user_id = str(user_id)
         except (ValueError, TypeError):
-            user_id = 0
+            user_id = "0"
 
         pkg = get_package_by_id(package_id) if package_id is not None else None
         
@@ -142,7 +131,7 @@ def prepare_ton_pay():
             except (ValueError, TypeError):
                 usdt_amount = 0.5
 
-        # حساب كمية TON مع إدراج حد الأمان (6%) ودقة 4 أرقام عشرية
+        # حساب كمية TON مع إدراج حد الأمان ودقة 4 أرقام عشرية
         ton_amount = round(usdt_amount / effective_price, 4)
         nano_ton = int(round(ton_amount * 1e9))
 
@@ -171,7 +160,6 @@ def prepare_ton_pay():
             'error': f"فشل تجهيز المعاملة: {str(exc)}"
         }), 500
 
-
 @deposit_bp.route('/verify_and_apply', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/verify_and_apply_package', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/confirm_payment', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
@@ -183,9 +171,9 @@ def verify_and_apply():
         data = request.get_json(silent=True) or request.form or {}
         user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id') or 0
         try:
-            user_id = int(user_id)
+            user_id = str(user_id)
         except (ValueError, TypeError):
-            user_id = 0
+            user_id = "0"
 
         boc = data.get('boc')
         memo = data.get('memo') or data.get('payload_memo')
@@ -200,7 +188,7 @@ def verify_and_apply():
             except (ValueError, TypeError):
                 usdt_amount = 0.0
 
-        if user_id <= 0:
+        if user_id == "0":
             return jsonify({'success': False, 'error': 'معرف المستخدم غير معروف'}), 400
 
         if usdt_amount <= 0:
