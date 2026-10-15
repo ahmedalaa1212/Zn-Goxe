@@ -17,7 +17,6 @@ except ImportError as e:
 
 OFFICIAL_TON_WALLET = 'UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc'
 
-# سيتم استخدام هذه فقط عند إنشاء الجداول لأول مرة إذا كانت فارغة تماماً
 SEED_PACKAGES = [
     {'id': 1, 'usdt_amount': 0.5, 'is_active': True, 'sort_order': 1},
     {'id': 2, 'usdt_amount': 1.5, 'is_active': True, 'sort_order': 2},
@@ -66,7 +65,6 @@ def init_deposit_tables():
                     )
                 ''')
                 
-                # إدخال الباقات الافتراضية فقط إذا كان الجدول فارغاً تماماً
                 cur.execute("SELECT COUNT(*) FROM deposit_packages")
                 count = cur.fetchone()[0]
                 if count == 0:
@@ -80,13 +78,16 @@ def init_deposit_tables():
         print(f"⚠️ خطأ في إنشاء أو تحديث جداول الإيداع في Supabase: {e}")
 
 def get_active_deposit_packages():
-    """جلب الباقات من Supabase فقط. إجبار قراءة القيم من قاعدة البيانات"""
+    """جلب الباقات من Supabase بشكل مباشر ولحظي"""
     init_deposit_tables()
     packages = []
     try:
         with get_db_connection() as conn:
+            # الحل السحري: إجبار PostgreSQL على إنهاء أي Transaction معلقة 
+            # وقراءة البيانات المحدثة (Fresh Read) من قاعدة البيانات
+            conn.rollback() 
+            
             with conn.cursor() as cur:
-                # نجلب البيانات الطازجة من Supabase
                 cur.execute("""
                     SELECT id, usdt_amount, name_ar, is_active, sort_order 
                     FROM deposit_packages 
@@ -98,7 +99,7 @@ def get_active_deposit_packages():
                     pkg_id = row[0]
                     usdt_amount = float(row[1])
                     
-                    # تجاهل الاسم القديم تماماً وتوليد اسم جديد مبني على السعر الحالي المجلوب من DB
+                    # توليد الاسم ديناميكياً لتجاهل أي اسم قديم في قاعدة البيانات
                     name_ar = f"باقة ${usdt_amount:g} USDT"
                     
                     packages.append({
@@ -109,18 +110,16 @@ def get_active_deposit_packages():
                         'sort_order': row[4]
                     })
         
-        # إذا نجحنا في جلب بيانات من DB، قم بإرجاعها فوراً
+        # إرجاع البيانات من قاعدة البيانات إذا تم جلبها بنجاح
         if packages:
             return packages
-        else:
-             print("⚠️ لم يتم العثور على أي باقات نشطة في قاعدة البيانات.")
-             return [] # إرجاع مصفوفة فارغة بدلاً من SEED_PACKAGES لمعرفة ما إذا كان الجدول فارغاً فعلاً
-
+            
     except Exception as e:
-        print(f"❌ خطأ فادح في جلب الباقات من قاعدة البيانات: {e}")
-        # في حالة الخطأ الفادح، لن نعيد SEED_PACKAGES، بل مصفوفة فارغة لكي يظهر الخطأ بوضوح ولا يتم الخداع ببيانات قديمة
-        return []
+        print(f"❌ خطأ في جلب الباقات من قاعدة البيانات: {e}")
 
+    # Fallback: في حالة الفشل أو إذا كان الجدول فارغاً، نعيد SEED_PACKAGES لكي لا تختفي الباقات
+    print("⚠️ جاري عرض الباقات الافتراضية...")
+    return SEED_PACKAGES
 
 def get_package_by_id(pkg_id):
     if pkg_id is None:
