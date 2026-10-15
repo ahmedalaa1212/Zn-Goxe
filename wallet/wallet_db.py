@@ -16,20 +16,6 @@ except ImportError as e:
         s = str(val).strip()
         return s[:-2] if s.endswith('.0') else s
 
-# الاستيراد الآمن للقوائم الفرعية
-try:
-    from .deposit.deposit_db import *
-except Exception:
-    pass
-try:
-    from .history.history_db import *
-except Exception:
-    pass
-try:
-    from .withdraw.withdraw_db import *
-except Exception:
-    pass
-
 def get_user_wallet_balances(user_id) -> dict:
     """جلب الأرصدة المباشرة من Supabase مع دعم البحث في كافة أعمدة المعرف وإعادة المحاولة"""
     clean_id = _sanitize_id(user_id)
@@ -96,7 +82,6 @@ def update_user_balance(user_id, amount: float, currency: str = 'zn', operation:
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
-                    # يتم استخدام GREATEST(0.0) لمنع نزول الرصيد تحت الصفر
                     cur.execute(f"""
                         UPDATE users 
                         SET {field_to_update} = GREATEST(0.0, COALESCE({field_to_update}, 0.0) + %s),
@@ -115,3 +100,17 @@ def update_user_balance(user_id, amount: float, currency: str = 'zn', operation:
             print(f"⚠️ Database Update Error (Attempt {attempt + 1}): {e}")
 
     return False
+
+# الاستيراد الآمن للقوائم الفرعية بعد تعريف الدوال الأساسية لمنع الـ Circular Import
+try:
+    from .deposit.deposit_db import *
+except Exception as e:
+    print(f"⚠️ Notice importing deposit_db: {e}")
+try:
+    from .history.history_db import *
+except Exception:
+    pass
+try:
+    from .withdraw.withdraw_db import *
+except Exception:
+    pass
