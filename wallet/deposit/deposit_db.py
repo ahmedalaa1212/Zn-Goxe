@@ -6,7 +6,8 @@ import hashlib
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../"))
-if ROOT_DIR not in sys.path: sys.path.insert(0, ROOT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 try:
     from database import get_db_connection, _sanitize_id
@@ -16,6 +17,7 @@ except ImportError as e:
 
 OFFICIAL_TON_WALLET = 'UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc'
 
+# سيتم استخدام هذه فقط عند إنشاء الجداول لأول مرة إذا كانت فارغة تماماً
 SEED_PACKAGES = [
     {'id': 1, 'usdt_amount': 0.5, 'is_active': True, 'sort_order': 1},
     {'id': 2, 'usdt_amount': 1.5, 'is_active': True, 'sort_order': 2},
@@ -25,6 +27,7 @@ SEED_PACKAGES = [
 ]
 
 def init_deposit_tables():
+    """تهيئة الجداول وعواميد الباقات والسجلات تلقائياً في Supabase/PostgreSQL"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -37,6 +40,7 @@ def init_deposit_tables():
                         sort_order INTEGER DEFAULT 0
                     )
                 ''')
+                
                 cur.execute('''
                     CREATE TABLE IF NOT EXISTS deposit_invoices (
                         id SERIAL PRIMARY KEY,
@@ -48,6 +52,7 @@ def init_deposit_tables():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+
                 cur.execute('''
                     CREATE TABLE IF NOT EXISTS processed_txs (
                         tx_hash VARCHAR(255) PRIMARY KEY,
@@ -60,6 +65,8 @@ def init_deposit_tables():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+                
+                # إدخال الباقات الافتراضية فقط إذا كان الجدول فارغاً تماماً
                 cur.execute("SELECT COUNT(*) FROM deposit_packages")
                 count = cur.fetchone()[0]
                 if count == 0:
@@ -69,16 +76,17 @@ def init_deposit_tables():
                             VALUES (%s, %s, %s, %s)
                         """, (pkg['usdt_amount'], f"باقة ${pkg['usdt_amount']} USDT", pkg['is_active'], pkg['sort_order']))
             conn.commit()
-    except Exception as e: print(f"⚠️ خطأ الجداول: {e}")
+    except Exception as e:
+        print(f"⚠️ خطأ في إنشاء أو تحديث جداول الإيداع في Supabase: {e}")
 
 def get_active_deposit_packages():
-    """ضمان الاستعلام اللحظي من Supabase والتأكد من مطابقة الاسم للسعر المعدل"""
+    """جلب الباقات من Supabase فقط. إجبار قراءة القيم من قاعدة البيانات"""
     init_deposit_tables()
     packages = []
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # جلب مباشر بدون كاش (Real-time Fetch)
+                # نجلب البيانات الطازجة من Supabase
                 cur.execute("""
                     SELECT id, usdt_amount, name_ar, is_active, sort_order 
                     FROM deposit_packages 
@@ -87,37 +95,47 @@ def get_active_deposit_packages():
                 """)
                 rows = cur.fetchall()
                 for row in rows:
+                    pkg_id = row[0]
                     usdt_amount = float(row[1])
-                    # التأكد أن الاسم العربي يتضمن السعر الحقيقي الموجود في الـ DB الآن!
-                    current_name = row[2]
-                    if not current_name or str(usdt_amount) not in current_name:
-                        current_name = f"باقة ${usdt_amount:g} USDT"
-                        
+                    
+                    # تجاهل الاسم القديم تماماً وتوليد اسم جديد مبني على السعر الحالي المجلوب من DB
+                    name_ar = f"باقة ${usdt_amount:g} USDT"
+                    
                     packages.append({
-                        'id': row[0],
+                        'id': pkg_id,
                         'usdt_amount': usdt_amount,
-                        'name_ar': current_name,
+                        'name_ar': name_ar,
                         'is_active': row[3],
                         'sort_order': row[4]
                     })
+        
+        # إذا نجحنا في جلب بيانات من DB، قم بإرجاعها فوراً
         if packages:
             return packages
-    except Exception as e:
-        print(f"⚠️ خطأ جلب الباقات من قاعدة البيانات: {e}")
+        else:
+             print("⚠️ لم يتم العثور على أي باقات نشطة في قاعدة البيانات.")
+             return [] # إرجاع مصفوفة فارغة بدلاً من SEED_PACKAGES لمعرفة ما إذا كان الجدول فارغاً فعلاً
 
-    return SEED_PACKAGES
+    except Exception as e:
+        print(f"❌ خطأ فادح في جلب الباقات من قاعدة البيانات: {e}")
+        # في حالة الخطأ الفادح، لن نعيد SEED_PACKAGES، بل مصفوفة فارغة لكي يظهر الخطأ بوضوح ولا يتم الخداع ببيانات قديمة
+        return []
+
 
 def get_package_by_id(pkg_id):
-    if pkg_id is None: return None
+    if pkg_id is None:
+        return None
     packages = get_active_deposit_packages()
     for pkg in packages:
-        if str(pkg.get('id')) == str(pkg_id): return pkg
+        if str(pkg.get('id')) == str(pkg_id):
+            return pkg
     return None
 
 def create_deposit_invoice(user_id, usdt_amount: float, ton_amount: float) -> dict:
     init_deposit_tables()
     user_id_clean = _sanitize_id(user_id)
     memo = f"DEP-{user_id_clean}-{uuid.uuid4().hex[:6].upper()}"
+    
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -128,20 +146,32 @@ def create_deposit_invoice(user_id, usdt_amount: float, ton_amount: float) -> di
                 """, (user_id_clean, usdt_amount, ton_amount, memo))
                 invoice_id = cur.fetchone()[0]
                 conn.commit()
-        return {'invoice_id': invoice_id, 'user_id': user_id_clean, 'usdt_amount': usdt_amount, 'ton_amount': ton_amount, 'memo': memo}
+                
+        return {
+            'invoice_id': invoice_id,
+            'user_id': user_id_clean,
+            'usdt_amount': usdt_amount,
+            'ton_amount': ton_amount,
+            'memo': memo
+        }
     except Exception as e:
+        print(f"⚠️ خطأ إنشاء الفاتورة: {e}")
         return {'memo': memo, 'invoice_id': 0, 'usdt_amount': usdt_amount, 'ton_amount': ton_amount}
 
 def verify_and_process_ton_boc(user_id, usdt_amount: float, memo: str, boc: str) -> float:
-    if not user_id or usdt_amount <= 0: raise ValueError("بيانات غير صحيحة")
+    if not user_id or usdt_amount <= 0:
+        raise ValueError("بيانات المستخدم أو قيمة الباقة غير صحيحة")
+
     user_id_clean = _sanitize_id(user_id)
-    tx_hash = hashlib.sha256((boc or memo or str(uuid.uuid4())).encode('utf-8')).hexdigest()
+    tx_identifier = boc or memo or str(uuid.uuid4())
+    tx_hash = hashlib.sha256(tx_identifier.encode('utf-8')).hexdigest()
 
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT tx_hash FROM processed_txs WHERE tx_hash = %s", (tx_hash,))
-                if cur.fetchone(): raise ValueError("هذه المعاملة تم استخدامها مسبقاً!")
+                if cur.fetchone():
+                    raise ValueError("هذه المعاملة تم استخدامها وشحنها سابقاً!")
 
                 cur.execute("""
                     INSERT INTO processed_txs (tx_hash, user_id, usdt_amount, memo, boc, type, status)
@@ -149,18 +179,22 @@ def verify_and_process_ton_boc(user_id, usdt_amount: float, memo: str, boc: str)
                 """, (tx_hash, user_id_clean, usdt_amount, memo, boc))
                 conn.commit()
 
-        # الدالة المحمية بـ GREATEST(0.0) 
         success = update_user_balance(user_id_clean, usdt_amount, currency='usd_balance', operation='add')
-        if not success: raise Exception("فشل تحديث الرصيد.")
+        if not success:
+            raise Exception("فشل تحديث رصيد المستخدم في قاعدة البيانات الرئيسية.")
         
         balances = get_user_wallet_balances(user_id_clean)
         return balances.get('usdt_balance', 0.0)
 
-    except ValueError as ve: raise ve
-    except Exception as e: raise Exception("حدث خطأ أثناء معالجة الرصيد.")
+    except ValueError as ve:
+        raise ve
+    except Exception as e:
+        print(f"⚠️ خطأ أثناء معالجة الشحن في Supabase: {e}")
+        raise Exception("حدث خطأ أثناء معالجة المعاملة وتحديث الرصيد.")
 
 def credit_user_balance(user_id, usdt_amount: float) -> float:
-    if not user_id: return 0.0
-    return verify_and_process_ton_boc(user_id, usdt_amount, f"MANUAL-{time.time()}", f"BOC-{uuid.uuid4().hex}")
+    if not user_id:
+        return 0.0
+    return verify_and_process_ton_boc(user_id, usdt_amount, f"MANUAL-{time.time()}", f"BOC-MANUAL-{uuid.uuid4().hex}")
 
 init_deposit_tables()
