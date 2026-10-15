@@ -1,6 +1,6 @@
 window.depositModule = (function () {
     let tonPriceUsd = 1.4500;
-    let effectiveTonPrice = 1.3679; // السعر المحسوب للباقات شامل حد الأمان 6%
+    let effectiveTonPrice = 1.4077; // السعر المحسوب للباقات شامل حد الأمان 3%
     let currentPackages = [];
     let tcInstance = null;
     let lastSelectedPackageId = null;
@@ -149,9 +149,9 @@ window.depositModule = (function () {
                 const data = await res.json();
                 if (data.success && data.ton_price) {
                     tonPriceUsd = parseFloat(data.ton_price);
-                    effectiveTonPrice = parseFloat(data.effective_ton_price || (tonPriceUsd / 1.06));
+                    effectiveTonPrice = parseFloat(data.effective_ton_price || (tonPriceUsd / 1.03));
                     
-                    // تحديث السعر المعروض على الشاشة بالسعر المحسوب مع الـ 6% حماية بـ 4 أرقام عشرية
+                    // تحديث السعر المعروض على الشاشة بالسعر المحسوب مع الـ 3% حماية بـ 4 أرقام عشرية
                     const priceElem = document.getElementById('ton-live-price');
                     if (priceElem) {
                         priceElem.innerText = `$${effectiveTonPrice.toFixed(4)}`;
@@ -186,13 +186,13 @@ window.depositModule = (function () {
             return;
         }
 
-        const effPrice = effectiveTonPrice > 0 ? effectiveTonPrice : (tonPriceUsd / 1.06);
+        const effPrice = effectiveTonPrice > 0 ? effectiveTonPrice : (tonPriceUsd / 1.03);
 
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
-            // حساب سعر الباقة بالتون بـ 4 أرقام عشرية مع إدراج حد الأمان 6%
+            // حساب سعر الباقة بالتون بـ 4 أرقام عشرية مع إدراج حد الأمان 3%
             const tonEst = (usdtVal / effPrice).toFixed(4);
-            const titleName = `باقة $${usdtVal} USDT`;
+            const titleName = pkg.name_ar || `باقة $${usdtVal} USDT`;
 
             return `
                 <div onclick="window.depositModule?.buyPackageWithTon(${pkg.id})" style="background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(15,23,42,0.7)); border: 1px solid rgba(0, 152, 234, 0.3); border-radius: 14px; padding: 14px 10px; text-align: center; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden;">
@@ -249,6 +249,7 @@ window.depositModule = (function () {
                 headers: headers,
                 body: JSON.stringify({
                     package_id: pkg.id,
+                    usdt_amount: pkg.usdt_amount,
                     ton_price: tonPriceUsd,
                     initData: initData,
                     user_id: userId
