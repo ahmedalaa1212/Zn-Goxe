@@ -1,65 +1,156 @@
-import sqlite3
+# -*- coding: utf-8 -*-
 import os
 import sys
-import json
 import time
 import logging
+from datetime import datetime, timezone
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../"))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-DB_PATH = os.path.join(ROOT_DIR, 'database.db')
 logger = logging.getLogger('history_db')
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
-    conn.row_factory = sqlite3.Row
-    return conn
+try:
+    from database import get_db_connection, _sanitize_id
+except ImportError as e:
+    logger.error(f"⚠️ خطأ في استيراد database.py داخل history_db: {e}")
+    def _sanitize_id(val):
+        if val is None:
+            return None
+        s = str(val).strip()
+        return s[:-2] if s.endswith('.0') else s
 
-def get_firestore_db():
+_TABLES_INITIALIZED = False
+
+def init_history_tables():
+    """
+    إنشاء وتحديث جداول السجلات (الإيداع والسحب) تلقائياً في Supabase
+    لضمان عدم حدوث أي خطأ في حال عدم وجود جدول أو عمود.
+    """
+    global _TABLES_INITIALIZED
+    if _TABLES_INITIALIZED:
+        return True
+
     try:
-        import database
-        if hasattr(database, 'get_db'):
-            db_inst = database.get_db()
-            if db_inst:
-                return db_inst
-    except Exception as e:
-        logger.debug(f"Firestore from database.py failed: {e}")
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. جدول عمليات الإيداع المعالجة (processed_txs)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS processed_txs (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT,
+                        tx_hash TEXT UNIQUE,
+                        usdt_amount NUMERIC(18, 4) DEFAULT 0.0,
+                        amount NUMERIC(18, 4) DEFAULT 0.0,
+                        currency TEXT DEFAULT 'USDT',
+                        memo TEXT,
+                        status TEXT DEFAULT 'completed',
+                        details TEXT,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
 
-    try:
-        import firebase_admin
-        from firebase_admin import credentials, firestore
+                # 2. جدول فواتير الإيداع (deposit_invoices)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS deposit_invoices (
+                        id SERIAL PRIMARY KEY,
+                        invoice_id TEXT,
+                        user_id TEXT,
+                        usdt_amount NUMERIC(18, 4) DEFAULT 0.0,
+                        amount NUMERIC(18, 4) DEFAULT 0.0,
+                        currency TEXT DEFAULT 'USDT',
+                        memo TEXT,
+                        tx_hash TEXT,
+                        status TEXT DEFAULT 'pending',
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
 
-        if not firebase_admin._apps:
-            cred_env = os.getenv('FIREBASE_CREDENTIALS') or os.getenv('FIREBASE_SERVICE_ACCOUNT')
-            if cred_env:
-                if os.path.exists(cred_env):
-                    cred = credentials.Certificate(cred_env)
-                else:
+                # 3. جدول طلبات السحب (withdraw_requests)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS withdraw_requests (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+                        fee NUMERIC(18, 4) DEFAULT 0.0,
+                        net_amount NUMERIC(18, 4) DEFAULT 0.0,
+                        currency TEXT DEFAULT 'USDT',
+                        wallet_address TEXT,
+                        network TEXT DEFAULT 'TON',
+                        status TEXT DEFAULT 'pending',
+                        tx_hash TEXT,
+                        failure_reason TEXT,
+                        admin_note TEXT,
+                        details TEXT,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        processed_at TIMESTAMPTZ
+                    );
+                """)
+
+                # 4. جدول السجل العام الموحد للمعاملات (transactions)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS transactions (
+                        id SERIAL PRIMARY KEY,
+                        tx_id TEXT,
+                        user_id TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+                        currency TEXT DEFAULT 'USDT',
+                        status TEXT DEFAULT 'pending',
+                        wallet_address TEXT,
+                        memo TEXT,
+                        details TEXT,
+                        failure_reason TEXT,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+
+                # التأكد من وجود الأعمدة الضرورية في الجداول الموجودة مسبقاً في Supabase
+                alter_statements = [
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS user_id TEXT;",
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS tx_hash TEXT;",
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS usdt_amount NUMERIC(18, 4) DEFAULT 0.0;",
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USDT';",
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS memo TEXT;",
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';",
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;",
+                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS user_id TEXT;",
+                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';",
+                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;",
+                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS user_id TEXT;",
+                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS wallet_address TEXT;",
+                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';",
+                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS failure_reason TEXT;",
+                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;"
+                ]
+                for stmt in alter_statements:
                     try:
-                        cred_dict = json.loads(cred_env)
-                        cred = credentials.Certificate(cred_dict)
+                        cur.execute(stmt)
                     except Exception:
-                        cred = credentials.Certificate(cred_env)
-                firebase_admin.initialize_app(cred)
-            else:
-                service_key_path = os.path.join(ROOT_DIR, "serviceAccountKey.json")
-                if os.path.exists(service_key_path):
-                    cred = credentials.Certificate(service_key_path)
-                    firebase_admin.initialize_app(cred)
+                        pass
 
-        if firebase_admin._apps:
-            return firestore.client()
+            conn.commit()
+        _TABLES_INITIALIZED = True
+        return True
     except Exception as e:
-        logger.warning(f"⚠️ [history_db] Firestore access warning: {e}")
+        logger.error(f"⚠️ [history_db] خطأ أثناء تهيئة جداول Supabase: {e}")
+        return False
 
-    return None
 
-def parse_timestamp(val):
+def parse_timestamp(val) -> float:
+    """تحويل أي صيغة تاريخ من Supabase إلى Timestamp دقيق بالثواني"""
     if val is None:
         return time.time()
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            val = val.replace(tzinfo=timezone.utc)
+        return float(val.timestamp())
     if hasattr(val, 'timestamp'):
         try:
             return float(val.timestamp())
@@ -67,196 +158,292 @@ def parse_timestamp(val):
             pass
     if isinstance(val, (int, float)):
         val_f = float(val)
-        if val_f > 1e11:
-            return val_f / 1000.0
-        return val_f
+        return val_f / 1000.0 if val_f > 1e11 else val_f
     if isinstance(val, str):
+        val_str = val.strip()
         try:
-            val_f = float(val)
-            if val_f > 1e11:
-                return val_f / 1000.0
-            return val_f
+            val_f = float(val_str)
+            return val_f / 1000.0 if val_f > 1e11 else val_f
         except ValueError:
             pass
         try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(val.replace('Z', '+00:00'))
-            return dt.timestamp()
+            dt = datetime.fromisoformat(val_str.replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return float(dt.timestamp())
         except Exception:
             pass
     return time.time()
 
-def get_user_transaction_history(user_id):
-    transactions = []
-    seen_ids = set()
 
-    if not user_id:
+def format_exact_datetime(ts: float) -> str:
+    """إرجاع التاريخ والوقت بالسنة والشهر واليوم والساعة والدقيقة والثانية"""
+    try:
+        dt = datetime.fromtimestamp(ts)
+        period = "م" if dt.hour >= 12 else "ص"
+        hour_12 = dt.hour % 12
+        if hour_12 == 0:
+            hour_12 = 12
+        return f"{dt.strftime('%Y-%m-%d')} | {hour_12:02d}:{dt.minute:02d}:{dt.second:02d} {period}"
+    except Exception:
+        return "غير محدد"
+
+
+def normalize_status(raw_status, default_status='pending'):
+    """توحيد حالة المعاملة وترجمتها بدقة (قيد المراجعة / تم التنفيذ / مرفوض)"""
+    st = str(raw_status or default_status).lower().strip()
+    if st in ['completed', 'success', 'succeeded', 'paid', 'approved', 'confirmed', 'done']:
+        return 'completed', 'تم التنفيذ'
+    elif st in ['failed', 'rejected', 'canceled', 'cancelled', 'expired', 'error', 'declined']:
+        return 'failed', 'مرفوض / فاشل'
+    else:
+        return 'pending', 'قيد المراجعة'
+
+
+def _fetch_table_rows_for_user(cur, table_name: str, clean_id: str, limit: int = 100):
+    """
+    جلب صفوف المستخدم من أي جدول في Supabase بأمان تام مهما كان اسم عمود المعرف
+    (user_id أو tg_id أو telegram_id) ومهما كان نوع العمود (BIGINT أو TEXT).
+    """
+    cur.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = %s
+    """, (table_name,))
+    cols = [r[0] for r in cur.fetchall()]
+    if not cols:
+        return []
+
+    id_columns = [c for c in ['user_id', 'tg_id', 'telegram_id'] if c in cols]
+    if not id_columns:
+        return []
+
+    where_clauses = [f"CAST({col} AS TEXT) = %s" for col in id_columns]
+    params = [clean_id] * len(id_columns)
+
+    order_col = 'created_at' if 'created_at' in cols else ('processed_at' if 'processed_at' in cols else ('id' if 'id' in cols else cols[0]))
+
+    query = f"""
+        SELECT * FROM {table_name}
+        WHERE {" OR ".join(where_clauses)}
+        ORDER BY {order_col} DESC
+        LIMIT {int(limit)}
+    """
+    cur.execute(query, tuple(params))
+    col_names = [desc[0] for desc in cur.description]
+    return [dict(zip(col_names, row)) for row in cur.fetchall()]
+
+
+def get_user_transaction_history(user_id):
+    """
+    جلب كافة سجلات الإيداع والسحب الخاصة بالمستخدم من Supabase
+    مع الترتيب الزمني الدقيق بالدقيقة والثانية.
+    """
+    init_history_tables()
+
+    transactions = []
+    seen_keys = set()
+
+    clean_id = _sanitize_id(user_id)
+    if not clean_id:
         return transactions
 
-    tg_str = str(user_id).strip()
-    tg_int = int(tg_str) if tg_str.isdigit() else None
-    
-    search_ids = [tg_str]
-    if tg_int is not None and tg_int not in search_ids:
-        search_ids.append(tg_int)
-
-    # 1. الاستعلام الشامل من Firebase / Firestore
-    fs_db = get_firestore_db()
-    if fs_db:
-        # (أ) الاستعلام من processed_txs (الإيداعات)
-        try:
-            docs = fs_db.collection('processed_txs').where('user_id', 'in', search_ids).get()
-            for doc in docs:
-                d = doc.to_dict() or {}
-                tx_id = str(d.get('tx_hash') or d.get('memo') or doc.id)
-                if tx_id in seen_ids:
-                    continue
-                seen_ids.add(tx_id)
-
-                tx_type = d.get('type', 'deposit')
-                status = d.get('status', 'completed')
-                status_ar = 'مكتمل' if status in ['completed', 'success'] else ('فاشل' if status in ['failed', 'rejected'] else 'قيد الانتظار')
-                ts = parse_timestamp(d.get('processed_at') or d.get('created_at'))
-
-                transactions.append({
-                    'id': tx_id,
-                    'type': tx_type,
-                    'type_ar': 'إيداع' if tx_type == 'deposit' else 'سحب',
-                    'amount': float(d.get('usdt_amount') or d.get('amount') or 0.0),
-                    'currency': d.get('currency', 'USDT'),
-                    'status': status,
-                    'status_ar': status_ar,
-                    'failure_reason': d.get('failure_reason') or d.get('error') or None,
-                    'timestamp': ts,
-                    'details': d.get('memo') or d.get('details') or ('إيداع USDT تلقائي عبر شبكة TON' if tx_type == 'deposit' else 'سحب USDT')
-                })
-        except Exception as e:
-            logger.error(f"⚠️ [history_db] Firestore processed_txs query error: {e}")
-
-        # (ب) الاستعلام من مجموعات طلبات السحب
-        for col_name in ['withdraw_requests', 'withdrawals', 'transactions']:
-            try:
-                docs = fs_db.collection(col_name).where('user_id', 'in', search_ids).get()
-                for doc in docs:
-                    d = doc.to_dict() or {}
-                    tx_id = str(d.get('tx_id') or d.get('tx_hash') or d.get('request_id') or doc.id)
-                    if tx_id in seen_ids:
-                        continue
-                    seen_ids.add(tx_id)
-
-                    tx_type = d.get('type', 'withdraw')
-                    status = d.get('status', 'pending')
-                    status_ar = 'مكتمل' if status in ['completed', 'success'] else ('مرفوض/فاشل' if status in ['failed', 'rejected'] else 'قيد الانتظار')
-                    ts = parse_timestamp(d.get('created_at') or d.get('timestamp') or d.get('processed_at'))
-
-                    transactions.append({
-                        'id': tx_id,
-                        'type': tx_type,
-                        'type_ar': 'إيداع' if tx_type == 'deposit' else 'سحب',
-                        'amount': float(d.get('amount') or d.get('usdt_amount') or 0.0),
-                        'currency': d.get('currency', 'USDT'),
-                        'status': status,
-                        'status_ar': status_ar,
-                        'failure_reason': d.get('failure_reason') or d.get('reject_reason') or d.get('note') or None,
-                        'timestamp': ts,
-                        'details': d.get('details') or (f"سحب إلى: {d.get('wallet_address', 'محفظة TON')}" if tx_type == 'withdraw' else 'إيداع عبر TON')
-                    })
-            except Exception as e:
-                logger.error(f"⚠️ [history_db] Firestore {col_name} error: {e}")
-
-        # (جـ) الاستعلام من المجلدات الفرعية داخل users/{user_id}/...
-        try:
-            user_ref = fs_db.collection('users').document(tg_str)
-            for sub_col in ['deposit_history', 'withdraw_history', 'transactions']:
-                sub_docs = user_ref.collection(sub_col).limit(50).get()
-                for doc in sub_docs:
-                    d = doc.to_dict() or {}
-                    tx_id = str(d.get('tx_hash') or d.get('tx_id') or d.get('memo') or doc.id)
-                    if tx_id in seen_ids:
-                        continue
-                    seen_ids.add(tx_id)
-
-                    is_dep = 'deposit' in sub_col or d.get('type') == 'deposit'
-                    tx_type = 'deposit' if is_dep else 'withdraw'
-                    status = d.get('status', 'completed' if is_dep else 'pending')
-                    status_ar = 'مكتمل' if status in ['completed', 'success'] else ('فاشل' if status in ['failed', 'rejected'] else 'قيد الانتظار')
-                    ts = parse_timestamp(d.get('processed_at') or d.get('created_at') or d.get('timestamp'))
-
-                    transactions.append({
-                        'id': tx_id,
-                        'type': tx_type,
-                        'type_ar': 'إيداع' if is_dep else 'سحب',
-                        'amount': float(d.get('usdt_amount') or d.get('amount') or 0.0),
-                        'currency': d.get('currency', 'USDT'),
-                        'status': status,
-                        'status_ar': status_ar,
-                        'failure_reason': d.get('failure_reason') or d.get('error') or None,
-                        'timestamp': ts,
-                        'details': d.get('memo') or d.get('details') or ('إيداع USDT تلقائي' if is_dep else f"سحب إلى: {d.get('wallet_address', 'محفظة TON')}")
-                    })
-        except Exception as e:
-            logger.error(f"⚠️ [history_db] Firestore user subcollections query error: {e}")
-
-    # 2. الاستعلام الاحتياطي من SQLite
     try:
-        if os.path.exists(DB_PATH):
-            conn = get_db_connection()
-            cursor = conn.cursor()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
 
-            for s_id in search_ids:
+                # 1. جلب الإيداعات المؤكدة من جدول processed_txs
                 try:
-                    cursor.execute("SELECT tx_hash, usdt_amount, memo, created_at FROM processed_txs WHERE user_id = ? ORDER BY id DESC LIMIT 50", (s_id,))
-                    for r in cursor.fetchall():
-                        tx_id = str(r['tx_hash'] or r['memo'])
-                        if tx_id in seen_ids:
+                    rows = _fetch_table_rows_for_user(cur, 'processed_txs', clean_id)
+                    for d in rows:
+                        raw_hash = d.get('tx_hash') or d.get('memo') or d.get('id')
+                        tx_id = str(raw_hash or f"DEP-{d.get('id')}")
+                        dedup_key = f"dep_{tx_id}"
+                        if dedup_key in seen_keys:
                             continue
-                        seen_ids.add(tx_id)
+                        seen_keys.add(dedup_key)
+                        if d.get('memo'):
+                            seen_keys.add(f"memo_{d.get('memo')}")
+
+                        status_code, status_ar = normalize_status(d.get('status'), default_status='completed')
+                        ts = parse_timestamp(d.get('processed_at') or d.get('created_at') or d.get('timestamp'))
+                        amount = float(d.get('usdt_amount') or d.get('amount') or 0.0)
+                        currency = str(d.get('currency') or 'USDT').upper()
+                        memo = d.get('memo')
+
+                        details_text = d.get('details') or (f"إيداع عبر شبكة TON (Memo: {memo})" if memo else "إيداع تلقائي عبر شبكة TON")
 
                         transactions.append({
                             'id': tx_id,
                             'type': 'deposit',
                             'type_ar': 'إيداع',
-                            'amount': float(r['usdt_amount'] or 0.0),
-                            'currency': 'USDT',
-                            'status': 'completed',
-                            'status_ar': 'مكتمل',
-                            'failure_reason': None,
-                            'timestamp': parse_timestamp(r['created_at']),
-                            'details': r['memo'] or 'إيداع عبر شبكة TON'
+                            'amount': amount,
+                            'currency': currency,
+                            'status': status_code,
+                            'status_ar': status_ar,
+                            'failure_reason': d.get('failure_reason') or d.get('error') or None,
+                            'timestamp': ts,
+                            'formatted_date': format_exact_datetime(ts),
+                            'wallet_address': d.get('sender_address') or d.get('wallet_address') or None,
+                            'details': details_text
                         })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"⚠️ [history_db] خطأ في استعلام processed_txs: {e}")
 
+                # 2. جلب فواتير وطلبات الإيداع من جدول deposit_invoices
                 try:
-                    cursor.execute("SELECT id, amount, currency, status, wallet_address, failure_reason, created_at FROM withdraw_requests WHERE user_id = ? ORDER BY id DESC LIMIT 50", (s_id,))
-                    for r in cursor.fetchall():
-                        tx_id = f"WD-{r['id']}"
-                        if tx_id in seen_ids:
-                            continue
-                        seen_ids.add(tx_id)
+                    rows = _fetch_table_rows_for_user(cur, 'deposit_invoices', clean_id)
+                    for d in rows:
+                        memo = d.get('memo')
+                        tx_hash = d.get('tx_hash')
+                        inv_id = d.get('invoice_id') or d.get('id')
 
-                        st = r['status'] or 'pending'
-                        st_ar = 'ناجح' if st in ['completed', 'success'] else ('مرفوض' if st in ['failed', 'rejected'] else 'قيد الانتظار')
+                        # منع التكرار إذا كانت الفاتورة مسجلة بالفعل في processed_txs
+                        if (tx_hash and f"dep_{tx_hash}" in seen_keys) or (memo and f"memo_{memo}" in seen_keys):
+                            continue
+
+                        tx_id = str(tx_hash or inv_id or memo or f"INV-{d.get('id')}")
+                        dedup_key = f"inv_{tx_id}"
+                        if dedup_key in seen_keys:
+                            continue
+                        seen_keys.add(dedup_key)
+
+                        status_code, status_ar = normalize_status(d.get('status'), default_status='pending')
+                        ts = parse_timestamp(d.get('updated_at') or d.get('created_at'))
+                        amount = float(d.get('usdt_amount') or d.get('amount') or 0.0)
+                        currency = str(d.get('currency') or 'USDT').upper()
+
+                        details_text = d.get('details') or (f"طلب إيداع - كود الفاتورة: {memo}" if memo else "طلب إيداع عبر شبكة TON")
+
+                        transactions.append({
+                            'id': tx_id,
+                            'type': 'deposit',
+                            'type_ar': 'إيداع',
+                            'amount': amount,
+                            'currency': currency,
+                            'status': status_code,
+                            'status_ar': status_ar,
+                            'failure_reason': d.get('failure_reason') or None,
+                            'timestamp': ts,
+                            'formatted_date': format_exact_datetime(ts),
+                            'wallet_address': d.get('wallet_address') or None,
+                            'details': details_text
+                        })
+                except Exception as e:
+                    logger.error(f"⚠️ [history_db] خطأ في استعلام deposit_invoices: {e}")
+
+                # 3. جلب طلبات السحب من جدول withdraw_requests
+                try:
+                    rows = _fetch_table_rows_for_user(cur, 'withdraw_requests', clean_id)
+                    for d in rows:
+                        raw_id = d.get('tx_hash') or d.get('request_id') or f"WD-{d.get('id')}"
+                        tx_id = str(raw_id)
+                        dedup_key = f"wd_{tx_id}"
+                        if dedup_key in seen_keys:
+                            continue
+                        seen_keys.add(dedup_key)
+
+                        status_code, status_ar = normalize_status(d.get('status'), default_status='pending')
+                        ts = parse_timestamp(d.get('processed_at') or d.get('updated_at') or d.get('created_at'))
+                        amount = float(d.get('amount') or d.get('usdt_amount') or 0.0)
+                        currency = str(d.get('currency') or 'USDT').upper()
+                        wallet_addr = d.get('wallet_address') or d.get('address') or 'محفظة TON'
+
+                        details_text = d.get('details') or f"سحب إلى المحفظة: {wallet_addr}"
 
                         transactions.append({
                             'id': tx_id,
                             'type': 'withdraw',
                             'type_ar': 'سحب',
-                            'amount': float(r['amount'] or 0.0),
-                            'currency': r['currency'] or 'USDT',
-                            'status': st,
-                            'status_ar': st_ar,
-                            'failure_reason': r['failure_reason'] if 'failure_reason' in r.keys() else None,
-                            'timestamp': parse_timestamp(r['created_at']),
-                            'details': f"سحب إلى: {r['wallet_address'] or 'محفظة TON'}"
+                            'amount': amount,
+                            'currency': currency,
+                            'status': status_code,
+                            'status_ar': status_ar,
+                            'failure_reason': d.get('failure_reason') or d.get('reject_reason') or d.get('admin_note') or None,
+                            'timestamp': ts,
+                            'formatted_date': format_exact_datetime(ts),
+                            'wallet_address': wallet_addr,
+                            'details': details_text
                         })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"⚠️ [history_db] خطأ في استعلام withdraw_requests: {e}")
 
-            conn.close()
+                # 4. جلب أي سجلات إضافية من جدول المعاملات العام transactions
+                try:
+                    rows = _fetch_table_rows_for_user(cur, 'transactions', clean_id)
+                    for d in rows:
+                        raw_id = d.get('tx_id') or d.get('tx_hash') or f"TX-{d.get('id')}"
+                        tx_id = str(raw_id)
+                        if f"dep_{tx_id}" in seen_keys or f"wd_{tx_id}" in seen_keys or f"tx_{tx_id}" in seen_keys:
+                            continue
+                        seen_keys.add(f"tx_{tx_id}")
+
+                        raw_type = str(d.get('type') or 'deposit').lower().strip()
+                        tx_type = 'withdraw' if 'withdraw' in raw_type else 'deposit'
+                        default_st = 'completed' if tx_type == 'deposit' else 'pending'
+                        status_code, status_ar = normalize_status(d.get('status'), default_status=default_st)
+                        ts = parse_timestamp(d.get('updated_at') or d.get('created_at'))
+                        amount = float(d.get('amount') or d.get('usdt_amount') or 0.0)
+                        currency = str(d.get('currency') or 'USDT').upper()
+                        wallet_addr = d.get('wallet_address')
+
+                        if d.get('details'):
+                            details_text = d.get('details')
+                        elif tx_type == 'withdraw':
+                            details_text = f"سحب إلى المحفظة: {wallet_addr or 'محفظة TON'}"
+                        else:
+                            details_text = f"إيداع {currency} عبر شبكة TON"
+
+                        transactions.append({
+                            'id': tx_id,
+                            'type': tx_type,
+                            'type_ar': 'سحب' if tx_type == 'withdraw' else 'إيداع',
+                            'amount': amount,
+                            'currency': currency,
+                            'status': status_code,
+                            'status_ar': status_ar,
+                            'failure_reason': d.get('failure_reason') or None,
+                            'timestamp': ts,
+                            'formatted_date': format_exact_datetime(ts),
+                            'wallet_address': wallet_addr,
+                            'details': details_text
+                        })
+                except Exception as e:
+                    logger.error(f"⚠️ [history_db] خطأ في استعلام transactions: {e}")
 
     except Exception as e:
-        logger.error(f"⚠️ [history_db] SQLite query error: {e}")
+        logger.error(f"❌ [history_db] خطأ في الاتصال بقاعدة بيانات Supabase: {e}")
 
-    transactions.sort(key=lambda x: x['timestamp'], reverse=True)
+    # ترتيب جميع السجلات من الأحدث إلى الأقدم بدقة الثانية
+    transactions.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
     return transactions
+
+
+def record_transaction(user_id, tx_type: str, amount: float, currency: str = 'USDT',
+                       status: str = 'pending', tx_id: str = None, wallet_address: str = None,
+                       memo: str = None, details: str = None, failure_reason: str = None) -> bool:
+    """
+    دالة مساعدة لتسجيل أي عملية إيداع أو سحب مباشرة في Supabase
+    يمكن استدعاؤها من قسم الإيداع أو السحب في أي وقت.
+    """
+    init_history_tables()
+    clean_id = _sanitize_id(user_id)
+    if not clean_id:
+        return False
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO transactions 
+                    (tx_id, user_id, type, amount, currency, status, wallet_address, memo, details, failure_reason, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (
+                    tx_id, clean_id, tx_type, float(amount), currency,
+                    status, wallet_address, memo, details, failure_reason
+                ))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ [history_db] فشل في تسجيل المعاملة في Supabase: {e}")
+        return False
