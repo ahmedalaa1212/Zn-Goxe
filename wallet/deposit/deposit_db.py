@@ -89,12 +89,13 @@ def get_official_ton_wallet():
     return OFFICIAL_TON_WALLET
 
 def get_active_deposit_packages():
-    """جلب الباقات من Supabase بدلاً من الفايربيس"""
-    init_deposit_tables()
+    """جلب الباقات من Supabase بدلاً من الفايربيس (مع ضمان جلب أحدث البيانات)"""
+    init_deposit_tables() # التأكد من وجود الجداول
     packages = []
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # نجلب البيانات الطازجة من Supabase
                 cur.execute("""
                     SELECT id, usdt_amount, name_ar, is_active, sort_order 
                     FROM deposit_packages 
@@ -106,7 +107,8 @@ def get_active_deposit_packages():
                     packages.append({
                         'id': row[0],
                         'usdt_amount': float(row[1]),
-                        'name_ar': row[2],
+                        # تحديث الاسم العربي تلقائياً إذا لم يكن موجوداً أو كان قديماً ليتطابق مع القيمة الجديدة
+                        'name_ar': row[2] if row[2] and str(float(row[1])) in row[2] else f"باقة ${float(row[1]):g} USDT",
                         'is_active': row[3],
                         'sort_order': row[4]
                     })
