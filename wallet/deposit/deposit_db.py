@@ -3,6 +3,7 @@ import os
 import sys
 import uuid
 import time
+import json
 import hashlib
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,8 +42,26 @@ def get_official_ton_wallet():
     )
     return str(env_wallet).strip()
 
+def _safe_exec(cur, sql, params=None):
+    """تنفيذ أمر SQL داخل SAVEPOINT مستقل لمنع توقف المعاملة في PostgreSQL"""
+    sp_name = f"sp_{uuid.uuid4().hex[:8]}"
+    try:
+        cur.execute(f"SAVEPOINT {sp_name}")
+        if params is not None:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
+        return True
+    except Exception as e:
+        try:
+            cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+        except Exception:
+            pass
+        return False
+
 def init_deposit_tables():
-    """تهيئة جداول الإيداع والتأكد من توافق كافة الأعمدة مع قسم السجلات في Supabase"""
+    """تهيئة جداول الإيداع وتحويل أي عمود details من JSON إلى TEXT تلقائياً"""
     global _tables_initialized
     if _tables_initialized:
         return
@@ -50,7 +69,7 @@ def init_deposit_tables():
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 # 1. جدول الباقات (deposit_packages)
-                cur.execute('''
+                _safe_exec(cur, '''
                     CREATE TABLE IF NOT EXISTS deposit_packages (
                         id SERIAL PRIMARY KEY,
                         usdt_amount NUMERIC NOT NULL,
@@ -61,7 +80,7 @@ def init_deposit_tables():
                 ''')
 
                 # 2. جدول فواتير الإيداع (deposit_invoices)
-                cur.execute('''
+                _safe_exec(cur, '''
                     CREATE TABLE IF NOT EXISTS deposit_invoices (
                         id SERIAL PRIMARY KEY,
                         invoice_id TEXT,
@@ -82,7 +101,7 @@ def init_deposit_tables():
                 ''')
 
                 # 3. جدول المعاملات المكتملة (processed_txs)
-                cur.execute('''
+                _safe_exec(cur, '''
                     CREATE TABLE IF NOT EXISTS processed_txs (
                         tx_hash VARCHAR(256) PRIMARY KEY,
                         user_id VARCHAR(255),
@@ -102,8 +121,8 @@ def init_deposit_tables():
                     )
                 ''')
 
-                # 4. جدول السجل الموحد (transactions) لضمان التكامل الكامل مع history_db
-                cur.execute('''
+                # 4. جدول السجل الموحد (transactions)
+                _safe_exec(cur, '''
                     CREATE TABLE IF NOT EXISTS transactions (
                         id SERIAL PRIMARY KEY,
                         tx_id TEXT,
@@ -121,7 +140,7 @@ def init_deposit_tables():
                     )
                 ''')
 
-                # إضافة أي أعمدة ناقصة في الجداول الموجودة مسبقاً في Supabase دون المساس بالبيانات
+                # إضافة الأعمدة الناقصة بأمان تام
                 alter_queries = [
                     "ALTER TABLE deposit_packages ADD COLUMN IF NOT EXISTS name_ar VARCHAR(255);",
                     "ALTER TABLE deposit_packages ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
@@ -150,20 +169,24 @@ def init_deposit_tables():
                     "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS details TEXT;",
                     "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS failure_reason TEXT;",
                     "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;"
+                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;",
+                    # تحويل أي عمود details كان من نوع JSON أو JSONB إلى TEXT لحل مشكلة الإدخال النصي
+                    "ALTER TABLE processed_txs ALTER COLUMN details TYPE TEXT USING details::TEXT;",
+                    "ALTER TABLE deposit_invoices ALTER COLUMN details TYPE TEXT USING details::TEXT;",
+                    "ALTER TABLE transactions ALTER COLUMN details TYPE TEXT USING details::TEXT;"
                 ]
                 for q in alter_queries:
-                    try:
-                        cur.execute(q)
-                    except Exception:
-                        pass
+                    _safe_exec(cur, q)
+
+                # تنظيف الفواتير التي فشلت سابقاً بسبب خطأ JSON syntax
+                _safe_exec(cur, "DELETE FROM deposit_invoices WHERE failure_reason LIKE '%invalid input syntax for type json%';")
 
                 # إدخال الباقات الافتراضية فقط إذا كان الجدول فارغاً
                 cur.execute("SELECT COUNT(*) FROM deposit_packages")
                 count = cur.fetchone()[0]
                 if count == 0:
                     for pkg in SEED_PACKAGES:
-                        cur.execute("""
+                        _safe_exec(cur, """
                             INSERT INTO deposit_packages (usdt_amount, name_ar, is_active, sort_order)
                             VALUES (%s, %s, %s, %s)
                         """, (pkg['usdt_amount'], f"باقة ${pkg['usdt_amount']:g} USDT", pkg['is_active'], pkg['sort_order']))
@@ -223,13 +246,24 @@ def create_deposit_invoice(user_id, usdt_amount: float, ton_amount: float, sende
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                ok = _safe_exec(cur, """
                     INSERT INTO deposit_invoices 
                     (user_id, usdt_amount, amount, ton_amount, currency, memo, wallet_address, status, details, created_at, updated_at)
                     VALUES (%s, %s, %s, %s, 'USDT', %s, %s, 'pending', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     RETURNING id
                 """, (user_id_clean, usdt_amount, usdt_amount, ton_amount, memo, sender_wallet, details_text))
-                invoice_id = cur.fetchone()[0]
+                
+                if ok:
+                    row = cur.fetchone()
+                    invoice_id = row[0] if row else 0
+                else:
+                    # محاولة احتياطية بأقل الأعمدة الأساسية
+                    cur.execute("""
+                        INSERT INTO deposit_invoices (user_id, usdt_amount, ton_amount, memo, status)
+                        VALUES (%s, %s, %s, %s, 'pending')
+                        RETURNING id
+                    """, (user_id_clean, usdt_amount, ton_amount, memo))
+                    invoice_id = cur.fetchone()[0]
                 conn.commit()
 
         return {
@@ -250,10 +284,7 @@ def create_deposit_invoice(user_id, usdt_amount: float, ton_amount: float, sende
         }
 
 def update_deposit_invoice_status(memo: str, status: str = 'cancelled', failure_reason: str = None, delete_if_cancelled: bool = True) -> bool:
-    """
-    تحديث حالة الفاتورة في حال إلغاء الدفع من المحفظة أو فشله
-    حتى لا تبقى الفواتير الملغاة معلقة في قائمة السجلات كـ (قيد المراجعة).
-    """
+    """تحديث حالة الفاتورة عند الإلغاء أو الفشل"""
     if not memo:
         return False
     init_deposit_tables()
@@ -261,10 +292,9 @@ def update_deposit_invoice_status(memo: str, status: str = 'cancelled', failure_
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 if status in ['cancelled', 'canceled'] and delete_if_cancelled:
-                    # حذف الفاتورة المبدئية التي ألغاها المستخدم قبل إرسال المعاملة
-                    cur.execute("DELETE FROM deposit_invoices WHERE memo = %s AND status = 'pending'", (memo,))
+                    _safe_exec(cur, "DELETE FROM deposit_invoices WHERE memo = %s AND status = 'pending'", (memo,))
                 else:
-                    cur.execute("""
+                    _safe_exec(cur, """
                         UPDATE deposit_invoices 
                         SET status = %s,
                             failure_reason = COALESCE(%s, failure_reason),
@@ -293,6 +323,8 @@ def verify_and_process_ton_boc(user_id, usdt_amount: float, memo: str, boc: str,
     if memo:
         details_text += f" | الفاتورة: {memo}"
 
+    details_json_fallback = json.dumps({"text": details_text, "memo": memo, "usdt": usdt_amount}, ensure_ascii=False)
+
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -306,56 +338,95 @@ def verify_and_process_ton_boc(user_id, usdt_amount: float, memo: str, boc: str,
                     if cur.fetchone():
                         raise ValueError("تم تأكيد وشحن هذه الفاتورة مسبقاً!")
 
-                # 2. تسجيل الإيداع المكتمل في جدول processed_txs
-                cur.execute("""
+                # 2. تسجيل الإيداع المكتمل في جدول processed_txs (مع دعم تلقائي لـ TEXT أو JSONB)
+                inserted = _safe_exec(cur, """
                     INSERT INTO processed_txs 
                     (tx_hash, user_id, usdt_amount, amount, ton_amount, currency, memo, boc, wallet_address, type, status, details, created_at, processed_at)
                     VALUES (%s, %s, %s, %s, %s, 'USDT', %s, %s, %s, 'deposit', 'completed', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, (tx_hash, user_id_clean, usdt_amount, usdt_amount, float(ton_amount or 0.0), memo, boc, sender_wallet, details_text))
 
-                # 3. تحديث الفاتورة في deposit_invoices لتصبح مكتملة (completed) ومرتبطة بنفس الـ tx_hash
-                if memo:
+                if not inserted:
+                    # في حال كان عمود details في قاعدة البيانات لا يزال مقيداً بـ JSONB
+                    inserted = _safe_exec(cur, """
+                        INSERT INTO processed_txs 
+                        (tx_hash, user_id, usdt_amount, memo, boc, type, status, details)
+                        VALUES (%s, %s, %s, %s, %s, 'deposit', 'completed', %s)
+                    """, (tx_hash, user_id_clean, usdt_amount, memo, boc, details_json_fallback))
+
+                if not inserted:
+                    # الإدخال الأساسي المضمون بدون عمود details
                     cur.execute("""
+                        INSERT INTO processed_txs 
+                        (tx_hash, user_id, usdt_amount, memo, boc, type, status)
+                        VALUES (%s, %s, %s, %s, %s, 'deposit', 'completed')
+                    """, (tx_hash, user_id_clean, usdt_amount, memo, boc))
+
+                # 3. تحديث الفاتورة في deposit_invoices لتصبح مكتملة (completed)
+                if memo:
+                    updated_inv = _safe_exec(cur, """
                         UPDATE deposit_invoices 
                         SET status = 'completed',
                             tx_hash = %s,
                             wallet_address = COALESCE(%s, wallet_address),
-                            details = COALESCE(%s, details),
+                            details = %s,
+                            failure_reason = NULL,
                             updated_at = CURRENT_TIMESTAMP
                         WHERE memo = %s
                     """, (tx_hash, sender_wallet, details_text, memo))
+                    if not updated_inv:
+                        _safe_exec(cur, "UPDATE deposit_invoices SET status = 'completed', failure_reason = NULL WHERE memo = %s", (memo,))
 
-                # 4. تسجيل العملية في جدول السجلات الموحد (transactions) لضمان ظهورها الفوري
-                try:
-                    cur.execute("""
-                        INSERT INTO transactions
-                        (tx_id, user_id, type, amount, currency, status, wallet_address, memo, details, created_at, updated_at)
-                        VALUES (%s, %s, 'deposit', %s, 'USDT', 'completed', %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    """, (tx_hash, user_id_clean, usdt_amount, sender_wallet, memo, details_text))
-                except Exception:
-                    pass
+                # 4. تسجيل العملية في جدول السجلات الموحد (transactions)
+                _safe_exec(cur, """
+                    INSERT INTO transactions
+                    (tx_id, user_id, type, amount, currency, status, wallet_address, memo, details, created_at, updated_at)
+                    VALUES (%s, %s, 'deposit', %s, 'USDT', 'completed', %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (tx_hash, user_id_clean, usdt_amount, sender_wallet, memo, details_text))
 
             conn.commit()
 
         # 5. تحديث رصيد المستخدم ذرياً وإرجاع الرصيد الجديد
+        new_balance_val = None
         try:
             from wallet.wallet_db import update_user_balance, get_user_wallet_balances
             success = update_user_balance(user_id_clean, usdt_amount, currency='usd_balance', operation='add')
             if success:
                 balances = get_user_wallet_balances(user_id_clean)
-                return float(balances.get('usdt_balance', 0.0))
-        except Exception:
-            pass
+                new_balance_val = float(balances.get('usdt_balance', 0.0))
+        except Exception as e:
+            print(f"⚠️ Notice in wallet_db balance update: {e}")
 
-        ok, new_bal = atomic_update_balance(user_id_clean, usdt_amount, is_usd=True)
-        if not ok:
-            raise Exception("فشل تحديث رصيد المستخدم في قاعدة البيانات الرئيسية.")
-        return float(new_bal)
+        if new_balance_val is None:
+            try:
+                ok, new_bal = atomic_update_balance(user_id_clean, usdt_amount, is_usd=True)
+                if ok:
+                    new_balance_val = float(new_bal)
+            except Exception as e:
+                print(f"⚠️ Notice in atomic_update_balance: {e}")
+
+        # 6. ضمان إضافي مباشر في جدول users إذا لم يعمل التحديث السابق لأي سبب
+        if new_balance_val is None:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE users 
+                        SET usd_balance = COALESCE(usd_balance, 0.0) + %s
+                        WHERE CAST(tg_id AS TEXT) = %s OR CAST(user_id AS TEXT) = %s
+                        RETURNING usd_balance
+                    """, (float(usdt_amount), user_id_clean, user_id_clean))
+                    row = cur.fetchone()
+                    conn.commit()
+                    if row:
+                        new_balance_val = float(row[0])
+
+        if new_balance_val is None:
+            raise Exception("تعذر العثور على حساب المستخدم لتحديث الرصيد.")
+
+        return float(new_balance_val)
 
     except ValueError as ve:
         raise ve
     except Exception as e:
-        # في حال حدوث خطأ غير متوقع، نحدث الفاتورة لتظهر في السجلات مع سبب الفشل
         if memo:
             update_deposit_invoice_status(memo, status='failed', failure_reason=str(e), delete_if_cancelled=False)
         print(f"⚠️ خطأ أثناء معالجة الشحن في Supabase: {e}")
