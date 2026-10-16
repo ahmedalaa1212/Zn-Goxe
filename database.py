@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 database.py - النسخة الكاملة والمستقرة لإدارة قاعدة بيانات Supabase (PostgreSQL)
-مزودة بفحص تلقائي للاتصالات (Auto-Heal Pool) ودعم كامل للأرصدة اللحظية ⚡
+مزودة بفحص تلقائي للاتصالات (Auto-Heal Pool) ودعم كامل للأرصدة اللحظية ونظام الأصدقاء ⚡
 """
 import os
 from datetime import datetime, timezone
@@ -48,7 +48,7 @@ def get_database_url():
     return db_url
 
 def init_db_pool():
-    """تأسيس بركة اتصالات ذكية مقاومة لانقطاع اتصالات Supabase"""
+    """تأسيس بركة اتصالات ذكية مقاومة لانقطاع اتصالات Supabase وإنشاء الجداول تلقائياً"""
     global db_pool, _schema_initialized
     if db_pool is None or db_pool.closed:
         db_url = get_database_url()
@@ -76,20 +76,41 @@ def init_db_pool():
                             user_id VARCHAR(128),
                             telegram_id VARCHAR(128),
                             first_name VARCHAR(100) DEFAULT 'لاعب',
+                            name VARCHAR(100) DEFAULT 'لاعب',
                             balance DOUBLE PRECISION DEFAULT 0.0,
                             usd_balance DOUBLE PRECISION DEFAULT 0.0,
                             znx_balance DOUBLE PRECISION DEFAULT 0.0,
                             ref_by VARCHAR(128),
+                            referred_by VARCHAR(128),
                             referrals_count INT DEFAULT 0,
+                            pending_ref_earnings DOUBLE PRECISION DEFAULT 0.0,
+                            total_ref_earnings DOUBLE PRECISION DEFAULT 0.0,
+                            claimed_ref_tasks JSONB DEFAULT '[]'::jsonb,
                             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                             last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                             interactions INT DEFAULT 1,
                             is_banned BOOLEAN DEFAULT FALSE,
                             farm_level INT DEFAULT 1,
-                            storage_level INT DEFAULT 1,
+                            storage_level INT DEFAULT 0,
                             device_id VARCHAR(256),
                             fingerprint_hash VARCHAR(256)
                         );
+
+                        CREATE TABLE IF NOT EXISTS user_friends (
+                            id BIGSERIAL PRIMARY KEY,
+                            referrer_id VARCHAR(128) NOT NULL,
+                            friend_id VARCHAR(128) NOT NULL,
+                            first_name VARCHAR(100) DEFAULT 'صديق',
+                            name VARCHAR(100) DEFAULT 'صديق',
+                            earned_from_him DOUBLE PRECISION DEFAULT 0.0,
+                            upgrades_count INT DEFAULT 0,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            CONSTRAINT uq_referrer_friend UNIQUE (referrer_id, friend_id)
+                        );
+
+                        CREATE INDEX IF NOT EXISTS idx_user_friends_referrer ON user_friends(referrer_id);
+                        CREATE INDEX IF NOT EXISTS idx_user_friends_friend ON user_friends(friend_id);
 
                         CREATE TABLE IF NOT EXISTS devices (
                             device_id VARCHAR(256) PRIMARY KEY,
@@ -136,6 +157,11 @@ def init_db_pool():
                             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                         );
 
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'لاعب';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by VARCHAR(128);
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_ref_earnings DOUBLE PRECISION DEFAULT 0.0;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS total_ref_earnings DOUBLE PRECISION DEFAULT 0.0;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS claimed_ref_tasks JSONB DEFAULT '[]'::jsonb;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION DEFAULT 0.10;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS mined_points DOUBLE PRECISION DEFAULT 0.0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS total_mined DOUBLE PRECISION DEFAULT 0.0;
@@ -158,6 +184,17 @@ def init_db_pool():
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_claims_count INT DEFAULT 0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_history JSONB DEFAULT '[]'::jsonb;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_status JSONB DEFAULT '{}'::jsonb;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_active BOOLEAN DEFAULT FALSE;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(64);
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_package VARCHAR(64);
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_level VARCHAR(64);
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_expires TIMESTAMPTZ;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_expires_at TIMESTAMPTZ;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+
+                        CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by);
+                        CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);
                     """)
                 _schema_initialized = True
                 print("⚡ [Supabase Setup] تم التحقق من الجداول والمخطط بنجاح!")
@@ -176,7 +213,6 @@ def get_db_connection():
     conn = pool_obj.getconn()
     broken = False
 
-    # فحص ما إذا كان الاتصال قد تم إغلاقه من جهة السيرفر
     try:
         if conn.closed:
             broken = True
@@ -210,12 +246,21 @@ def get_db_connection():
 def get_db():
     return init_db_pool()
 
+def initialize_supabase():
+    return init_db_pool()
+
+def initialize_firebase():
+    """موجودة للتوافق الخلفي فقط حتى لا ينكسر أي استدعاء قديم"""
+    return init_db_pool()
+
 # ==================== Core Functions ====================
 
 def _sanitize_id(sid):
     if sid is None:
         return None
     s = str(sid).strip()
+    if s.startswith("ref_"):
+        s = s.replace("ref_", "", 1).strip()
     if s.endswith(".0"):
         s = s[:-2]
     if not s or s.lower() in ("none", "null", "undefined", "nan", ""):
@@ -241,7 +286,6 @@ def get_user(telegram_id):
                     for k, v in list(d.items()):
                         if isinstance(v, datetime):
                             d[k] = format_iso(v)
-                    # ضمان عدم وجود قيم فارغة للأرصدة
                     d['balance'] = float(d.get('balance') or 0.0)
                     d['usd_balance'] = float(d.get('usd_balance') or 0.0)
                     d['znx_balance'] = float(d.get('znx_balance') or 0.0)
@@ -278,24 +322,73 @@ def get_user_balances(telegram_id):
         return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
 
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
+    """إنشاء مستخدم جديد أو تحديث بياناته وربط الإحالة تلقائياً في جدولي users و user_friends"""
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
         return {}
+    clean_ref = _sanitize_id(ref_id)
+    if clean_ref == clean_id or (clean_ref and not clean_ref.isdigit()):
+        clean_ref = None
+    safe_name = str(first_name or 'لاعب').strip()[:100]
+
     try:
         existing = get_user(clean_id)
-        if not existing:
-            clean_ref = _sanitize_id(ref_id)
-            if clean_ref == clean_id:
-                clean_ref = None
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                if not existing:
+                    # منع الإحالة العكسية
+                    if clean_ref:
+                        cur.execute("SELECT ref_by, referred_by FROM users WHERE tg_id = %s LIMIT 1", (clean_ref,))
+                        ref_row = cur.fetchone()
+                        if ref_row and (ref_row[0] == clean_id or ref_row[1] == clean_id):
+                            clean_ref = None
+
                     cur.execute("""
-                        INSERT INTO users (tg_id, user_id, telegram_id, first_name, ref_by)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO users (tg_id, user_id, telegram_id, first_name, name, ref_by, referred_by)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (tg_id) DO NOTHING;
-                    """, (clean_id, clean_id, clean_id, str(first_name or 'لاعب'), clean_ref))
-            return get_user(clean_id) or {}
-        return existing
+                    """, (clean_id, clean_id, clean_id, safe_name, safe_name, clean_ref, clean_ref))
+
+                    if clean_ref:
+                        # التأكد من وجود حساب الداعي وإضافة الصديق في جدول user_friends
+                        cur.execute("""
+                            INSERT INTO users (tg_id, user_id, telegram_id, first_name, name)
+                            VALUES (%s, %s, %s, 'لاعب', 'لاعب')
+                            ON CONFLICT (tg_id) DO NOTHING;
+                        """, (clean_ref, clean_ref, clean_ref))
+
+                        cur.execute("""
+                            INSERT INTO user_friends (referrer_id, friend_id, first_name, name, earned_from_him, upgrades_count)
+                            VALUES (%s, %s, %s, %s, 0.0, 0)
+                            ON CONFLICT (referrer_id, friend_id) DO NOTHING;
+                        """, (clean_ref, clean_id, safe_name, safe_name))
+
+                        cur.execute("""
+                            UPDATE users
+                            SET referrals_count = (
+                                SELECT COUNT(*) FROM user_friends WHERE referrer_id = %s
+                            )
+                            WHERE tg_id = %s;
+                        """, (clean_ref, clean_ref))
+                else:
+                    # إذا كان المستخدم موجوداً مسبقاً بدون داعي وجاء عبر رابط إحالة لأول مرة
+                    current_ref = existing.get("ref_by") or existing.get("referred_by")
+                    if not current_ref and clean_ref:
+                        cur.execute("SELECT ref_by, referred_by FROM users WHERE tg_id = %s LIMIT 1", (clean_ref,))
+                        ref_row = cur.fetchone()
+                        if not (ref_row and (ref_row[0] == clean_id or ref_row[1] == clean_id)):
+                            cur.execute("""
+                                UPDATE users
+                                SET ref_by = %s, referred_by = %s
+                                WHERE tg_id = %s AND ref_by IS NULL AND referred_by IS NULL;
+                            """, (clean_ref, clean_ref, clean_id))
+                            cur.execute("""
+                                INSERT INTO user_friends (referrer_id, friend_id, first_name, name, earned_from_him, upgrades_count)
+                                VALUES (%s, %s, %s, %s, 0.0, COALESCE(%s, 0))
+                                ON CONFLICT (referrer_id, friend_id) DO NOTHING;
+                            """, (clean_ref, clean_id, safe_name, safe_name, int(existing.get("upgrades_count") or 0)))
+
+        return get_user(clean_id) or existing or {}
     except Exception as e:
         print(f"❌ خطأ init_user: {e}")
         return {}
