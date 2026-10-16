@@ -1,27 +1,52 @@
 window.historyModule = (function () {
     let allTransactions = [];
     let currentFilter = 'all';
+    let activeAbortController = null;
+    let isFetching = false;
 
     // جلب معرف المستخدم بكل الطرق الممكنة
     function getUserId() {
         if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
-            return window.Telegram.WebApp.initDataUnsafe.user.id;
+            return String(window.Telegram.WebApp.initDataUnsafe.user.id).trim();
         }
 
-        if (window.userState?.tg_id) return window.userState.tg_id;
-        if (window.userState?.user_id) return window.userState.user_id;
+        if (window.userState?.tg_id) return String(window.userState.tg_id).trim();
+        if (window.userState?.user_id) return String(window.userState.user_id).trim();
+        if (window.userState?.id) return String(window.userState.id).trim();
 
         const urlParams = new URLSearchParams(window.location.search);
         const urlId = urlParams.get('user_id') || urlParams.get('tg_id') || urlParams.get('uid');
-        if (urlId) return urlId;
+        if (urlId && urlId !== 'null' && urlId !== 'undefined') return String(urlId).trim();
 
         const localId = localStorage.getItem('tg_user_id') || localStorage.getItem('user_id') || localStorage.getItem('tg_id') || sessionStorage.getItem('user_id');
-        if (localId) return localId;
+        if (localId && localId !== 'null' && localId !== 'undefined') return String(localId).trim();
 
-        if (window.currentUser && window.currentUser.id) return window.currentUser.id;
-        if (window.userId) return window.userId;
+        if (window.currentUser && window.currentUser.id) return String(window.currentUser.id).trim();
+        if (window.userId) return String(window.userId).trim();
 
         return null;
+    }
+
+    function getCacheKey(userId) {
+        return `zn_tx_history_cache_v2_${userId}`;
+    }
+
+    function loadCachedTransactions(userId) {
+        if (!userId) return null;
+        try {
+            const raw = localStorage.getItem(getCacheKey(userId));
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+        } catch (e) {}
+        return null;
+    }
+
+    function saveCachedTransactions(userId, txs) {
+        if (!userId || !Array.isArray(txs)) return;
+        try {
+            localStorage.setItem(getCacheKey(userId), JSON.stringify(txs.slice(0, 80)));
+        } catch (e) {}
     }
 
     // تنسيق التاريخ والوقت بالسنة والشهر واليوم والساعة والدقيقة والثانية
@@ -44,30 +69,71 @@ window.historyModule = (function () {
         }
     }
 
-    async function fetchTransactions() {
+    async function fetchTransactions(forceRefresh = false, retryCount = 0) {
         const container = document.getElementById('history-list-container');
         if (!container) return;
 
-        container.innerHTML = `
-            <div class="history-loading">
-                <div class="spinner"></div>
-                <span>جاري تحميل سجل المعاملات...</span>
-            </div>`;
-
         const userId = getUserId();
-        if (!userId) {
-            container.innerHTML = `<div class="history-empty">⚠️ تعذر تحديد معرف المستخدم. حاول إعادة فتح التطبيق.</div>`;
+        if (!userId || userId === '0') {
+            if (retryCount < 4) {
+                setTimeout(() => fetchTransactions(forceRefresh, retryCount + 1), 350);
+                return;
+            }
+            container.innerHTML = `
+                <div class="history-empty">
+                    <div>⚠️ تعذر تحديد معرف المستخدم.</div>
+                    <button onclick="historyModule.refresh(true)" style="margin-top:10px; padding:6px 14px; border-radius:8px; background:#0ea5e9; color:#fff; border:none; cursor:pointer; font-weight:bold;">🔄 إعادة المحاولة</button>
+                </div>`;
             return;
         }
 
+        // 1. العرض الفوري من الكاش المحلي (إن وجد) لمنع تعليق شاشة التحميل
+        if (allTransactions.length === 0) {
+            const cached = loadCachedTransactions(userId);
+            if (cached && cached.length > 0) {
+                allTransactions = cached;
+                updateCounts();
+                renderList();
+            }
+        }
+
+        // إظهار شاشة التحميل فقط إذا لم تكن هناك أي بيانات معروضة حالياً
+        if (allTransactions.length === 0) {
+            container.innerHTML = `
+                <div class="history-loading">
+                    <div class="spinner"></div>
+                    <span>جاري تحميل سجل المعاملات...</span>
+                </div>`;
+        }
+
+        // إلغاء أي طلب سابق معلق قبل بدء طلب جديد
+        if (activeAbortController) {
+            try { activeAbortController.abort(); } catch (e) {}
+        }
+        activeAbortController = new AbortController();
+        const timeoutId = setTimeout(() => {
+            if (activeAbortController) {
+                try { activeAbortController.abort(); } catch (e) {}
+            }
+        }, 7000);
+
+        isFetching = true;
+
         try {
-            const response = await fetch(`/api/wallet/history/transactions?user_id=${encodeURIComponent(userId)}&_t=${Date.now()}`, {
+            const forceParam = forceRefresh ? '&force=1' : '';
+            const response = await fetch(`/api/wallet/history/transactions?user_id=${encodeURIComponent(userId)}${forceParam}&_t=${Date.now()}`, {
                 method: 'GET',
+                cache: 'no-store',
+                signal: activeAbortController.signal,
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'X-Telegram-User-Id': userId.toString()
                 }
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -77,14 +143,36 @@ window.historyModule = (function () {
 
             if (data.success && Array.isArray(data.transactions)) {
                 allTransactions = data.transactions;
+                saveCachedTransactions(userId, allTransactions);
                 updateCounts();
                 renderList();
-            } else {
-                container.innerHTML = `<div class="history-empty">⚠️ ${data.message || 'لا توجد معاملات متاحة حالياً'}</div>`;
+            } else if (allTransactions.length === 0) {
+                container.innerHTML = `
+                    <div class="history-empty">
+                        <div>⚠️ ${data.message || 'لا توجد معاملات متاحة حالياً'}</div>
+                        <button onclick="historyModule.refresh(true)" style="margin-top:10px; padding:6px 14px; border-radius:8px; background:#0ea5e9; color:#fff; border:none; cursor:pointer; font-weight:bold;">🔄 تحديث</button>
+                    </div>`;
             }
         } catch (error) {
+            clearTimeout(timeoutId);
+
+            // إعادة المحاولة تلقائياً مرة واحدة في حال انتهاء المهلة أو انقطاع الاتصال اللحظي
+            if (retryCount < 1) {
+                console.warn('⚠️ [history.js] Retrying history fetch automatically...');
+                setTimeout(() => fetchTransactions(true, retryCount + 1), 400);
+                return;
+            }
+
             console.error('⚠️ [history.js] Error fetching history:', error);
-            container.innerHTML = `<div class="history-empty">⚠️ حدث خطأ أثناء الاتصال بالسيرفر.</div>`;
+            if (allTransactions.length === 0) {
+                container.innerHTML = `
+                    <div class="history-empty">
+                        <div>⚠️ استغرق الاتصال وقتاً أطول من المعتاد.</div>
+                        <button onclick="historyModule.refresh(true)" style="margin-top:10px; padding:6px 14px; border-radius:8px; background:#0ea5e9; color:#fff; border:none; cursor:pointer; font-weight:bold;">🔄 إعادة تحميل السجلات</button>
+                    </div>`;
+            }
+        } finally {
+            isFetching = false;
         }
     }
 
@@ -262,11 +350,17 @@ window.historyModule = (function () {
     }
 
     return {
-        init: fetchTransactions,
-        refresh: fetchTransactions,
+        init: () => fetchTransactions(false),
+        refresh: (force = true) => fetchTransactions(force),
         filterHistory: filterHistory,
         showDetails: showDetails,
         copyText: copyText,
         closeModal: closeModal
     };
 })();
+
+window.init_history_module = function () {
+    if (window.historyModule) {
+        window.historyModule.init();
+    }
+};
