@@ -1,6 +1,6 @@
 /**
- * 💎 ZNX Wallet Engine (Front-end Module - Hybrid Chart & Multi-API Price Engine)
- * Cleaned, Optimized, Zero Client CORS/Rate-Limit Error Version
+ * 💎 ZNX Wallet Engine (Front-end Module - Supabase & Anti-Rate-Limit Edition)
+ * يعتمد على كاش السيرفر المركزي لحماية المستخدمين والسيرفر من الحظر مع تحديث لحظي سلس
  */
 
 // ==================== الثوابت ومتغيرات النظام ====================
@@ -13,13 +13,17 @@ window.ZNX_POOL_CREATED_AT = 1735689600;
 let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
+let allTiersList = [];
+let globalTotalZnx = 0;
+let maxGlobalZnx = 32500000;
 
-// حالة السعر المباشر
+// حالة السعر المباشر وحماية Rate-Limit
 let currentLivePrice = 0;
 let targetLivePrice = 0;
 let priceFetchTimer = null;
 let smoothLoopTimer = null;
 let isPriceInitialized = false;
+let lastDirectFallbackTime = 0;
 
 // محرك الرسم البياني
 let tvChart = null;
@@ -85,9 +89,12 @@ async function apiFetch(endpoint, options = {}) {
     for (const path of paths) {
         try {
             const res = await fetch(`${baseUrl}${path}`, options);
-            if (res.ok) {
-                const data = await res.json();
-                if (data && (data.success !== false)) return data;
+            const data = await res.json().catch(() => null);
+            if (res.ok && data) {
+                return data;
+            }
+            if (data && data.message) {
+                return data;
             }
         } catch (e) {
             // المحاولة مع المسار البديل
@@ -98,7 +105,7 @@ async function apiFetch(endpoint, options = {}) {
 
 // ==================== محرك السعر المباشر (Real-time Price Engine) ====================
 async function fetchRealZnxPrice() {
-    // 1. تجربة جلب السعر من السيرفر الخلفي أولاً (الأسرع والأضمن)
+    // 1. جلب السعر من كاش السيرفر الخلفي أولاً (يخدم ملايين المستخدمين بدون أي حظر)
     try {
         const serverData = await apiFetch(`/price?t=${Date.now()}`, {
             method: 'GET',
@@ -120,10 +127,38 @@ async function fetchRealZnxPrice() {
             return;
         }
     } catch (e) {
-        console.warn("⚠️ السيرفر الخلفي غير متوفر، جاري المحاولة من المصادر المباشرة...");
+        // صامت في حال إعادة تشغيل السيرفر
     }
 
-    // 2. Fallback من STON.fi API المباشر (الأسرع والأدق لشبكة TON)
+    // حماية المتصفح من الحظر: عدم طلب المنصات الخارجية مباشرة إلا مرة كل 15 ثانية عند غياب السيرفر فقط
+    const nowMs = Date.now();
+    if (nowMs - lastDirectFallbackTime < 15000) {
+        return;
+    }
+    lastDirectFallbackTime = nowMs;
+
+    // 2. Fallback مباشر من DexScreener Pair API
+    try {
+        const dexPairRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`, { cache: 'no-store' });
+        if (dexPairRes.ok) {
+            const dexPairData = await dexPairRes.json();
+            const pair = dexPairData?.pair || (Array.isArray(dexPairData?.pairs) ? dexPairData.pairs[0] : null);
+            if (pair && pair.priceUsd) {
+                const livePrice = parseFloat(pair.priceUsd);
+                const ch24 = pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0;
+                setTargetPrice(livePrice);
+                updateMarketStatsUI({
+                    price: livePrice,
+                    change_24h: ch24,
+                    high_24h: pair.high24h ? parseFloat(pair.high24h) : livePrice * 1.03,
+                    low_24h: pair.low24h ? parseFloat(pair.low24h) : livePrice * 0.97
+                });
+                return;
+            }
+        }
+    } catch (err) {}
+
+    // 3. Fallback مباشر من STON.fi API
     try {
         const stonRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
         if (stonRes.ok) {
@@ -141,99 +176,7 @@ async function fetchRealZnxPrice() {
                 return;
             }
         }
-    } catch (err) {
-        console.warn("⚠️ فشل STON.fi Asset API...");
-    }
-
-    // 3. Fallback من DexScreener Pair API المباشر
-    try {
-        const dexPairRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`, { cache: 'no-store' });
-        if (dexPairRes.ok) {
-            const dexPairData = await dexPairRes.json();
-            const pair = dexPairData?.pair;
-            if (pair && pair.priceUsd) {
-                const livePrice = parseFloat(pair.priceUsd);
-                const ch24 = pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0;
-                setTargetPrice(livePrice);
-                updateMarketStatsUI({
-                    price: livePrice,
-                    change_24h: ch24,
-                    high_24h: pair.high24h ? parseFloat(pair.high24h) : livePrice * 1.03,
-                    low_24h: pair.low24h ? parseFloat(pair.low24h) : livePrice * 0.97
-                });
-                return;
-            }
-        }
-    } catch (err) {
-        console.warn("⚠️ فشل DexScreener Pair API...");
-    }
-
-    // 4. Fallback من DexScreener Tokens API المباشر
-    try {
-        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
-        if (dexRes.ok) {
-            const dexData = await dexRes.json();
-            const pair = Array.isArray(dexData?.pairs) ? dexData.pairs[0] : null;
-            if (pair && pair.priceUsd) {
-                const livePrice = parseFloat(pair.priceUsd);
-                const ch24 = pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0;
-                setTargetPrice(livePrice);
-                updateMarketStatsUI({
-                    price: livePrice,
-                    change_24h: ch24,
-                    high_24h: livePrice * (1 + Math.abs(ch24 / 100) + 0.02),
-                    low_24h: livePrice * Math.max(0.000001, (1 - Math.abs(ch24 / 100) - 0.02))
-                });
-                return;
-            }
-        }
-    } catch (err) {
-        console.warn("⚠️ فشل DexScreener Tokens API...");
-    }
-
-    // 5. Fallback من GeckoTerminal API
-    try {
-        const geckoRes = await fetch(`https://api.geckoterminal.com/api/v2/networks/ton/tokens/${ZNX_TOKEN_CONTRACT}`, { cache: 'no-store' });
-        if (geckoRes.ok) {
-            const geckoData = await geckoRes.json();
-            const price = parseFloat(geckoData?.data?.attributes?.price_usd || 0);
-            if (price > 0) {
-                setTargetPrice(price);
-                updateMarketStatsUI({
-                    price: price,
-                    change_24h: parseFloat(geckoData?.data?.attributes?.price_change_percentage?.h24 || 0),
-                    high_24h: price * 1.05,
-                    low_24h: price * 0.95
-                });
-                return;
-            }
-        }
-    } catch (err) {
-        console.warn("⚠️ فشل GeckoTerminal API...");
-    }
-
-    // 6. Fallback مباشر من TonAPI
-    try {
-        const tonRes = await fetch(`https://tonapi.io/v2/rates?tokens=${ZNX_TOKEN_CONTRACT}&currencies=usd`, { cache: 'no-store' });
-        if (tonRes.ok) {
-            const tonData = await tonRes.json();
-            const tokenInfo = tonData?.rates?.[ZNX_TOKEN_CONTRACT];
-            if (tokenInfo && tokenInfo.prices && tokenInfo.prices.USD > 0) {
-                const livePrice = parseFloat(tokenInfo.prices.USD);
-                let ch24 = tokenInfo.diff_24h?.USD ? parseFloat(String(tokenInfo.diff_24h.USD).replace('%', '')) : 0;
-                setTargetPrice(livePrice);
-                updateMarketStatsUI({
-                    price: livePrice,
-                    change_24h: ch24,
-                    high_24h: livePrice * 1.05,
-                    low_24h: livePrice * 0.95
-                });
-                return;
-            }
-        }
-    } catch (err) {
-        console.warn("⚠️ فشل TonAPI المباشر");
-    }
+    } catch (err) {}
 
     const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
     if (priceEl && (!currentLivePrice || currentLivePrice <= 0)) {
@@ -315,7 +258,7 @@ function updateMarketStatsUI(data) {
 function startLivePriceEngine() {
     fetchRealZnxPrice();
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 3000); // تحديث كل 3 ثوانٍ للاستفادة من كاش الـ RAM السريع بالسيرفر
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 4000);
 
     if (smoothLoopTimer) clearInterval(smoothLoopTimer);
     smoothLoopTimer = setInterval(updateSmoothTick, 100);
@@ -326,11 +269,8 @@ function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) return;
 
-    // تنظيف الحاوية من أي iframe أو عنصر متخلف
     const oldIframe = container.querySelector('iframe');
-    if (oldIframe) {
-        oldIframe.remove();
-    }
+    if (oldIframe) oldIframe.remove();
 
     if (typeof LightweightCharts === 'undefined') {
         if (!document.getElementById('lw-charts-script')) {
@@ -346,12 +286,10 @@ function initChart() {
         return;
     }
 
-    if (!tvChart) {
-        container.innerHTML = '';
-    } else {
+    if (tvChart) {
         try { tvChart.remove(); } catch(e){}
-        container.innerHTML = '';
     }
+    container.innerHTML = '';
 
     const width = container.clientWidth || container.parentElement?.clientWidth || window.innerWidth - 32 || 350;
     const height = container.clientHeight || 250;
@@ -525,9 +463,7 @@ function updateChartTick(price) {
 
     try {
         candleSeries.update(currentCandle);
-    } catch (e) {
-        // تجاهل الأخطاء العابرة
-    }
+    } catch (e) {}
 }
 
 function changeTimeframe(tf) {
@@ -562,18 +498,31 @@ async function initApp() {
     if (data && data.success) {
         userData = data.user || data.player || userData;
         currentTier = data.current_tier || data.tier || currentTier;
+        globalTotalZnx = parseFloat(data.global_total) || 0;
+        maxGlobalZnx = parseFloat(data.max_global_znx) || 32500000;
 
         if (data.pool_created_at) window.ZNX_POOL_CREATED_AT = data.pool_created_at;
 
+        if (data.has_price && data.live_price > 0) {
+            setTargetPrice(parseFloat(data.live_price));
+            updateMarketStatsUI({
+                price: parseFloat(data.live_price),
+                change_24h: data.change_24h !== undefined ? parseFloat(data.change_24h) : 0,
+                high_24h: parseFloat(data.high_24h || data.live_price * 1.05),
+                low_24h: parseFloat(data.low_24h || data.live_price * 0.95)
+            });
+        }
+
         updateBalancesUI();
-        updateGlobalStatsUI(data.global_total, data.max_global_znx);
+        updateGlobalStatsUI(globalTotalZnx, maxGlobalZnx);
         
         let rawTiers = data.tiers_all || data.tiers || data.tiers_config;
         if (rawTiers && typeof rawTiers === 'object' && !Array.isArray(rawTiers)) {
             rawTiers = Object.values(rawTiers);
         }
+        allTiersList = Array.isArray(rawTiers) ? rawTiers : [];
         
-        renderTiersUI(rawTiers);
+        renderTiersUI(allTiersList);
         renderLeaderboardUI(data.leaderboard, data.my_rank, data.my_info);
     }
 
@@ -618,14 +567,42 @@ function selectOption(type) {
     onInputChange();
 }
 
+function calculatePreviewZnx(points) {
+    if (!points || points <= 0) return 0;
+    if (!allTiersList || allTiersList.length === 0) {
+        const rate = (currentTier && currentTier.rate) ? parseFloat(currentTier.rate) : 10;
+        return points / rate;
+    }
+
+    let remPoints = points;
+    let simGlobal = globalTotalZnx;
+    let totalZnx = 0;
+
+    for (let i = 0; i < allTiersList.length && remPoints > 1e-7 && simGlobal < maxGlobalZnx; i++) {
+        const t = allTiersList[i];
+        const minPts = parseFloat(t.min_pts) || 0;
+        const maxPts = String(t.max_pts).toLowerCase().includes('inf') ? maxGlobalZnx : Math.min(parseFloat(t.max_pts) || maxGlobalZnx, maxGlobalZnx);
+        const rate = parseFloat(t.rate) || 10;
+
+        if (simGlobal >= minPts && simGlobal < maxPts) {
+            const roomZnx = Math.max(0, maxPts - simGlobal);
+            const desiredZnx = remPoints / rate;
+            const stepZnx = Math.min(desiredZnx, roomZnx, maxGlobalZnx - simGlobal);
+            totalZnx += stepZnx;
+            simGlobal += stepZnx;
+            remPoints -= (stepZnx * rate);
+        }
+    }
+    return totalZnx;
+}
+
 function onInputChange() {
     const inputEl = document.getElementById('convertInput');
     const previewEl = document.getElementById('znxPreview');
     if (!inputEl || !previewEl) return;
 
     const points = parseFloat(inputEl.value) || 0;
-    const rate = (currentTier && currentTier.rate) ? parseFloat(currentTier.rate) : 10;
-    const znxGained = points > 0 ? (points / rate) : 0;
+    const znxGained = calculatePreviewZnx(points);
 
     previewEl.innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
 }
@@ -667,13 +644,24 @@ async function submitConvert() {
         });
 
         if (result && result.success) {
-            const gained = result.data?.znx_gained || result.znx_gained || 0;
+            const payload = result.data || {};
+            const gained = payload.znx_gained ?? result.znx_gained ?? 0;
+
+            if (payload.new_zn_balance !== undefined) userData.balance = payload.new_zn_balance;
+            if (payload.new_znx_balance !== undefined) userData.znx_balance = payload.new_znx_balance;
+            if (payload.new_total_earned !== undefined) userData.total_znx_earned = payload.new_total_earned;
+            if (payload.global_total !== undefined) {
+                globalTotalZnx = payload.global_total;
+                updateGlobalStatsUI(globalTotalZnx, maxGlobalZnx);
+            }
+
+            updateBalancesUI();
             alert(`تم التحويل بنجاح! حصلت على ${gained} ZNX`);
             inputEl.value = '';
             onInputChange();
             await initApp();
         } else {
-            alert("تعذر إجراء التحويل. يرجى المحاولة مرة أخرى.");
+            alert(result?.message || "تعذر إجراء التحويل. يرجى المحاولة مرة أخرى.");
         }
     } catch (err) {
         console.error("❌ خطأ أثناء التحويل:", err);
@@ -761,7 +749,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
         const earned = myInfo?.total_znx_earned ?? userData.total_znx_earned ?? 0;
         const myName = escapeHTML(myInfo?.name || userData.first_name || 'أنت');
         
-        let rankDisplay = (myRank !== undefined && myRank !== null) ? `#${myRank}` : 'غير مصنف';
+        let rankDisplay = (myRank !== undefined && myRank !== null && myRank !== 'غير مصنف') ? `#${myRank}` : 'غير مصنف';
         let isTop10 = typeof myRank === 'number' && myRank <= 10;
 
         myRankCard.innerHTML = `
