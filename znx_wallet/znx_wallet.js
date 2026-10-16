@@ -1,7 +1,7 @@
 /**
- * 💎 ZNX Wallet Engine (100% Real Token Price & Live Candles Edition)
- * يجلب السعر الحقيقي لعقد العملة EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ فقط
- * مع اختصارات الأرصدة (K, M, B, T) ومزامنة الكاش الذكية لمنع الحظر
+ * 💎 ZNX Wallet Engine (Exact STON.fi Price & 5m Real Candles Only Edition)
+ * بدون أي حركة وهمية للسعر وبدون أي شموع مولدة عشوائياً
+ * يثبت السعر تماماً طالما لم تحدث صفقة جديدة على STON.fi
  */
 
 // ==================== الثوابت ومتغيرات النظام ====================
@@ -18,22 +18,20 @@ let allTiersList = [];
 let globalTotalZnx = 0;
 let maxGlobalZnx = 32500000;
 
-// حالة السعر الحقيقي المباشر (بدون أي سعر وهمي)
+// حالة السعر الحقيقي الثابت (يتغير فقط عند تغير السعر الحقيقي في STON.fi)
 let currentLivePrice = 0;
-let targetLivePrice = 0;
 let currentChange24h = 0;
 let currentHigh24h = 0;
 let currentLow24h = 0;
 let priceFetchTimer = null;
-let smoothLoopTimer = null;
-let isPriceInitialized = false;
-let hasRenderedCandles = false;
+let candlesFetchTimer = null;
+let rawCandlesHistory = [];
 
-// محرك الرسم البياني
+// محرك الرسم البياني (فريم 5 دقائق ثابت)
+const FIXED_TIMEFRAME_SEC = 300; // 5m
 let tvChart = null;
 let candleSeries = null;
 let currentCandle = null;
-let currentTimeframe = '5m';
 let lastCandleTime = 0;
 
 // ==================== الأدوات المساعدة وتنسيق الأرصدة المختصرة ====================
@@ -53,17 +51,6 @@ function getUserId() {
     }
     const urlParams = new URLSearchParams(window.location.search);
     return urlParams.get('user_id') || urlParams.get('tg_id') || urlParams.get('telegram_id') || "5102387551";
-}
-
-function getTimeframeSeconds(tf) {
-    switch(String(tf).toLowerCase()) {
-        case '1m': return 60;
-        case '5m': return 300;
-        case '15m': return 900;
-        case '1h': return 3600;
-        case '1d': return 86400;
-        default: return 300;
-    }
 }
 
 /**
@@ -118,8 +105,6 @@ function formatCompactPlain(val) {
 function formatPriceUsd(val) {
     const num = parseFloat(val) || 0;
     if (num <= 0) return "...";
-    if (num < 0.0000001) return `$${num.toFixed(9)}`;
-    if (num < 0.000001) return `$${num.toFixed(8)}`;
     if (num < 0.0001) return `$${num.toFixed(7)}`;
     if (num < 0.01) return `$${num.toFixed(6)}`;
     if (num < 1) return `$${num.toFixed(5)}`;
@@ -146,154 +131,74 @@ async function apiFetch(endpoint, options = {}) {
     return null;
 }
 
-// ==================== محرك جلب السعر الحقيقي لعقد العملة ====================
-async function fetchRealZnxPriceFromDirectSources() {
-    let foundPrice = 0;
-    let foundChange = 0;
-    let foundHigh = 0;
-    let foundLow = 0;
+// ==================== محرك جلب السعر الحقيقي المطابق لـ STON.fi ====================
+async function fetchExactStonfiPriceDirect() {
+    let stonPrice = 0;
+    let foundChange = currentChange24h;
+    let foundHigh = currentHigh24h;
+    let foundLow = currentLow24h;
     let foundPool = null;
-    let sourceName = '';
+    let sourceName = 'stonfi';
 
-    // 1. البحث المباشر بعقد العملة في GeckoTerminal Token Pools
+    // 1. جلب تسعيرة STON.fi المباشرة لـ 1 ZNX مقابل USDT (نفس شاشة STON.fi بالضبط: 0.000894)
     try {
-        const res = await fetch(`https://api.geckoterminal.com/api/v2/networks/ton/tokens/${ZNX_TOKEN_CONTRACT}/pools?page=1`, {
-            headers: { 'Accept': 'application/json' }
-        });
+        const revUrl = `https://api.ston.fi/v1/reverse_swap/simulate?offer_address=${USDT_TOKEN_CONTRACT}&ask_address=${ZNX_TOKEN_CONTRACT}&ask_units=1000000000&slippage_tolerance=0.01`;
+        const res = await fetch(revUrl, { method: 'POST' });
         if (res.ok) {
-            const json = await res.json();
-            const firstPool = Array.isArray(json?.data) ? json.data[0] : null;
-            const attrs = firstPool?.attributes;
-            if (attrs) {
-                const p = parseFloat(attrs.token_price_usd || attrs.base_token_price_usd || 0);
-                if (p > 0) {
-                    foundPrice = p;
-                    foundChange = parseFloat(attrs.price_change_percentage?.h24 || 0);
-                    if (attrs.address) foundPool = attrs.address;
-                    sourceName = 'geckoterminal_pools';
-                }
+            const data = await res.json();
+            const offerUnits = parseFloat(data?.offer_units || 0);
+            if (offerUnits > 0) {
+                stonPrice = Number((offerUnits / 1e6).toFixed(6));
+                if (data.pool_address) foundPool = data.pool_address;
+                sourceName = 'stonfi_reverse_simulate';
             }
         }
     } catch (e) {}
 
-    // 2. البحث المباشر بعقد العملة في DexScreener Token Pairs v1
-    if (foundPrice <= 0) {
-        try {
-            const res = await fetch(`https://api.dexscreener.com/token-pairs/v1/ton/${ZNX_TOKEN_CONTRACT}`);
-            if (res.ok) {
-                const pairs = await res.json();
-                const pair = Array.isArray(pairs) && pairs.length > 0 ? pairs[0] : null;
-                if (pair && pair.priceUsd) {
-                    const p = parseFloat(pair.priceUsd);
-                    if (p > 0) {
-                        foundPrice = p;
-                        foundChange = parseFloat(pair.priceChange?.h24 || 0);
-                        foundHigh = parseFloat(pair.high24h || pair.priceHigh24h || 0);
-                        foundLow = parseFloat(pair.low24h || pair.priceLow24h || 0);
-                        if (pair.pairAddress) foundPool = pair.pairAddress;
-                        sourceName = 'dexscreener_v1';
-                    }
-                }
-            }
-        } catch (e) {}
-    }
-
-    // 3. البحث المباشر بعقد العملة في DexScreener Latest Tokens
-    if (foundPrice <= 0) {
-        try {
-            const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`);
-            if (res.ok) {
-                const data = await res.json();
-                const pair = Array.isArray(data?.pairs) && data.pairs.length > 0 ? data.pairs[0] : null;
-                if (pair && pair.priceUsd) {
-                    const p = parseFloat(pair.priceUsd);
-                    if (p > 0) {
-                        foundPrice = p;
-                        foundChange = parseFloat(pair.priceChange?.h24 || 0);
-                        if (pair.pairAddress) foundPool = pair.pairAddress;
-                        sourceName = 'dexscreener_tokens';
-                    }
-                }
-            }
-        } catch (e) {}
-    }
-
-    // 4. البحث المباشر بعقد العملة في TonAPI v2 Rates
-    if (foundPrice <= 0) {
-        try {
-            const res = await fetch(`https://tonapi.io/v2/rates?tokens=${ZNX_TOKEN_CONTRACT}&currencies=usd`);
-            if (res.ok) {
-                const data = await res.json();
-                const rateObj = data?.rates?.[ZNX_TOKEN_CONTRACT];
-                const p = parseFloat(rateObj?.prices?.USD || 0);
-                if (p > 0) {
-                    foundPrice = p;
-                    const diffStr = String(rateObj?.diff_24h?.USD || '0').replace('%', '').replace('+', '').replace('−', '-');
-                    foundChange = parseFloat(diffStr) || 0;
-                    sourceName = 'tonapi';
-                }
-            }
-        } catch (e) {}
-    }
-
-    // 5. البحث المباشر في STON.fi Assets & On-Chain Swap Simulator
-    if (foundPrice <= 0) {
+    // 2. إذا لم ترد المحاكاة العكسية، نفحص STON.fi Asset API
+    if (stonPrice <= 0) {
         try {
             const res = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
             if (res.ok) {
                 const data = await res.json();
                 const p = parseFloat(data?.asset?.dex_usd_price || data?.asset?.third_party_usd_price || 0);
                 if (p > 0) {
-                    foundPrice = p;
+                    stonPrice = Number(p.toFixed(6));
                     sourceName = 'stonfi_asset';
                 }
             }
         } catch (e) {}
     }
 
-    if (foundPrice <= 0) {
-        try {
-            const simUrl = `https://api.ston.fi/v1/swap/simulate?offer_address=${ZNX_TOKEN_CONTRACT}&ask_address=${USDT_TOKEN_CONTRACT}&units=1000000000&slippage_tolerance=0.01`;
-            const res = await fetch(simUrl, { method: 'POST' });
-            if (res.ok) {
-                const sim = await res.json();
-                const askUnits = parseFloat(sim?.ask_units || 0);
-                if (askUnits > 0) {
-                    foundPrice = askUnits / 1e6;
-                    if (sim.pool_address) foundPool = sim.pool_address;
-                    sourceName = 'stonfi_simulate';
+    // 3. جلب نسبة التغير 24h من DexScreener
+    try {
+        const res = await fetch(`https://api.dexscreener.com/token-pairs/v1/ton/${ZNX_TOKEN_CONTRACT}`);
+        if (res.ok) {
+            const pairs = await res.json();
+            const pair = Array.isArray(pairs) && pairs.length > 0 ? pairs[0] : null;
+            if (pair) {
+                if (pair.pairAddress && !foundPool) foundPool = pair.pairAddress;
+                if (pair.priceChange?.h24 !== undefined) foundChange = parseFloat(pair.priceChange.h24) || 0;
+                if (stonPrice <= 0 && pair.priceUsd) {
+                    stonPrice = Number(parseFloat(pair.priceUsd).toFixed(6));
+                    sourceName = 'dexscreener';
                 }
             }
-        } catch (e) {}
-    }
+        }
+    } catch (e) {}
 
-    if (foundPrice > 0) {
+    if (stonPrice > 0) {
         if (foundPool) ZNX_POOL_ADDRESS = foundPool;
-        const swing = Math.max(0.015, Math.abs(foundChange) / 100.0);
-        const h24 = foundHigh > 0 ? Math.max(foundHigh, foundPrice) : foundPrice * (1 + swing * 0.6);
-        const l24 = foundLow > 0 ? Math.min(foundLow, foundPrice) : foundPrice * Math.max(0.0001, 1 - swing * 0.6);
+        applyRealStaticPrice(stonPrice, foundChange, foundHigh, foundLow);
 
-        currentChange24h = foundChange;
-        currentHigh24h = h24;
-        currentLow24h = l24;
-
-        setTargetPrice(foundPrice);
-        updateMarketStatsUI({
-            price: foundPrice,
-            change_24h: foundChange,
-            high_24h: h24,
-            low_24h: l24
-        });
-
-        // إرسال السعر الحقيقي المكتشف إلى كاش السيرفر لخدمة بقية المستخدمين فوراً
         apiFetch('/sync-market', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                price: foundPrice,
+                price: stonPrice,
                 change_24h: foundChange,
-                high_24h: h24,
-                low_24h: l24,
+                high_24h: currentHigh24h,
+                low_24h: currentLow24h,
                 pool_address: ZNX_POOL_ADDRESS,
                 source: sourceName
             })
@@ -301,12 +206,11 @@ async function fetchRealZnxPriceFromDirectSources() {
 
         return true;
     }
-
     return false;
 }
 
 async function fetchRealZnxPrice() {
-    // 1. فحص كاش السيرفر أولاً (الأسرع، ويحمي من Rate-Limit عند دخول الملايين)
+    // 1. فحص كاش السيرفر أولاً
     try {
         const serverData = await apiFetch(`/price?t=${Date.now()}`, {
             method: 'GET',
@@ -315,111 +219,92 @@ async function fetchRealZnxPrice() {
         });
 
         if (serverData && serverData.has_price && serverData.price > 0) {
-            const livePrice = parseFloat(serverData.price);
+            const livePrice = Number(parseFloat(serverData.price).toFixed(6));
             if (serverData.pool_address) ZNX_POOL_ADDRESS = serverData.pool_address;
             if (serverData.pool_created_at) window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
             
-            currentChange24h = serverData.change_24h !== undefined ? parseFloat(serverData.change_24h) : currentChange24h;
-            currentHigh24h = parseFloat(serverData.high_24h || livePrice * 1.03);
-            currentLow24h = parseFloat(serverData.low_24h || livePrice * 0.97);
+            const ch24 = serverData.change_24h !== undefined ? parseFloat(serverData.change_24h) : currentChange24h;
+            const h24 = parseFloat(serverData.high_24h || livePrice);
+            const l24 = parseFloat(serverData.low_24h || livePrice);
 
-            setTargetPrice(livePrice);
-            updateMarketStatsUI({
-                price: livePrice,
-                change_24h: currentChange24h,
-                high_24h: currentHigh24h,
-                low_24h: currentLow24h
-            });
+            applyRealStaticPrice(livePrice, ch24, h24, l24);
             return;
         }
     } catch (e) {}
 
-    // 2. إذا كان السيرفر لم يجلب السعر بعد (بسبب حظر Railway)، يجلبه الهاتف مباشرة ويغذي السيرفر
-    await fetchRealZnxPriceFromDirectSources();
+    // 2. جلب السعر مباشرة من STON.fi وتغذية السيرفر
+    await fetchExactStonfiPriceDirect();
 }
 
-function setTargetPrice(newPrice) {
+function applyRealStaticPrice(newPrice, change24h, high24h, low24h) {
     if (!newPrice || isNaN(newPrice) || newPrice <= 0) return;
-    
-    const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
 
-    if (!isPriceInitialized || currentLivePrice <= 0) {
-        currentLivePrice = newPrice;
-        targetLivePrice = newPrice;
-        isPriceInitialized = true;
-        if (priceEl) priceEl.innerText = formatPriceUsd(newPrice);
+    const cleanPrice = Number(parseFloat(newPrice).toFixed(6));
+    const priceEl = document.getElementById('livePrice');
 
-        if (!hasRenderedCandles) {
-            loadChartData(currentTimeframe);
-        } else {
-            updateChartTick(newPrice);
-        }
-        return;
-    }
-
-    if (priceEl && Math.abs(newPrice - targetLivePrice) > 1e-11) {
+    // وميض أخضر أو أحمر فقط إذا تغير السعر الحقيقي فعلياً على المنصة
+    if (currentLivePrice > 0 && Math.abs(cleanPrice - currentLivePrice) >= 0.000001 && priceEl) {
         priceEl.classList.remove('price-up', 'price-down');
-        priceEl.classList.add(newPrice >= targetLivePrice ? 'price-up' : 'price-down');
-        setTimeout(() => priceEl.classList.remove('price-up', 'price-down'), 700);
+        priceEl.classList.add(cleanPrice > currentLivePrice ? 'price-up' : 'price-down');
+        setTimeout(() => priceEl.classList.remove('price-up', 'price-down'), 800);
     }
-    
-    targetLivePrice = newPrice;
+
+    const priceChanged = Math.abs(cleanPrice - currentLivePrice) >= 0.000001;
+    currentLivePrice = cleanPrice;
+    if (change24h !== undefined && !isNaN(change24h)) currentChange24h = parseFloat(change24h);
+
+    if (high24h && high24h > 0) {
+        currentHigh24h = Math.max(high24h, cleanPrice);
+    } else if (currentHigh24h <= 0 || cleanPrice > currentHigh24h) {
+        currentHigh24h = cleanPrice;
+    }
+
+    if (low24h && low24h > 0) {
+        currentLow24h = Math.min(low24h, cleanPrice);
+    } else if (currentLow24h <= 0 || cleanPrice < currentLow24h) {
+        currentLow24h = cleanPrice;
+    }
+
+    updateMarketStatsUI();
+
+    if (rawCandlesHistory.length === 0) {
+        loadChartData();
+    } else if (priceChanged) {
+        updateRealCandleOnPriceChange(cleanPrice);
+    }
 }
 
-function updateSmoothTick() {
-    if (targetLivePrice <= 0) return;
+function updateMarketStatsUI() {
+    const priceEl = document.getElementById('livePrice');
+    const changeEl = document.getElementById('statChange24h');
+    const highEl = document.getElementById('statHigh24h');
+    const lowEl = document.getElementById('statLow24h');
 
-    if (currentLivePrice <= 0) {
-        currentLivePrice = targetLivePrice;
-    } else {
-        const diff = targetLivePrice - currentLivePrice;
-        if (Math.abs(diff) > 1e-11) {
-            currentLivePrice += diff * 0.25;
-        } else {
-            // نبض حيوي دقيق للغاية (0.005%) حول السعر الحقيقي نفسه لتحريك الشمعة الحالية بلحظية
-            const microPulse = Math.sin(Date.now() / 500) * (targetLivePrice * 0.00005);
-            currentLivePrice = targetLivePrice + microPulse;
-        }
-    }
-
-    const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
-    if (priceEl) {
+    if (priceEl && currentLivePrice > 0) {
         priceEl.innerText = formatPriceUsd(currentLivePrice);
     }
 
-    updateChartTick(currentLivePrice);
-}
-
-function updateMarketStatsUI(data) {
-    const priceEl = document.getElementById('livePrice') || document.getElementById('znx-live-price');
-    const changeEl = document.getElementById('statChange24h') || document.getElementById('znx-24h-change');
-    const highEl = document.getElementById('statHigh24h') || document.getElementById('znx-high-24h');
-    const lowEl = document.getElementById('statLow24h') || document.getElementById('znx-low-24h');
-
-    if (priceEl && data.price > 0) {
-        priceEl.innerText = formatPriceUsd(data.price);
-    }
-
-    if (changeEl && data.change_24h !== undefined) {
-        const ch = parseFloat(data.change_24h) || 0;
+    if (changeEl) {
+        const ch = parseFloat(currentChange24h) || 0;
         changeEl.innerText = `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`;
         changeEl.style.color = ch >= 0 ? 'var(--accent-green, #10b981)' : 'var(--accent-red, #ef4444)';
     }
 
-    if (highEl && data.high_24h > 0) highEl.innerText = formatPriceUsd(data.high_24h);
-    if (lowEl && data.low_24h > 0) lowEl.innerText = formatPriceUsd(data.low_24h);
+    if (highEl && currentHigh24h > 0) highEl.innerText = formatPriceUsd(currentHigh24h);
+    if (lowEl && currentLow24h > 0) lowEl.innerText = formatPriceUsd(currentLow24h);
 }
 
 function startLivePriceEngine() {
     fetchRealZnxPrice();
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 4000);
+    // فحص السعر الحقيقي كل 6 ثوانٍ بهدوء بدون أي حركة وهمية بين الفحوصات
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 6000);
 
-    if (smoothLoopTimer) clearInterval(smoothLoopTimer);
-    smoothLoopTimer = setInterval(updateSmoothTick, 250);
+    if (candlesFetchTimer) clearInterval(candlesFetchTimer);
+    candlesFetchTimer = setInterval(loadChartData, 25000);
 }
 
-// ==================== محرك الرسم البياني (Candlestick Chart Engine) ====================
+// ==================== محرك الرسم البياني (5 دقائق شموع حقيقية فقط) ====================
 function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) return;
@@ -467,7 +352,7 @@ function initChart() {
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
             rightPriceScale: {
                 borderColor: '#1e293b',
-                scaleMargins: { top: 0.15, bottom: 0.15 },
+                scaleMargins: { top: 0.2, bottom: 0.2 },
                 autoScale: true,
             },
             timeScale: {
@@ -475,8 +360,8 @@ function initChart() {
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 3,
-                barSpacing: 7,
-                minBarSpacing: 3,
+                barSpacing: 8,
+                minBarSpacing: 4,
                 fixLeftEdge: false,
                 tickMarkFormatter: (time) => {
                     const date = new Date(time * 1000);
@@ -498,11 +383,11 @@ function initChart() {
             priceFormat: {
                 type: 'custom',
                 formatter: (price) => formatPriceUsd(price),
-                minMove: 0.00000001,
+                minMove: 0.000001,
             },
         });
 
-        loadChartData(currentTimeframe);
+        loadChartData();
 
         const resizeObserver = new ResizeObserver(entries => {
             if (entries[0] && tvChart) {
@@ -518,29 +403,20 @@ function initChart() {
     }
 }
 
-async function loadChartData(tf) {
+async function loadChartData() {
     if (!candleSeries) return;
 
-    // 1. جلب الشموع من كاش السيرفر
-    const data = await apiFetch(`/candles?tf=${encodeURIComponent(tf)}&t=${Date.now()}`);
+    // 1. جلب الشموع الحقيقية (5m) من السيرفر
+    const data = await apiFetch(`/candles?tf=5m&t=${Date.now()}`);
     if (data && Array.isArray(data.candles) && data.candles.length > 0) {
         if (data.pool_address) ZNX_POOL_ADDRESS = data.pool_address;
-        applyCandlesToChart(data.candles);
+        applyRealCandlesToChart(data.candles);
         return;
     }
 
-    // 2. جلب الشموع مباشرة من GeckoTerminal للمجمّع الخاص بالعملة
-    const tfMap = {
-        '1m': ['minute', 1],
-        '5m': ['minute', 5],
-        '15m': ['minute', 15],
-        '1h': ['hour', 1],
-        '1d': ['day', 1]
-    };
-    const [period, agg] = tfMap[String(tf).toLowerCase()] || ['minute', 5];
-
+    // 2. جلب الشموع الحقيقية (5m) مباشرة من GeckoTerminal للمجمّع الخاص بالعملة
     try {
-        const geckoUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=70`;
+        const geckoUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=70`;
         const res = await fetch(geckoUrl, { headers: { 'Accept': 'application/json' } });
         if (res.ok) {
             const gJson = await res.json();
@@ -555,21 +431,15 @@ async function loadChartData(tf) {
                 })).filter(c => c.close > 0);
 
                 if (parsed.length > 0) {
-                    applyCandlesToChart(parsed);
-                    // مزامنة الشموع والسعر مع السيرفر
-                    const latestClose = parsed[parsed.length - 1].close;
-                    if (targetLivePrice <= 0 && latestClose > 0) {
-                        setTargetPrice(latestClose);
-                    }
+                    applyRealCandlesToChart(parsed);
                     apiFetch('/sync-market', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            price: targetLivePrice > 0 ? targetLivePrice : latestClose,
-                            tf: tf,
-                            candles: parsed,
+                            price: currentLivePrice > 0 ? currentLivePrice : parsed[parsed.length - 1].close,
+                            candles: rawCandlesHistory,
                             pool_address: ZNX_POOL_ADDRESS,
-                            source: 'client_gecko_ohlcv'
+                            source: 'client_gecko_5m_ohlcv'
                         })
                     }).catch(() => {});
                     return;
@@ -577,28 +447,25 @@ async function loadChartData(tf) {
             }
         }
     } catch (e) {}
-
-    // 3. إذا توفر السعر الحقيقي للعملة، نولد الشموع المرتبطة بالسعر الحقيقي الفعلي
-    if (targetLivePrice > 0) {
-        generateAccurateTimeboundCandles(tf);
-    }
 }
 
-function applyCandlesToChart(candles) {
+function applyRealCandlesToChart(candles) {
     if (!candleSeries || !candles || candles.length === 0) return;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const currentPeriod = Math.floor(nowSec / FIXED_TIMEFRAME_SEC) * FIXED_TIMEFRAME_SEC;
 
     let cleanCandles = [];
     let seenTimes = new Set();
-    const nowSec = Math.floor(Date.now() / 1000);
 
     for (let c of candles) {
-        let t = Math.floor(Number(c.time));
+        let t = Math.floor(Number(c.time) / FIXED_TIMEFRAME_SEC) * FIXED_TIMEFRAME_SEC;
         let o = Number(c.open);
         let h = Number(c.high);
         let l = Number(c.low);
         let cl = Number(c.close);
 
-        if (!isNaN(t) && t > 0 && t <= nowSec + 120 && !seenTimes.has(t) && cl > 0) {
+        if (!isNaN(t) && t > 0 && t <= currentPeriod + FIXED_TIMEFRAME_SEC && !seenTimes.has(t) && cl > 0) {
             seenTimes.add(t);
             cleanCandles.push({ time: t, open: o, high: h, low: l, close: cl });
         }
@@ -607,127 +474,70 @@ function applyCandlesToChart(candles) {
     cleanCandles.sort((a, b) => a.time - b.time);
     if (cleanCandles.length === 0) return;
 
+    // موازنة الشموع مع تسعيرة STON.fi الحالية لمنع أي قفزة وهمية ناتجة عن اختلاف تسعير الدولار بين المنصات
+    const lastRawClose = cleanCandles[cleanCandles.length - 1].close;
+    if (currentLivePrice > 0 && lastRawClose > 0) {
+        const ratio = currentLivePrice / lastRawClose;
+        if (ratio >= 0.70 && ratio <= 1.30 && Math.abs(ratio - 1.0) > 0.0001) {
+            cleanCandles = cleanCandles.map(c => ({
+                time: c.time,
+                open: Number((c.open * ratio).toFixed(6)),
+                high: Number((c.high * ratio).toFixed(6)),
+                low: Number((c.low * ratio).toFixed(6)),
+                close: Number((c.close * ratio).toFixed(6))
+            }));
+        }
+        const lastIdx = cleanCandles.length - 1;
+        cleanCandles[lastIdx].close = currentLivePrice;
+        cleanCandles[lastIdx].high = Math.max(cleanCandles[lastIdx].high, currentLivePrice);
+        cleanCandles[lastIdx].low = Math.min(cleanCandles[lastIdx].low, currentLivePrice);
+    }
+
+    // حساب أعلى وأدنى سعر حقيقي من الشموع الفعلية
+    let maxH = currentLivePrice;
+    let minL = currentLivePrice > 0 ? currentLivePrice : cleanCandles[0].low;
+    for (const c of cleanCandles) {
+        if (c.high > maxH) maxH = c.high;
+        if (c.low > 0 && c.low < minL) minL = c.low;
+    }
+    if (maxH > 0) currentHigh24h = maxH;
+    if (minL > 0) currentLow24h = minL;
+    updateMarketStatsUI();
+
+    rawCandlesHistory = cleanCandles;
     candleSeries.setData(cleanCandles);
-    hasRenderedCandles = true;
 
     const last = cleanCandles[cleanCandles.length - 1];
     lastCandleTime = last.time;
     currentCandle = { ...last };
 
-    if (last.close > 0 && targetLivePrice <= 0) {
-        setTargetPrice(last.close);
-    }
-
-    if (targetLivePrice > 0) {
-        currentCandle.close = targetLivePrice;
-        if (targetLivePrice > currentCandle.high) currentCandle.high = targetLivePrice;
-        if (targetLivePrice < currentCandle.low) currentCandle.low = targetLivePrice;
-        candleSeries.update(currentCandle);
-    }
-
     if (tvChart?.timeScale) tvChart.timeScale().fitContent();
 }
 
-function generateAccurateTimeboundCandles(tf) {
-    if (!candleSeries || targetLivePrice <= 0) return;
+function updateRealCandleOnPriceChange(realPrice) {
+    if (!candleSeries || realPrice <= 0 || !currentCandle) return;
 
-    const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
-    const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
-    const basePrice = targetLivePrice;
-    const count = 65;
+    const candlePeriodStart = Math.floor(nowSec / FIXED_TIMEFRAME_SEC) * FIXED_TIMEFRAME_SEC;
 
-    const ratioOfDay = Math.min(1.0, (count * tfSec) / 86400.0);
-    const estChange = (currentChange24h / 100.0) * ratioOfDay;
-    const startPrice = (1.0 + estChange) > 0.1 ? basePrice / (1.0 + estChange) : basePrice * 0.98;
-
-    let rawCandles = [];
-    let currOpen = startPrice;
-
-    for (let i = 0; i < count; i++) {
-        const t = currentPeriodStart - ((count - 1 - i) * tfSec);
-        const progress = (i + 1) / count;
-        const targetTrend = startPrice + (basePrice - startPrice) * progress;
-
-        let currClose;
-        if (i === count - 1) {
-            currClose = basePrice;
-        } else {
-            const wave1 = Math.sin((t / tfSec) * 0.85) * 0.0030 * basePrice;
-            const wave2 = Math.cos((t / tfSec) * 1.90) * 0.0020 * basePrice;
-            currClose = Math.max(0.00000001, currOpen + (targetTrend - currOpen) * 0.40 + wave1 + wave2);
-        }
-
-        const minBody = basePrice * 0.0005;
-        if (Math.abs(currClose - currOpen) < minBody && i < count - 1) {
-            currClose = ((t / tfSec) % 2 === 0) ? (currOpen + minBody) : Math.max(0.00000001, currOpen - minBody);
-        }
-
-        const wickUp = (Math.abs(Math.sin(t * 0.37)) * 0.0018 + 0.0004) * basePrice;
-        const wickDn = (Math.abs(Math.cos(t * 0.53)) * 0.0018 + 0.0004) * basePrice;
-
-        const cHigh = Math.max(currOpen, currClose) + wickUp;
-        const cLow = Math.max(0.00000001, Math.min(currOpen, currClose) - wickDn);
-
-        rawCandles.push({
-            time: t,
-            open: parseFloat(currOpen.toFixed(8)),
-            high: parseFloat(cHigh.toFixed(8)),
-            low: parseFloat(cLow.toFixed(8)),
-            close: parseFloat(currClose.toFixed(8))
-        });
-
-        currOpen = currClose;
-    }
-
-    applyCandlesToChart(rawCandles);
-}
-
-function updateChartTick(price) {
-    if (!candleSeries || price <= 0) return;
-
-    if (!hasRenderedCandles) {
-        generateAccurateTimeboundCandles(currentTimeframe);
-        return;
-    }
-
-    const tfSec = getTimeframeSeconds(currentTimeframe);
-    const nowSec = Math.floor(Date.now() / 1000);
-    const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
-
-    if (!currentCandle || candlePeriodStart > lastCandleTime) {
-        const openPrice = currentCandle ? currentCandle.close : price;
+    if (candlePeriodStart > lastCandleTime) {
         lastCandleTime = candlePeriodStart;
         currentCandle = {
             time: lastCandleTime,
-            open: openPrice,
-            high: Math.max(openPrice, price),
-            low: Math.min(openPrice, price),
-            close: price
+            open: realPrice,
+            high: realPrice,
+            low: realPrice,
+            close: realPrice
         };
     } else {
-        currentCandle.close = price;
-        if (price > currentCandle.high) currentCandle.high = price;
-        if (price < currentCandle.low) currentCandle.low = price;
+        currentCandle.close = realPrice;
+        if (realPrice > currentCandle.high) currentCandle.high = realPrice;
+        if (realPrice < currentCandle.low) currentCandle.low = realPrice;
     }
 
     try {
         candleSeries.update(currentCandle);
     } catch (e) {}
-}
-
-function changeTimeframe(tf) {
-    if (!tf) return;
-    currentTimeframe = tf;
-
-    document.querySelectorAll('.tf-btn').forEach(btn => {
-        const txt = btn.getAttribute('data-tf') || btn.innerText.trim().toLowerCase();
-        btn.classList.toggle('active', txt === tf.toLowerCase());
-    });
-
-    if (tvChart) {
-        loadChartData(currentTimeframe);
-    }
 }
 
 // ==================== الوظائف التشغيلية والواجهة ====================
@@ -755,22 +565,15 @@ async function initApp() {
         if (data.pool_created_at) window.ZNX_POOL_CREATED_AT = data.pool_created_at;
 
         if (data.has_price && data.live_price > 0) {
-            const lp = parseFloat(data.live_price);
-            currentChange24h = data.change_24h !== undefined ? parseFloat(data.change_24h) : 0;
-            currentHigh24h = parseFloat(data.high_24h || lp * 1.03);
-            currentLow24h = parseFloat(data.low_24h || lp * 0.97);
-
-            setTargetPrice(lp);
-            updateMarketStatsUI({
-                price: lp,
-                change_24h: currentChange24h,
-                high_24h: currentHigh24h,
-                low_24h: currentLow24h
-            });
+            const lp = Number(parseFloat(data.live_price).toFixed(6));
+            const ch24 = data.change_24h !== undefined ? parseFloat(data.change_24h) : 0;
+            const h24 = parseFloat(data.high_24h || lp);
+            const l24 = parseFloat(data.low_24h || lp);
+            applyRealStaticPrice(lp, ch24, h24, l24);
         }
 
-        if (Array.isArray(data.candles) && data.candles.length > 0 && currentTimeframe === '5m') {
-            applyCandlesToChart(data.candles);
+        if (Array.isArray(data.candles) && data.candles.length > 0) {
+            applyRealCandlesToChart(data.candles);
         }
 
         updateBalancesUI();
@@ -1055,7 +858,6 @@ window.onInputChange = onInputChange;
 window.submitConvert = submitConvert;
 window.initZnxWallet = initApp;
 window.openStonLink = openStonLink;
-window.changeTimeframe = changeTimeframe;
 
 function startZnxModule() {
     if (window.Telegram?.WebApp) {
