@@ -163,38 +163,19 @@
             direction: ltr;
         }
 
-        .tf-bar {
+        .chart-Container-header-badge {
             display: flex;
             justify-content: space-between;
-            gap: 4px;
-            margin-bottom: 8px;
+            align-items: center;
+            font-size: 0.72rem;
+            color: var(--text-muted);
             background: #090d16;
-            padding: 4px;
+            padding: 5px 10px;
             border-radius: 8px;
             border: 1px solid var(--border-color);
-            direction: ltr;
+            margin-bottom: 8px;
         }
 
-        .tf-btn {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            padding: 5px 0;
-            border-radius: 6px;
-            font-size: 0.72rem;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .tf-btn.active {
-            background: #1e293b;
-            color: #38bdf8;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        /* فرض اتجاه LTR على حاوية الشارت لضمان ظهور الشموع بشكل سليم في الواجهة العربية */
         .chart-container-box {
             position: relative;
             width: 100%;
@@ -505,7 +486,7 @@
         </div>
     </div>
 
-    <!-- شاشة التداول والرسم البياني اللحظي المباشر -->
+    <!-- شاشة التداول والرسم البياني الحقيقي المباشر (5 دقائق فقط) -->
     <div class="chart-card">
         <div class="chart-header">
             <div class="pair-title">
@@ -532,13 +513,10 @@
             </div>
         </div>
 
-        <!-- شريط اختيار الإطار الزمني للشموع -->
-        <div class="tf-bar">
-            <button type="button" class="tf-btn" data-tf="1m" onclick="changeTimeframe('1m')">1m</button>
-            <button type="button" class="tf-btn active" data-tf="5m" onclick="changeTimeframe('5m')">5m</button>
-            <button type="button" class="tf-btn" data-tf="15m" onclick="changeTimeframe('15m')">15m</button>
-            <button type="button" class="tf-btn" data-tf="1h" onclick="changeTimeframe('1h')">1h</button>
-            <button type="button" class="tf-btn" data-tf="1d" onclick="changeTimeframe('1d')">1d</button>
+        <!-- شريط معلومات الإطار الزمني الثابت (5 دقائق فقط) -->
+        <div class="chart-Container-header-badge">
+            <span><i class="fa-regular fa-clock" style="color:#38bdf8;"></i> الإطار الزمني: <strong style="color:#e2e8f0;">5 دقائق (5m)</strong></span>
+            <span style="color:#10b981; font-weight:600;">شموع حقيقية مباشرة</span>
         </div>
 
         <!-- حاوية الشموع التفاعلية المباشرة -->
