@@ -4,11 +4,18 @@ window.depositModule = (function () {
     let currentPackages = [];
     let tcInstance = null;
     let statusUnsubscribe = null;
-    let lastSelectedPackageId = null;
+    let selectedPackageObj = null;
     let scriptLoadingPromise = null;
     let isInitializing = false;
     let priceRefreshTimer = null;
     let listenersBound = false;
+
+    // متغيرات التحكم في عداد الـ 15 ثانية وحالة الطلب النشط
+    let countdownTimer = null;
+    let countdownSeconds = 15;
+    let activeOrderMemo = null;
+    let isOrderCancelledByUser = false;
+    let isPaymentVerifying = false;
 
     try {
         localStorage.removeItem('deposit_packages_cache');
@@ -57,19 +64,21 @@ window.depositModule = (function () {
         }
     }
 
-    // تحديث قائمة السجلات تلقائياً بعد أي عملية إيداع
+    // تحديث قائمة السجلات تلقائياً بهدوء بعد اكتمال العملية
     function triggerHistoryRefresh() {
-        try {
-            if (window.historyModule) {
-                if (typeof window.historyModule.refresh === 'function') {
-                    window.historyModule.refresh();
-                } else if (typeof window.historyModule.init === 'function') {
-                    window.historyModule.init();
+        setTimeout(() => {
+            try {
+                if (window.historyModule) {
+                    if (typeof window.historyModule.refresh === 'function') {
+                        window.historyModule.refresh(true);
+                    } else if (typeof window.historyModule.init === 'function') {
+                        window.historyModule.init();
+                    }
                 }
+            } catch (e) {
+                console.warn("⚠️ تعذر تحديث السجلات تلقائياً:", e);
             }
-        } catch (e) {
-            console.warn("⚠️ تعذر تحديث السجلات تلقائياً:", e);
-        }
+        }, 350);
     }
 
     function formatShortAddress(address) {
@@ -364,9 +373,67 @@ window.depositModule = (function () {
         }
     }
 
-    async function buyPackageWithTon(packageId) {
-        lastSelectedPackageId = packageId;
+    // إيقاف العداد التنازلي
+    function stopCountdownTimer() {
+        if (countdownTimer) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+        }
+    }
 
+    // تشغيل العداد التنازلي من 15 ثانية إلى 0 ثم إظهار زر إلغاء الطلب
+    function start15SecCountdown() {
+        stopCountdownTimer();
+        countdownSeconds = 15;
+
+        const countdownBox = document.getElementById('deposit-countdown-box');
+        const numEl = document.getElementById('deposit-countdown-num');
+        const textEl = document.getElementById('deposit-countdown-text');
+        const cancelWrap = document.getElementById('deposit-cancel-btn-wrap');
+
+        if (countdownBox) countdownBox.style.display = 'block';
+        if (cancelWrap) cancelWrap.style.display = 'none';
+        if (numEl) numEl.innerText = '15';
+        if (textEl) textEl.innerText = '15';
+
+        countdownTimer = setInterval(() => {
+            if (isPaymentVerifying) {
+                stopCountdownTimer();
+                if (countdownBox) countdownBox.style.display = 'none';
+                if (cancelWrap) cancelWrap.style.display = 'none';
+                return;
+            }
+
+            countdownSeconds -= 1;
+            if (countdownSeconds > 0) {
+                if (numEl) numEl.innerText = String(countdownSeconds);
+                if (textEl) textEl.innerText = String(countdownSeconds);
+            } else {
+                stopCountdownTimer();
+                if (countdownBox) countdownBox.style.display = 'none';
+                // إظهار زر إلغاء الطلب فقط بعد وصول العداد إلى 0 وطالما لم يبدأ التحقق النهائي من الدفع
+                if (cancelWrap && !isPaymentVerifying) {
+                    cancelWrap.style.display = 'block';
+                }
+            }
+        }, 1000);
+    }
+
+    // التبديل بين مراحل النافذة الثلاث (confirm | waiting | success)
+    function switchModalStep(stepName) {
+        const modal = document.getElementById('deposit-pay-modal');
+        const stepConfirm = document.getElementById('deposit-step-confirm');
+        const stepWaiting = document.getElementById('deposit-step-waiting');
+        const stepSuccess = document.getElementById('deposit-step-success');
+
+        if (stepConfirm) stepConfirm.style.display = stepName === 'confirm' ? 'block' : 'none';
+        if (stepWaiting) stepWaiting.style.display = stepName === 'waiting' ? 'block' : 'none';
+        if (stepSuccess) stepSuccess.style.display = stepName === 'success' ? 'block' : 'none';
+        if (modal) modal.style.display = 'flex';
+    }
+
+    // الخطوة 1: عند الضغط على الباقة، نظهر نافذة الموافقة أولاً ولا نحول تلقائياً
+    async function promptPackageConfirmation(packageId) {
         const tc = await initTonConnect();
         if (!tc || !tc.connected) {
             updateWalletUI(null);
@@ -380,15 +447,54 @@ window.depositModule = (function () {
             return;
         }
 
+        selectedPackageObj = pkg;
+        const effPrice = effectiveTonPrice > 0 ? effectiveTonPrice : (tonPriceUsd / 1.03);
+        const usdtVal = parseFloat(pkg.usdt_amount || 0);
+        const tonEst = (usdtVal / effPrice).toFixed(4);
+
+        const usdtEl = document.getElementById('confirm-pkg-usdt');
+        const tonEl = document.getElementById('confirm-pkg-ton');
+
+        if (usdtEl) usdtEl.innerText = `باقة $${usdtVal} USDT`;
+        if (tonEl) tonEl.innerText = `المبلغ المطلوب: ~ ${tonEst} TON`;
+
+        switchModalStep('confirm');
+    }
+
+    // الخطوة 2: عند ضغط المستخدم على "نعم، موافق" يبدأ الطلب ويظهر عداد 15 ثانية
+    async function confirmAndStartPayment() {
+        if (!selectedPackageObj) {
+            closeModal();
+            return;
+        }
+
+        const pkg = selectedPackageObj;
+        const tc = await initTonConnect();
+        if (!tc || !tc.connected) {
+            closeModal();
+            updateWalletUI(null);
+            await openConnectModal();
+            return;
+        }
+
+        isOrderCancelledByUser = false;
+        isPaymentVerifying = false;
+        activeOrderMemo = null;
+
+        const waitingTitle = document.getElementById('deposit-waiting-title');
+        const statusEl = document.getElementById('deposit-modal-status');
+        if (waitingTitle) waitingTitle.innerText = 'منتظر الدفع...';
+        if (statusEl) statusEl.innerText = 'جاري تجهيز المعاملة وتحويلك إلى المحفظة...';
+
+        switchModalStep('waiting');
+        start15SecCountdown();
+
         const tg = window.Telegram?.WebApp;
         const initData = tg?.initData || '';
         const userId = getValidUserId();
         const senderWallet = tc.wallet?.account?.address || tc.account?.address || '';
-        let createdMemo = null;
 
         try {
-            showModal("⏳ جاري تجهيز بيانات المعاملة...");
-
             const headers = {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
@@ -410,6 +516,8 @@ window.depositModule = (function () {
                 })
             });
 
+            if (isOrderCancelledByUser) return;
+
             const prepText = await prepRes.text();
             let prepData = {};
             try {
@@ -419,20 +527,22 @@ window.depositModule = (function () {
             }
 
             if (!prepRes.ok || !prepData.success) {
-                alert(prepData.error || "تعذر تجهيز طلب الشحن تلقائياً");
+                stopCountdownTimer();
                 closeModal();
+                alert(prepData.error || "تعذر تجهيز طلب الشحن تلقائياً");
                 return;
             }
 
             const destinationWallet = String(prepData.wallet_address || '').trim();
             if (!destinationWallet) {
-                alert("⚠️ لم يتم ضبط عنوان محفظة الاستلام (TON_WALLET_ADDRESS) في إعدادات Railway!");
+                stopCountdownTimer();
                 closeModal();
+                alert("⚠️ لم يتم ضبط عنوان محفظة الاستلام (TON_WALLET_ADDRESS) في إعدادات Railway!");
                 return;
             }
 
             const rawMemo = prepData.payload_memo || prepData.memo;
-            createdMemo = rawMemo;
+            activeOrderMemo = rawMemo;
             const validPayloadBoc = textToTonCommentBoc(rawMemo);
 
             const msg = {
@@ -449,7 +559,9 @@ window.depositModule = (function () {
                 messages: [msg]
             };
 
-            showModal("📲 يرجى تأكيد العملية داخل المحفظة المربوطة...");
+            if (statusEl) {
+                statusEl.innerText = 'منتظر الدفع داخل المحفظة المربوطة...';
+            }
 
             const txResult = await tc.sendTransaction(transaction);
             const boc = txResult?.boc;
@@ -458,7 +570,16 @@ window.depositModule = (function () {
                 throw new Error("لم يتم استلام كود إثبات المعاملة المشفر (BOC)");
             }
 
-            showModal("⚡ جاري التحقق من التحويل وإضافة الرصيد...");
+            // بمجرد استلام BOC من المحفظة، نمنع الإلغاء تماماً لأن المستخدم قد دفع بالفعل
+            isPaymentVerifying = true;
+            stopCountdownTimer();
+            const countdownBox = document.getElementById('deposit-countdown-box');
+            const cancelWrap = document.getElementById('deposit-cancel-btn-wrap');
+            if (countdownBox) countdownBox.style.display = 'none';
+            if (cancelWrap) cancelWrap.style.display = 'none';
+
+            if (waitingTitle) waitingTitle.innerText = '⚡ جاري تأكيد الإيداع...';
+            if (statusEl) statusEl.innerText = 'تم الدفع! جاري التحقق من التحويل وإضافة الرصيد لحسابك...';
 
             const verifyRes = await fetch('/api/wallet/deposit/verify_and_apply', {
                 method: 'POST',
@@ -484,8 +605,8 @@ window.depositModule = (function () {
             }
 
             if (verifyRes.ok && verifyData.success) {
+                const depositedAmount = parseFloat(pkg.usdt_amount || 0);
                 const newBal = parseFloat(verifyData.new_balance ?? verifyData.usd_balance ?? 0);
-                alert(`✅ تمت عملية الدفع بنجاح وزيادة الرصيد!\nرصيد الدولار الجديد: $${newBal.toFixed(2)} USDT`);
 
                 if (!window.userState) window.userState = {};
                 window.userState.usd_balance = newBal;
@@ -494,17 +615,28 @@ window.depositModule = (function () {
                 forceUpdateBalanceDOM(newBal);
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
 
-                // تحديث قائمة السجلات فوراً لتظهر المعاملة الجديدة
+                // عرض نافذة النجاح بالتفصيل (المبلغ المودع + الرصيد الكلي الجديد)
+                const depAmtEl = document.getElementById('success-deposited-amount');
+                const newBalEl = document.getElementById('success-new-balance');
+                if (depAmtEl) depAmtEl.innerText = `+$${depositedAmount} USDT`;
+                if (newBalEl) newBalEl.innerText = `$${newBal.toFixed(4)} USDT`;
+
+                switchModalStep('success');
                 triggerHistoryRefresh();
-                closeModal();
             } else {
+                closeModal();
                 alert(`⚠️ ${verifyData.error || 'لم يتم تأكيد الشحن، يرجى المحاولة لاحقاً.'}`);
                 triggerHistoryRefresh();
-                closeModal();
             }
 
         } catch (e) {
-            console.error("❌ خطأ عملية الشحن التلقائي:", e);
+            if (isOrderCancelledByUser) {
+                return;
+            }
+            console.error("❌ خطأ عملية الشحن:", e);
+            stopCountdownTimer();
+            closeModal();
+
             const isUserCancel = e.message && (
                 e.message.includes('User rejected') ||
                 e.message.includes('Canceled') ||
@@ -513,34 +645,37 @@ window.depositModule = (function () {
             );
 
             if (isUserCancel) {
-                // إذا ألغى المستخدم الدفع من المحفظة نحذف الفاتورة المبدئية حتى لا تعلق في السجلات
-                await cancelPendingInvoiceOnServer(createdMemo, 'cancelled', 'تم إلغاء العملية من قبل المستخدم', true);
+                await cancelPendingInvoiceOnServer(activeOrderMemo, 'cancelled', 'تم إلغاء العملية من قبل المستخدم', true);
                 alert("تم إلغاء عملية الدفع من قبل المستخدم.");
             } else {
-                await cancelPendingInvoiceOnServer(createdMemo, 'failed', e.message || 'خطأ أثناء تنفيذ الدفع', false);
+                await cancelPendingInvoiceOnServer(activeOrderMemo, 'failed', e.message || 'خطأ أثناء تنفيذ الدفع', false);
                 alert(`حدث خطأ أثناء تنفيذ الدفع: ${e.message || 'خطأ غير معروف'}`);
             }
             triggerHistoryRefresh();
-            closeModal();
         }
     }
 
-    function showModal(msg) {
-        const modal = document.getElementById('deposit-pay-modal');
-        const statusEl = document.getElementById('deposit-modal-status');
-        if (statusEl && msg) statusEl.innerText = msg;
-        if (modal) modal.style.display = 'flex';
+    // إلغاء الطلب يدوياً بعد انتهاء الـ 15 ثانية
+    async function cancelActiveOrder() {
+        if (isPaymentVerifying) {
+            return;
+        }
+        isOrderCancelledByUser = true;
+        stopCountdownTimer();
+        const memoToCancel = activeOrderMemo;
+        activeOrderMemo = null;
+        closeModal();
+
+        if (memoToCancel) {
+            await cancelPendingInvoiceOnServer(memoToCancel, 'cancelled', 'تم إلغاء الطلب من قبل المستخدم', true);
+            triggerHistoryRefresh();
+        }
     }
 
     function closeModal() {
+        stopCountdownTimer();
         const modal = document.getElementById('deposit-pay-modal');
         if (modal) modal.style.display = 'none';
-    }
-
-    function retrySelectedPackage() {
-        if (lastSelectedPackageId) {
-            buyPackageWithTon(lastSelectedPackageId);
-        }
     }
 
     function bindEventsOnce() {
@@ -595,9 +730,10 @@ window.depositModule = (function () {
         init,
         openConnectModal,
         disconnectWallet,
-        selectPackage: buyPackageWithTon,
-        buyPackageWithTon,
-        retrySelectedPackage,
+        selectPackage: promptPackageConfirmation,
+        buyPackageWithTon: promptPackageConfirmation,
+        confirmAndStartPayment,
+        cancelActiveOrder,
         closeModal
     };
 })();
