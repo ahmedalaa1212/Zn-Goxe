@@ -318,8 +318,9 @@ window.depositModule = (function () {
 
     async function loadPackages() {
         const grid = document.getElementById('deposit-packages-grid');
+        // هنا تم تغيير النص ليكون "جاري التحميل..." فقط، بدلاً من ذكر اسم قاعدة البيانات
         if (grid && (!currentPackages || currentPackages.length === 0)) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن وسعر العملة من Supabase...</div>`;
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري تحميل باقات الشحن والأسعار...</div>`;
         } else if (grid && currentPackages.length > 0) {
             renderPackages(currentPackages);
         }
