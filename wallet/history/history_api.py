@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, make_response
 import logging
 import os
 import sys
@@ -16,17 +16,25 @@ except ImportError:
 history_bp = Blueprint('history_api', __name__)
 logger = logging.getLogger('history_api')
 
+
+def _build_json_response(payload: dict, status_code: int = 200):
+    res = make_response(jsonify(payload), status_code)
+    res.headers['Access-Control-Allow-Origin'] = '*'
+    res.headers['Access-Control-Allow-Headers'] = '*'
+    res.headers['Access-Control-Allow-Methods'] = '*'
+    res.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    res.headers['Pragma'] = 'no-cache'
+    res.headers['Expires'] = '0'
+    return res
+
+
 @history_bp.route('/transactions', methods=['GET', 'POST', 'OPTIONS'])
 def get_history_transactions():
     """
-    جلب كافة سجلات الإيداع والسحب الخاصة بالمستخدم من Supabase
+    جلب كافة سجلات الإيداع والسحب الخاصة بالمستخدم من Supabase بسرعة ودون كاش متصفح معلق
     """
     if request.method == 'OPTIONS':
-        res = jsonify({'status': 'ok'})
-        res.headers['Access-Control-Allow-Origin'] = '*'
-        res.headers['Access-Control-Allow-Headers'] = '*'
-        res.headers['Access-Control-Allow-Methods'] = '*'
-        return res, 200
+        return _build_json_response({'status': 'ok'}, 200)
 
     try:
         req_json = request.get_json(silent=True) if request.is_json else {}
@@ -42,38 +50,34 @@ def get_history_transactions():
             req_json.get('tg_id')
         )
 
-        if not user_id_raw:
-            response = jsonify({
+        if not user_id_raw or str(user_id_raw).strip() in ['', '0', 'null', 'undefined']:
+            return _build_json_response({
                 'success': False,
                 'message': 'معرّف المستخدم غير موجود (User ID missing)',
                 'transactions': []
-            })
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            return response, 400
+            }, 400)
 
         user_id = str(user_id_raw).strip()
-        transactions = get_user_transaction_history(user_id)
+        force_refresh = str(request.args.get('force', '0')) == '1'
+
+        transactions = get_user_transaction_history(user_id, force_refresh=force_refresh)
 
         deposit_count = sum(1 for t in transactions if t.get('type') == 'deposit')
         withdraw_count = sum(1 for t in transactions if t.get('type') == 'withdraw')
 
-        response = jsonify({
+        return _build_json_response({
             'success': True,
             'count': len(transactions),
             'deposit_count': deposit_count,
             'withdraw_count': withdraw_count,
             'transactions': transactions
-        })
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response, 200
+        }, 200)
 
     except Exception as e:
         logger.error(f"❌ [history_api] Error fetching transactions: {e}")
-        response = jsonify({
+        return _build_json_response({
             'success': False,
             'message': 'حدث خطأ داخلي أثناء استرجاع السجلات من قاعدة البيانات',
             'error': str(e),
             'transactions': []
-        })
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response, 500
+        }, 500)
