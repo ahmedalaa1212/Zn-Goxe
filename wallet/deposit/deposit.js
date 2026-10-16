@@ -6,7 +6,6 @@ window.depositModule = (function () {
     let statusUnsubscribe = null;
     let selectedPackageObj = null;
     let scriptLoadingPromise = null;
-    let isInitializing = false;
     let priceRefreshTimer = null;
     let listenersBound = false;
 
@@ -87,6 +86,7 @@ window.depositModule = (function () {
         return `${address.slice(0, 6)}...${address.slice(-6)}`;
     }
 
+    // دالة تحديث واجهة المحفظة: تظهر الباقات فورا إذا كان متصلا
     function updateWalletUI(wallet) {
         const connectView = document.getElementById('deposit-connect-view');
         const contentView = document.getElementById('deposit-content-view');
@@ -228,11 +228,13 @@ window.depositModule = (function () {
                     });
                 }
 
+                // انتظار استعادة الاتصال المخزن في المتصفح بقوة
                 if (tcInstance.connectionRestored) {
                     await tcInstance.connectionRestored;
                 }
 
-                updateWalletUI(tcInstance.wallet || (tcInstance.connected ? { account: tcInstance.account, device: tcInstance.wallet?.device } : null));
+                const currentWallet = tcInstance.wallet || (tcInstance.connected ? { account: tcInstance.account, device: tcInstance.wallet?.device } : null);
+                updateWalletUI(currentWallet);
             }
         } catch (e) {
             console.warn("⚠️ خطأ أثناء تهيئة TON Connect UI:", e);
@@ -318,7 +320,6 @@ window.depositModule = (function () {
 
     async function loadPackages() {
         const grid = document.getElementById('deposit-packages-grid');
-        // هنا تم تغيير النص ليكون "جاري التحميل..." فقط، بدلاً من ذكر اسم قاعدة البيانات
         if (grid && (!currentPackages || currentPackages.length === 0)) {
             grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري تحميل باقات الشحن والأسعار...</div>`;
         } else if (grid && currentPackages.length > 0) {
@@ -412,7 +413,6 @@ window.depositModule = (function () {
             } else {
                 stopCountdownTimer();
                 if (countdownBox) countdownBox.style.display = 'none';
-                // إظهار زر إلغاء الطلب فقط بعد وصول العداد إلى 0 وطالما لم يبدأ التحقق النهائي من الدفع
                 if (cancelWrap && !isPaymentVerifying) {
                     cancelWrap.style.display = 'block';
                 }
@@ -433,7 +433,7 @@ window.depositModule = (function () {
         if (modal) modal.style.display = 'flex';
     }
 
-    // الخطوة 1: عند الضغط على الباقة، نظهر نافذة الموافقة أولاً ولا نحول تلقائياً
+    // الخطوة 1: نافذة الموافقة أولاً
     async function promptPackageConfirmation(packageId) {
         const tc = await initTonConnect();
         if (!tc || !tc.connected) {
@@ -571,7 +571,6 @@ window.depositModule = (function () {
                 throw new Error("لم يتم استلام كود إثبات المعاملة المشفر (BOC)");
             }
 
-            // بمجرد استلام BOC من المحفظة، نمنع الإلغاء تماماً لأن المستخدم قد دفع بالفعل
             isPaymentVerifying = true;
             stopCountdownTimer();
             const countdownBox = document.getElementById('deposit-countdown-box');
@@ -616,7 +615,6 @@ window.depositModule = (function () {
                 forceUpdateBalanceDOM(newBal);
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
 
-                // عرض نافذة النجاح بالتفصيل (المبلغ المودع + الرصيد الكلي الجديد)
                 const depAmtEl = document.getElementById('success-deposited-amount');
                 const newBalEl = document.getElementById('success-new-balance');
                 if (depAmtEl) depAmtEl.innerText = `+$${depositedAmount} USDT`;
@@ -693,6 +691,12 @@ window.depositModule = (function () {
             }
         });
 
+        // المستمع هذا يقوم بتحديث الواجهة بشكل فوري عند تغير حالة المحفظة من الخارج (مثال: فصل الربط من المحفظة)
+        window.addEventListener('ton-connect-ui-wallet-change', (e) => {
+            const wallet = e.detail || (tcInstance ? tcInstance.wallet : null);
+            updateWalletUI(wallet);
+        });
+
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && tcInstance?.connected) {
                 fetchTonLivePrice();
@@ -710,14 +714,16 @@ window.depositModule = (function () {
             }
         } catch (e) {}
 
-        updateWalletUI(tcInstance?.wallet || null);
+        // إذا كانت الدالة تُستدعى من تنقل القوائم بدون تحديث الصفحة، نفحص حالة المحفظة الموجودة مسبقاً بقوة 
+        // لضمان عرض الباقات فوراً وعدم إظهار واجهة الربط المبدئية الخاطئة.
+        if (tcInstance) {
+            const currentWallet = tcInstance.wallet || (tcInstance.connected ? { account: tcInstance.account, device: tcInstance.wallet?.device } : null);
+            updateWalletUI(currentWallet);
+        } else {
+            updateWalletUI(null);
+        }
 
-        if (isInitializing) return;
-        isInitializing = true;
-
-        initTonConnect().finally(() => {
-            isInitializing = false;
-        });
+        initTonConnect();
 
         if (priceRefreshTimer) clearInterval(priceRefreshTimer);
         priceRefreshTimer = setInterval(() => {
