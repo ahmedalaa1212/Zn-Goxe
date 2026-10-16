@@ -5,6 +5,7 @@ farm_db.py - موديول إدارة المزرعة والتعدين المرب�
 تم تعديله لفصل الإعدادات (farm_settings و shop_settings) لتطابق هيكلة Firebase
 ✅ تم تطبيق القاعدة 7: Atomic Updates & COALESCE لمنع الأرصدة السالبة وقيم Null
 ✅ تم حل مشكلة القفزات عند الترقية (Auto-Claim on Upgrade)
+✅ تم ربط توزيع عمولات الإحالة (10% / 12% VIP) ومزامنة الـ 3 ترقيات تلقائياً مع جدول الأصدقاء
 """
 import time
 import json
@@ -12,11 +13,29 @@ from datetime import datetime, timezone, timedelta
 from psycopg2.extras import RealDictCursor, Json
 from database import get_db_connection, format_iso
 
+# استيراد دوال نظام الأصدقاء لتوزيع أرباح التعدين ومزامنة الترقيات
+try:
+    from friends.friends_db import (
+        add_referral_reward,
+        sync_friend_upgrades_db,
+        get_friends_data_db,
+        get_user_friends as _get_friends_list_From_friends_db,
+        claim_ref_earnings_db
+    )
+except Exception as _imp_err:
+    print(f"⚠️ تنبيه استيراد friends_db داخل farm_db: {_imp_err}")
+    add_referral_reward = None
+    sync_friend_upgrades_db = None
+    get_friends_data_db = None
+    _get_friends_list_From_friends_db = None
+    claim_ref_earnings_db = None
+
 # ==================== ثوابت وحدود الأمان القصوى (Sanity Checks Limits) ====================
 MAX_SAFE_BALANCE = 1000000000.0     # الحد الأقصى المسموح به للرصيد (1 مليار ZN)
 MAX_SAFE_HOURLY_RATE = 500.0        # الحد الأقصى لمعدل التعدين بالساعة (500 ZN/h)
 MAX_SAFE_STORAGE_CAP = 5000.0       # الحد الأقصى لسعة المخزن (5000 ZN)
 FUTURE_SKEW_TOLERANCE_SEC = 300     # التسامح المسموح لفرق التوقيت المستقبلي (5 دقائق)
+
 
 def to_bool(val):
     """تحويل قيم البوليان بشكل صحيح وآمن من القراءات المختلفة"""
@@ -52,11 +71,48 @@ def safe_parse_datetime(dt_raw, default_dt=None):
         return default_dt
 
 
+def _resolve_referrer_id(cur, user_data, str_uid):
+    """استخراج معرف الداعي (المُحيل) سواء من جدول users أو جدول user_friends"""
+    ref_id = user_data.get("ref_by") or user_data.get("referred_by")
+    if ref_id:
+        clean_ref = str(ref_id).strip().replace("ref_", "")
+        if clean_ref and clean_ref.lower() not in ("none", "null") and clean_ref != str_uid:
+            return clean_ref
+
+    try:
+        cur.execute("SELECT referrer_id FROM user_friends WHERE friend_id = %s LIMIT 1", (str_uid,))
+        r = cur.fetchone()
+        if r:
+            val = r.get("referrer_id") if isinstance(r, dict) else r[0]
+            if val and str(val).strip() != str_uid:
+                return str(val).strip()
+    except Exception:
+        pass
+    return None
+
+
+def _dispatch_referral_commission(ref_id, str_uid, mined_amount, upgrades_count=None, user_name=None):
+    """إرسال عمولة التعدين (10% عادي أو 12% VIP) للداعي بأمان دون تعطيل عملية الجمع"""
+    if not ref_id or not mined_amount or float(mined_amount) <= 0:
+        return
+    if callable(add_referral_reward):
+        try:
+            add_referral_reward(
+                referrer_id=ref_id,
+                user_id=str_uid,
+                mined_amount=float(mined_amount),
+                user_upgrades_count=upgrades_count,
+                user_name=user_name
+            )
+        except Exception as e:
+            print(f"⚠️ خطأ أثناء إرسال عمولة الإحالة للداعي ({ref_id}): {e}")
+
+
 # ==================== الذاكرة المؤقتة للإعدادات ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
-CACHE_TTL_SECONDS = 0 # تم تغييرها إلى 0 لضمان التحديث اللحظي بدون أي تأخير
+CACHE_TTL_SECONDS = 0  # بدون تأخير لضمان التحديث اللحظي
 
-# ==================== باقات العروض المميزة الافتراضية ====================
+# ==================== باقات العروض المميزة الافتراضية (شرط الإحالة 3 ترقيات) ====================
 DEFAULT_USDT_PACKAGES = {
     "VIP0": {
         "title": "باقة VIP0 (2 يوم)",
@@ -66,14 +122,14 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "🤖 بوت تجميع تلقائي",
             "📦 زيادة سعة المخزن الضعف ×2",
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     },
@@ -85,7 +141,7 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.0,
-            "ref_min_upgrades": 0,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
@@ -101,12 +157,12 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": False,
             "double_storage": False,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     },
@@ -118,7 +174,7 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.0,
-            "ref_min_upgrades": 0,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
@@ -134,12 +190,12 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": False,
             "double_storage": False,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     },
@@ -151,14 +207,14 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "🤖 بوت تجميع تلقائي",
             "📦 زيادة سعة المخزن الضعف ×2",
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     }
@@ -219,7 +275,7 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def get_game_settings(force_refresh=False):
-    """جلب إعدادات المزرعة والمتجر من Supabase وتلقيم قيم افتراضية بشكل منفصل لمطابقة الفايربيس"""
+    """جلب إعدادات المزرعة والمتجر من Supabase وتلقيم قيم افتراضية بشكل منفصل"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
@@ -235,8 +291,6 @@ def get_game_settings(force_refresh=False):
                 data = DEFAULT_GAME_SETTINGS.copy()
                 found_farm = False
                 found_shop = False
-                
-                # متغير قوي للاحتفاظ بالباقات الحقيقية القادمة من قاعدة البيانات
                 db_packages = None
 
                 for row in rows:
@@ -247,24 +301,20 @@ def get_game_settings(force_refresh=False):
                             found_shop = True
                             
                         val = row['value']
-                        
-                        # --- معالجة التشفير المزدوج بشكل آمن ---
                         if isinstance(val, str):
                             try:
                                 val = json.loads(val)
                                 if isinstance(val, str):
                                     val = json.loads(val)
-                            except Exception as e:
+                            except Exception:
                                 pass
                         
                         if isinstance(val, dict):
-                            # 🔥 استخراج الباقات بقوة من أي مفتاح يحتويها 🔥
                             if "packages" in val and isinstance(val["packages"], dict) and len(val["packages"]) > 0:
                                 db_packages = val["packages"]
                             elif "usdt_packages" in val and isinstance(val["usdt_packages"], dict) and len(val["usdt_packages"]) > 0:
                                 db_packages = val["usdt_packages"]
                                 
-                            # دمج باقي الإعدادات بدون المساس بالباقات مؤقتاً
                             for k, v in val.items():
                                 if k not in ["packages", "usdt_packages"]:
                                     if isinstance(v, dict) and k in data and isinstance(data[k], dict):
@@ -272,7 +322,6 @@ def get_game_settings(force_refresh=False):
                                     else:
                                         data[k] = v
 
-                # 🔥 وضع الباقات النهائية في الداتا لتتجاوز القيم الافتراضية تماماً 🔥
                 if db_packages is not None:
                     data["packages"] = db_packages
                     data["usdt_packages"] = db_packages
@@ -280,7 +329,6 @@ def get_game_settings(force_refresh=False):
                     data["packages"] = DEFAULT_USDT_PACKAGES.copy()
                     data["usdt_packages"] = DEFAULT_USDT_PACKAGES.copy()
 
-                # إذا لم يكن ملف farm_settings موجوداً، قم بإنشائه منفرداً
                 if not found_farm:
                     farm_defaults = {
                         "daily_rewards": DEFAULT_GAME_SETTINGS["daily_rewards"],
@@ -294,7 +342,6 @@ def get_game_settings(force_refresh=False):
                         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
                     """, (Json(farm_defaults),))
 
-                # إذا لم يكن ملف shop_settings موجوداً، قم بإنشائه منفرداً
                 if not found_shop:
                     shop_defaults = {
                         "usdt_packages": DEFAULT_GAME_SETTINGS["usdt_packages"],
@@ -441,7 +488,6 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
         if exp_dt is None or exp_dt > now_dt:
             is_active = True
 
-    # 🛡️ الحماية باستخدام or 0.0 لتجنب أخطاء Null من القاعدة
     user_data["balance"] = min(max(0.0, float(user_data.get("balance") or 0.0)), MAX_SAFE_BALANCE)
     user_data["usd_balance"] = min(max(0.0, float(user_data.get("usd_balance") or 0.0)), 1000000.0)
     user_data["hourly_rate"] = min(max(0.10, float(user_data.get("hourly_rate") or 0.10)), MAX_SAFE_HOURLY_RATE)
@@ -461,7 +507,6 @@ def get_or_create_user_farm_data(user_id_str):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 🚀 استخدام COALESCE للحماية أثناء القراءة (القاعدة 7)
                 cur.execute("""
                     SELECT *, 
                            COALESCE(balance, 0.0) as balance, 
@@ -510,8 +555,6 @@ def get_or_create_user_farm_data(user_id_str):
         if not last_claim_dt or last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
             last_claim_dt = now
 
-        hourly_rate = min(float(user_data.get("hourly_rate") or 0.10), MAX_SAFE_HOURLY_RATE)
-
         unclaimed_val = calculate_accrued_mined(user_data, now, expected_max_cap)
         user_data["unclaimed"] = unclaimed_val
         user_data["base_unclaimed"] = unclaimed_val
@@ -548,10 +591,16 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
+    """تجميع الرصيد المعدن وإرسال نسبة الـ 10% (أو 12% VIP) للداعي تلقائياً"""
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
+
+    ref_id = None
+    mined_amount = 0.0
+    user_upgrades_cnt = 0
+    user_name = "صديق"
 
     try:
         with get_db_connection() as conn:
@@ -583,36 +632,49 @@ def claim_mined_tokens_db(user_id_str):
 
                 now_iso = format_iso(now)
 
-                # 🚀 تطبيق التحديث الذري باستخدام GREATEST و COALESCE
+                # ملاحظة: تم حذف تحديث last_daily_claim_date من هنا حتى لا يمنع اللاعب من استلام المكافأة اليومية!
                 cur.execute("""
                     UPDATE users SET
                         balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s),
                         mined_points = COALESCE(mined_points, total_mined, 0.0) + %s,
                         total_mined = COALESCE(total_mined, mined_points, 0.0) + %s,
-                        last_claim_time = %s,
-                        last_daily_claim_date = %s
+                        last_claim_time = %s
                     WHERE tg_id = %s
                     RETURNING balance, usd_balance, mined_points
-                """, (mined_amount, mined_amount, mined_amount, now, today_utc_str, str_uid))
+                """, (mined_amount, mined_amount, mined_amount, now, str_uid))
                 
                 updated_row = cur.fetchone()
                 db_new_balance = float(updated_row['balance'])
                 db_usd_balance = float(updated_row['usd_balance'])
                 db_new_mined_points = float(updated_row['mined_points'])
 
-                return {
-                    "success": True,
-                    "new_balance": db_new_balance,
-                    "new_usd_balance": db_usd_balance,
-                    "total_mined": db_new_mined_points,
-                    "mined_points": db_new_mined_points,
-                    "last_claim_time": now_iso,
-                    "last_claim_ad_date": today_utc_str,
-                    "base_unclaimed": 0.0,
-                    "unclaimed": 0.0,
-                    "server_time": now_iso,
-                    "claimed_amount": mined_amount
-                }
+                # استخراج بيانات الداعي والترقيات لإرسال عمولة التعدين
+                ref_id = _resolve_referrer_id(cur, user_data, str_uid)
+                user_name = user_data.get("first_name") or user_data.get("name") or "صديق"
+                upgrades_dict = user_data.get("upgrades") or {}
+                if isinstance(upgrades_dict, str):
+                    try: upgrades_dict = json.loads(upgrades_dict)
+                    except Exception: upgrades_dict = {}
+                calc_upg = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float))) if isinstance(upgrades_dict, dict) else 0
+                user_upgrades_cnt = max(int(user_data.get("upgrades_count") or 0), calc_upg)
+
+        # 🤝 إرسال عمولة الـ 10% (أو 12% VIP) للداعي بعد حفظ التجميع
+        if ref_id and mined_amount > 0:
+            _dispatch_referral_commission(ref_id, str_uid, mined_amount, user_upgrades_cnt, user_name)
+
+        return {
+            "success": True,
+            "new_balance": db_new_balance,
+            "new_usd_balance": db_usd_balance,
+            "total_mined": db_new_mined_points,
+            "mined_points": db_new_mined_points,
+            "last_claim_time": now_iso,
+            "last_claim_ad_date": today_utc_str,
+            "base_unclaimed": 0.0,
+            "unclaimed": 0.0,
+            "server_time": now_iso,
+            "claimed_amount": mined_amount
+        }
 
     except Exception as e:
         print(f"❌ خطأ claim_mined_tokens_db: {e}")
@@ -620,6 +682,7 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
+    """شراء ترقية سرعة التعدين + تجميع المحصول المعلق + تحديث عداد الترقيات في جدول الأصدقاء"""
     level_str = str(level).strip()
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
@@ -632,6 +695,11 @@ def buy_upgrade_db(user_id_str, level):
     cost_zn = float(level_cfg.get("cost_zn", 0.0))
     cost_usd = float(level_cfg.get("cost_usd", 0.0))
     rate_bonus = round(float(level_cfg.get("rate_bonus", 0.0)), 2)
+
+    ref_id = None
+    pending_amount = 0.0
+    total_upgrades_count = 0
+    user_name = "صديق"
 
     try:
         with get_db_connection() as conn:
@@ -646,7 +714,6 @@ def buy_upgrade_db(user_id_str, level):
                 now = datetime.now(timezone.utc)
                 now_iso = format_iso(now)
 
-                # 🔥 تجميع الرصيد المعلق قبل الترقية لتجنب القفزات!
                 current_max_cap = calculate_user_max_cap(user_data, game_settings)
                 pending_amount = calculate_accrued_mined(user_data, now, current_max_cap)
 
@@ -675,7 +742,6 @@ def buy_upgrade_db(user_id_str, level):
                 upgrades[lvl_key] = current_count + 1
                 total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
 
-                # 🚀 تطبيق التحديث الذري + حفظ الرصيد المعلق + إعادة تعيين وقت التجميع لمنع القفزات!
                 cur.execute("""
                     UPDATE users SET
                         balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s - %s),
@@ -695,15 +761,34 @@ def buy_upgrade_db(user_id_str, level):
                 db_usd_balance = float(updated_row['usd_balance'])
                 db_new_hourly = float(updated_row['hourly_rate'])
 
-                return {
-                    "success": True,
-                    "new_balance": db_new_balance,
-                    "new_usd_balance": db_usd_balance,
-                    "new_hourly_rate": db_new_hourly,
-                    "upgrades": upgrades,
-                    "upgrades_count": total_upgrades_count,
-                    "server_time": now_iso
-                }
+                ref_id = _resolve_referrer_id(cur, user_data, str_uid)
+                user_name = user_data.get("first_name") or user_data.get("name") or "صديق"
+
+                # تحديث عداد ترقيات الصديق مباشرة في جدول user_friends
+                cur.execute("""
+                    UPDATE user_friends
+                    SET upgrades_count = GREATEST(COALESCE(upgrades_count, 0), %s),
+                        first_name = %s,
+                        name = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE friend_id = %s;
+                """, (total_upgrades_count, user_name, user_name, str_uid))
+
+        # إرسال عمولة المحصول المعلق للداعي إن وجد، ومزامنة الترقيات
+        if ref_id and pending_amount > 0:
+            _dispatch_referral_commission(ref_id, str_uid, pending_amount, total_upgrades_count, user_name)
+        elif callable(sync_friend_upgrades_db):
+            sync_friend_upgrades_db(str_uid, total_upgrades_count)
+
+        return {
+            "success": True,
+            "new_balance": db_new_balance,
+            "new_usd_balance": db_usd_balance,
+            "new_hourly_rate": db_new_hourly,
+            "upgrades": upgrades,
+            "upgrades_count": total_upgrades_count,
+            "server_time": now_iso
+        }
 
     except Exception as e:
         print(f"❌ خطأ buy_upgrade_db: {e}")
@@ -714,6 +799,11 @@ def buy_storage_db(user_id_str):
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
     storage_cfgs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+
+    ref_id = None
+    pending_amount = 0.0
+    user_upgrades_cnt = 0
+    user_name = "صديق"
 
     try:
         with get_db_connection() as conn:
@@ -738,7 +828,6 @@ def buy_storage_db(user_id_str):
                 cost_zn = float(next_cfg.get("cost_zn", 0.0)) if isinstance(next_cfg, dict) else 0.0
                 cost_usd = float(next_cfg.get("cost_usd", 0.0)) if isinstance(next_cfg, dict) else 0.0
 
-                # 🔥 تجميع الرصيد المعلق قبل الترقية لتجنب القفزات!
                 current_max_cap = calculate_user_max_cap(user_data, game_settings)
                 pending_amount = calculate_accrued_mined(user_data, now, current_max_cap)
 
@@ -753,7 +842,6 @@ def buy_storage_db(user_id_str):
                 if cost_usd > 0 and current_usd_balance < cost_usd:
                     return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
-                # 🚀 تطبيق التحديث الذري + إضافة الرصيد المعلق + إعادة تعيين وقت التجميع لمنع القفزات!
                 cur.execute("""
                     UPDATE users SET
                         balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s - %s),
@@ -770,13 +858,20 @@ def buy_storage_db(user_id_str):
                 db_new_balance = float(updated_row['balance'])
                 db_usd_balance = float(updated_row['usd_balance'])
 
-                return {
-                    "success": True,
-                    "new_balance": db_new_balance,
-                    "new_usd_balance": db_usd_balance,
-                    "storage_level": next_level,
-                    "server_time": now_iso
-                }
+                ref_id = _resolve_referrer_id(cur, user_data, str_uid)
+                user_name = user_data.get("first_name") or user_data.get("name") or "صديق"
+                user_upgrades_cnt = int(user_data.get("upgrades_count") or 0)
+
+        if ref_id and pending_amount > 0:
+            _dispatch_referral_commission(ref_id, str_uid, pending_amount, user_upgrades_cnt, user_name)
+
+        return {
+            "success": True,
+            "new_balance": db_new_balance,
+            "new_usd_balance": db_usd_balance,
+            "storage_level": next_level,
+            "server_time": now_iso
+        }
 
     except Exception as e:
         print(f"❌ خطأ buy_storage_db: {e}")
@@ -834,7 +929,6 @@ def claim_daily_reward_db(user_id_str):
                 }
                 daily_history.append(new_daily_entry)
 
-                # 🚀 تحديث ذري للرصيد والمكافآت والعدادات
                 cur.execute("""
                     UPDATE users SET
                         balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s),
@@ -912,7 +1006,6 @@ def claim_daily_boost_db(user_id_str):
                 }
                 boost_history.append(new_boost_entry)
 
-                # 🚀 تحديث آمن للعدادات باستخدام COALESCE
                 cur.execute("""
                     UPDATE users SET
                         last_boost_time = %s,
@@ -944,7 +1037,6 @@ def get_mining_leaderboard_db(limit=10):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 🚀 تطبيق القاعدة 7 (استخدام COALESCE لمنع أي Null عند الجلب والترتيب)
                 cur.execute("""
                     SELECT tg_id, first_name, 
                            COALESCE(mined_points, total_mined, 0.0) as mined_points,
@@ -974,3 +1066,34 @@ def get_mining_leaderboard_db(limit=10):
     except Exception as e:
         print(f"❌ خطأ get_mining_leaderboard_db: {e}")
         return []
+
+
+# ==================== دوال توافقية لقسم الأصدقاء داخل farm_db ====================
+def get_user_friends_db(user_id_str):
+    """دالة توافقية تستدعي نظام الأصدقاء الموحد في friends_db"""
+    if callable(get_friends_data_db) and callable(_get_friends_list_From_friends_db):
+        summary = get_friends_data_db(user_id_str)
+        friends_list = _get_friends_list_From_friends_db(user_id_str)
+        return {
+            "friends": friends_list,
+            "total_referrals": len(friends_list),
+            "eligible_referrals": summary.get("eligible_task_friends_count", 0),
+            "referral_earnings": summary.get("total_ref_earnings", 0.0),
+            "unclaimed_rewards": summary.get("pending_ref_earnings", 0.0),
+            "invite_link": f"https://t.me/zngoxe_bot?start=ref_{user_id_str}"
+        }
+    return {
+        "friends": [],
+        "total_referrals": 0,
+        "eligible_referrals": 0,
+        "referral_earnings": 0.0,
+        "unclaimed_rewards": 0.0,
+        "invite_link": f"https://t.me/zngoxe_bot?start=ref_{user_id_str}"
+    }
+
+
+def claim_referral_rewards_db(user_id_str):
+    """دالة توافقية لسحب أرباح الإحالات المعلقة"""
+    if callable(claim_ref_earnings_db):
+        return claim_ref_earnings_db(user_id_str)
+    return {"success": False, "error": "خدمة سحب أرباح الأصدقاء غير متاحة حالياً"}
