@@ -3,7 +3,6 @@ import random
 import hashlib
 import json
 import urllib.request
-from datetime import datetime, timezone, timedelta
 from flask import Blueprint, jsonify, request
 
 from core.security import get_authenticated_user
@@ -13,6 +12,7 @@ from shop.shop_db import (
     process_upgrade_purchase,
     verify_and_apply_package as db_verify_and_apply_package
 )
+from friends.friends_db import sync_friend_upgrades_db
 
 shop_bp = Blueprint('shop', __name__)
 
@@ -27,13 +27,12 @@ def invalidate_shop_cache():
     _TON_PRICE_CACHE["timestamp"] = 0
 
 def fetch_multi_source_ton_price():
-    # جلب سعر Gram المباشر من دالتك
     try:
         price = get_live_ton_price()
         if price and float(price) > 0:
             return float(price)
-    except Exception: pass
-    
+    except Exception:
+        pass
     return 0.0
 
 def get_cached_ton_price():
@@ -42,7 +41,6 @@ def get_cached_ton_price():
         return _TON_PRICE_CACHE["price"]
 
     price = fetch_multi_source_ton_price()
-    # 1.38 هو سعر تقريبي افتراضي في حال فشل جلب السعر
     if price <= 0:
         price = _TON_PRICE_CACHE["price"] if _TON_PRICE_CACHE["price"] > 0 else 1.38
 
@@ -99,7 +97,6 @@ def get_config():
                 continue
             usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
             
-            # 🎯 الحسبة الصحيحة: (السعر بالدولار / سعر العملة الحقيقي) * الهامش 3%
             base_ton_amount = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
             ton_needed = round(base_ton_amount * TON_SAFETY_MARGIN, 4)
 
@@ -118,7 +115,7 @@ def get_config():
         response = jsonify({
             "success": True,
             "settings": settings,
-            "ton_price_usd": raw_ton_price, # إرسال السعر الحقيقي الصافي للواجهة العلوية
+            "ton_price_usd": raw_ton_price,
             "packages": packages_with_ton
         })
         
@@ -154,7 +151,6 @@ def prepare_ton_pay():
         raw_ton_price = get_cached_ton_price()
         usd_val = float(pkg_info.get('usdt', 0.0))
         
-        # 🎯 حساب الكمية النهائية الدقيقة مع الهامش
         base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
         ton_amount = round(base_ton * TON_SAFETY_MARGIN, 4)
         nano_ton = int(ton_amount * 1000000000)
@@ -199,7 +195,6 @@ def verify_and_apply_package():
         usd_val = float(pkg_info.get('usdt', 0.0))
         raw_ton_price = get_cached_ton_price()
         
-        # 🎯 التحقق بنفس المعادلة تماماً لضمان التطابق
         base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
         expected_ton = base_ton * TON_SAFETY_MARGIN
         expected_nano = int(expected_ton * 1000000000)
@@ -256,6 +251,8 @@ def buy_upgrade():
         )
 
         if apply_success:
+            # مزامنة ترقيات الصديق فوراً بعد الشراء من المتجر
+            sync_friend_upgrades_db(str(user_id))
             return jsonify({
                 "success": True,
                 "result": result_data,
