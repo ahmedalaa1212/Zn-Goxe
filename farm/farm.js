@@ -240,7 +240,7 @@ window.closeAutoClaimModal = function() {
         } catch (e) {}
     }
 
-    // 🎨 اللمسة الفنية: دالة تنسيق الأرصدة (رقمين عشريين فقط بشكل إجباري، مع اختصارات وشفافية احترافية)
+    // 🎨 دالة تنسيق الأرصدة العلوية (رقمين عشريين مع اختصارات وبدون انقسام السطر)
     function formatSmartBalanceHTML(val) {
         if (typeof val === 'string') {
             val = val.replace(/[^0-9.-]/g, '');
@@ -261,7 +261,6 @@ window.closeAutoClaimModal = function() {
             formattedStr = (num / 1000).toFixed(2);
             suffix = "K";
         } else {
-            // تثبيت رقمين عشريين فقط لجميع الأرصدة لمنع الأرقام الطويلة (مثال: 33.60 بدلاً من 33.6000)
             formattedStr = num.toFixed(2);
         }
 
@@ -269,30 +268,57 @@ window.closeAutoClaimModal = function() {
         let intPart = parts[0];
         let decPart = parts[1] || '00';
 
-        // دمج الكسر وحرف الاختصار في عنصر واحد مصغر وشفاف ومريح للعين
-        return `${intPart}<span style="font-size: 0.72em; opacity: 0.75; font-weight: 500; margin-left: 2px;">.${decPart}${suffix}</span>`;
+        return `<span style="white-space: nowrap; font-variant-numeric: tabular-nums;">${intPart}<span style="font-size: 0.72em; opacity: 0.75; font-weight: 500; margin-left: 1px;">.${decPart}${suffix}</span></span>`;
     }
 
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
-        return num.toFixed(2); // توحيد رقمين عشريين للنصوص المباشرة
+        if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
+        if (num >= 1000) return (num / 1000).toFixed(2) + "K";
+        return num.toFixed(2);
     }
 
     function formatUsdBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
-        return num.toFixed(2); // توحيد رقمين عشريين للنصوص المباشرة
+        return num.toFixed(2);
     }
 
-    // دالة خاصة بالعداد المباشر (المخزن) لتظل تتحرك بسلاسة
+    // 🛠️ دالة ذكية للعداد المباشر (المخزن) تمنع اهتزاز الأرقام أو نزول السعة لسطر جديد
     function formatStorageBalance(val) {
-        const num = parseFloat(val || 0);
-        if (isNaN(num) || num === 0) return "0.000000";
-        let parts = num.toFixed(6).split('.');
-        let decimals = parts[1].replace(/0+$/, '');
-        if (decimals.length < 3) decimals = (decimals + '000').slice(0, 3);
-        return `${parts[0]}.${decimals}`;
+        let num = parseFloat(val || 0);
+        if (isNaN(num) || num <= 0) return "0.0000";
+
+        if (num >= 1000000) {
+            return (num / 1000000).toFixed(2) + "M";
+        }
+        if (num >= 1000) {
+            return (num / 1000).toFixed(2) + "K";
+        }
+        if (num >= 100) {
+            return num.toFixed(2);
+        }
+        if (num >= 10) {
+            return num.toFixed(3);
+        }
+        return num.toFixed(4);
+    }
+
+    // دالة اختصار سعة المخزن القصوى لتظهر بجانب العداد في سطر واحد أنيق
+    function formatStorageCapacity(maxCap) {
+        let num = parseFloat(maxCap || 0);
+        if (isNaN(num) || num <= 0) return "0";
+
+        if (num >= 1000000) {
+            let formatted = (num / 1000000).toFixed(1);
+            return (formatted.endsWith('.0') ? (num / 1000000).toFixed(0) : formatted) + "M";
+        }
+        if (num >= 1000) {
+            let formatted = (num / 1000).toFixed(1);
+            return (formatted.endsWith('.0') ? (num / 1000).toFixed(0) : formatted) + "K";
+        }
+        return Number(num.toFixed(2)).toString();
     }
 
     function getStoredBalance() {
@@ -367,8 +393,14 @@ window.closeAutoClaimModal = function() {
     }
 
     function formatCompactNumber(num) {
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000 && num % 1000 === 0) return (num / 1000) + 'K';
+        if (num >= 1000000) {
+            let formatted = (num / 1000000).toFixed(1);
+            return (formatted.endsWith('.0') ? (num / 1000000).toFixed(0) : formatted) + 'M';
+        }
+        if (num >= 1000) {
+            let formatted = (num / 1000).toFixed(1);
+            return (formatted.endsWith('.0') ? (num / 1000).toFixed(0) : formatted) + 'K';
+        }
         return (Math.round(num * 100) / 100).toString();
     }
 
@@ -694,15 +726,24 @@ window.closeAutoClaimModal = function() {
         let totalRate = baseRate + boostRate;
 
         const balEl = document.getElementById('farm-balance');
-        if (balEl) balEl.innerHTML = `${formatSmartBalanceHTML(bal)} ZN`;
+        if (balEl) {
+            balEl.style.whiteSpace = 'nowrap';
+            balEl.innerHTML = `${formatSmartBalanceHTML(bal)} ZN`;
+        }
 
         const usdEl = document.getElementById('farm-usd-balance');
-        if (usdEl) usdEl.innerHTML = `$${formatSmartBalanceHTML(usdBal)}`;
+        if (usdEl) {
+            usdEl.style.whiteSpace = 'nowrap';
+            usdEl.innerHTML = `$${formatSmartBalanceHTML(usdBal)}`;
+        }
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
-            let formattedRate = (totalRate % 1 === 0) ? totalRate.toString() : Number(totalRate.toFixed(4)).toString();
+            let formattedRate = totalRate >= 1000 
+                ? formatCompactNumber(totalRate) 
+                : ((totalRate % 1 === 0) ? totalRate.toString() : Number(totalRate.toFixed(2)).toString());
             let boostIndicator = boostRate > 0 ? ` <span style="color:#10b981; font-size:11px;">(+0.1🚀)</span>` : '';
+            rateEl.style.whiteSpace = 'nowrap';
             rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span>⚡${boostIndicator}`;
         }
 
@@ -756,7 +797,7 @@ window.closeAutoClaimModal = function() {
                 let costUsd = lvlCfg.cost_usd ?? lvlCfg.base_cost_usd ?? 0;
 
                 let costStrZn = formatCompactCost(costZn);
-                let costStrUsd = costUsd > 0 ? `+$${costUsd.toFixed(2)}` : '';
+                let costStrUsd = costUsd > 0 ? `+$${Number(costUsd.toFixed(2))}` : '';
                 
                 let canAfford = ((bal + currentUnclaim) >= costZn) && (usdBal >= costUsd);
                 let isThisCardUpgrading = (upgradingLevel === i);
@@ -775,7 +816,7 @@ window.closeAutoClaimModal = function() {
                     <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">${titleText}</div>
-                        <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${btnText}</button>
+                        <button class="mining-card-btn" style="white-space: nowrap;" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${btnText}</button>
                     </div>`;
                 } else {
                     fieldsHTML += `
@@ -932,7 +973,12 @@ window.closeAutoClaimModal = function() {
 
         if (progressEl && storageTextEl) {
             progressEl.style.width = `${pct}%`;
-            storageTextEl.innerText = `${formatStorageBalance(unclaim)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
+            // تثبيت النص في سطر واحد ومنع اهتزاز العرض أثناء تغير الأرقام
+            storageTextEl.style.whiteSpace = 'nowrap';
+            storageTextEl.style.direction = 'ltr';
+            storageTextEl.style.display = 'inline-block';
+            storageTextEl.style.fontVariantNumeric = 'tabular-nums';
+            storageTextEl.innerText = `${formatStorageBalance(unclaim)} / ${formatStorageCapacity(maxC)}`;
         }
 
         let lastClaimStr = pData.last_claim_time;
