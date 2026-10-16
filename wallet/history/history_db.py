@@ -24,7 +24,12 @@ except ImportError as e:
         s = str(val).strip()
         return s[:-2] if s.endswith('.0') else s
 
+# كاش داخلي لهيكل الجداول والأعمدة لمنع الاستعلام المتكرر من information_schema
 _TABLES_INITIALIZED = False
+_TABLE_COLUMNS_CACHE = {}
+_USER_HISTORY_CACHE = {}
+_CACHE_TTL_SECONDS = 3.0
+
 
 def _safe_exec(cur, sql, params=None):
     """تنفيذ أمر SQL داخل SAVEPOINT مستقل لمنع إيقاف المعاملة عند وجود تعارض"""
@@ -44,118 +49,144 @@ def _safe_exec(cur, sql, params=None):
             pass
         return False
 
+
+def _load_schema_cache(cur):
+    """جلب كافة أعمدة جداول السجلات الأربعة في استعلام واحد فقط وحفظها في الذاكرة"""
+    global _TABLE_COLUMNS_CACHE
+    cur.execute("""
+        SELECT table_name, column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name IN ('processed_txs', 'deposit_invoices', 'withdraw_requests', 'transactions')
+    """)
+    schema = {}
+    col_types = {}
+    for t_name, c_name, d_type in cur.fetchall():
+        schema.setdefault(t_name, set()).add(c_name)
+        col_types[(t_name, c_name)] = d_type
+    _TABLE_COLUMNS_CACHE = schema
+    return schema, col_types
+
+
 def init_history_tables():
-    """إنشاء وتحديث جداول السجلات (الإيداع والسحب) تلقائياً في Supabase"""
+    """
+    تهيئة ذكية وسريعة لجداول السجلات وفهارس البحث (Indexes) مرة واحدة فقط
+    دون إرسال أوامر ALTER TABLE متكررة إذا كانت الجداول جاهزة.
+    """
     global _TABLES_INITIALIZED
-    if _TABLES_INITIALIZED:
+    if _TABLES_INITIALIZED and _TABLE_COLUMNS_CACHE:
         return True
 
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                _safe_exec(cur, """
-                    CREATE TABLE IF NOT EXISTS processed_txs (
-                        id SERIAL PRIMARY KEY,
-                        user_id TEXT,
-                        tx_hash TEXT UNIQUE,
-                        usdt_amount NUMERIC(18, 4) DEFAULT 0.0,
-                        amount NUMERIC(18, 4) DEFAULT 0.0,
-                        currency TEXT DEFAULT 'USDT',
-                        memo TEXT,
-                        status TEXT DEFAULT 'completed',
-                        details TEXT,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                        processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
+                _safe_exec(cur, "SET LOCAL lock_timeout = '3000';")
+                _safe_exec(cur, "SET LOCAL statement_timeout = '8000';")
 
-                _safe_exec(cur, """
-                    CREATE TABLE IF NOT EXISTS deposit_invoices (
-                        id SERIAL PRIMARY KEY,
-                        invoice_id TEXT,
-                        user_id TEXT,
-                        usdt_amount NUMERIC(18, 4) DEFAULT 0.0,
-                        amount NUMERIC(18, 4) DEFAULT 0.0,
-                        currency TEXT DEFAULT 'USDT',
-                        memo TEXT,
-                        tx_hash TEXT,
-                        status TEXT DEFAULT 'pending',
-                        details TEXT,
-                        failure_reason TEXT,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
+                schema, col_types = _load_schema_cache(cur)
+                needs_reload = False
 
-                _safe_exec(cur, """
-                    CREATE TABLE IF NOT EXISTS withdraw_requests (
-                        id SERIAL PRIMARY KEY,
-                        user_id TEXT NOT NULL,
-                        amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
-                        fee NUMERIC(18, 4) DEFAULT 0.0,
-                        net_amount NUMERIC(18, 4) DEFAULT 0.0,
-                        currency TEXT DEFAULT 'USDT',
-                        wallet_address TEXT,
-                        network TEXT DEFAULT 'TON',
-                        status TEXT DEFAULT 'pending',
-                        tx_hash TEXT,
-                        failure_reason TEXT,
-                        admin_note TEXT,
-                        details TEXT,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                        processed_at TIMESTAMPTZ
-                    );
-                """)
+                # إنشاء أي جدول غير موجود فقط
+                if 'processed_txs' not in schema:
+                    _safe_exec(cur, """
+                        CREATE TABLE IF NOT EXISTS processed_txs (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT,
+                            tx_hash TEXT UNIQUE,
+                            usdt_amount NUMERIC(18, 4) DEFAULT 0.0,
+                            amount NUMERIC(18, 4) DEFAULT 0.0,
+                            currency TEXT DEFAULT 'USDT',
+                            memo TEXT,
+                            status TEXT DEFAULT 'completed',
+                            details TEXT,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+                    """)
+                    needs_reload = True
 
-                _safe_exec(cur, """
-                    CREATE TABLE IF NOT EXISTS transactions (
-                        id SERIAL PRIMARY KEY,
-                        tx_id TEXT,
-                        user_id TEXT NOT NULL,
-                        type TEXT NOT NULL,
-                        amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
-                        currency TEXT DEFAULT 'USDT',
-                        status TEXT DEFAULT 'pending',
-                        wallet_address TEXT,
-                        memo TEXT,
-                        details TEXT,
-                        failure_reason TEXT,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
+                if 'deposit_invoices' not in schema:
+                    _safe_exec(cur, """
+                        CREATE TABLE IF NOT EXISTS deposit_invoices (
+                            id SERIAL PRIMARY KEY,
+                            invoice_id TEXT,
+                            user_id TEXT,
+                            usdt_amount NUMERIC(18, 4) DEFAULT 0.0,
+                            amount NUMERIC(18, 4) DEFAULT 0.0,
+                            currency TEXT DEFAULT 'USDT',
+                            memo TEXT,
+                            tx_hash TEXT,
+                            status TEXT DEFAULT 'pending',
+                            details TEXT,
+                            failure_reason TEXT,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+                    """)
+                    needs_reload = True
 
-                alter_statements = [
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS user_id TEXT;",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS tx_hash TEXT;",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS usdt_amount NUMERIC(18, 4) DEFAULT 0.0;",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USDT';",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS memo TEXT;",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS details TEXT;",
-                    "ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;",
-                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS user_id TEXT;",
-                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';",
-                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS details TEXT;",
-                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS failure_reason TEXT;",
-                    "ALTER TABLE deposit_invoices ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;",
-                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS user_id TEXT;",
-                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS wallet_address TEXT;",
-                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';",
-                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS details TEXT;",
-                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS failure_reason TEXT;",
-                    "ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;",
-                    # تحويل نوع عمود details من JSON/JSONB إلى TEXT
-                    "ALTER TABLE processed_txs ALTER COLUMN details TYPE TEXT USING details::TEXT;",
-                    "ALTER TABLE deposit_invoices ALTER COLUMN details TYPE TEXT USING details::TEXT;",
-                    "ALTER TABLE transactions ALTER COLUMN details TYPE TEXT USING details::TEXT;",
-                    "ALTER TABLE withdraw_requests ALTER COLUMN details TYPE TEXT USING details::TEXT;",
-                    # حذف الفواتير التجريبية التي فشلت بسبب خطأ JSON القديم
-                    "DELETE FROM deposit_invoices WHERE failure_reason LIKE '%invalid input syntax for type json%';"
+                if 'withdraw_requests' not in schema:
+                    _safe_exec(cur, """
+                        CREATE TABLE IF NOT EXISTS withdraw_requests (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+                            fee NUMERIC(18, 4) DEFAULT 0.0,
+                            net_amount NUMERIC(18, 4) DEFAULT 0.0,
+                            currency TEXT DEFAULT 'USDT',
+                            wallet_address TEXT,
+                            network TEXT DEFAULT 'TON',
+                            status TEXT DEFAULT 'pending',
+                            tx_hash TEXT,
+                            failure_reason TEXT,
+                            admin_note TEXT,
+                            details TEXT,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            processed_at TIMESTAMPTZ
+                        );
+                    """)
+                    needs_reload = True
+
+                if 'transactions' not in schema:
+                    _safe_exec(cur, """
+                        CREATE TABLE IF NOT EXISTS transactions (
+                            id SERIAL PRIMARY KEY,
+                            tx_id TEXT,
+                            user_id TEXT NOT NULL,
+                            type TEXT NOT NULL,
+                            amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+                            currency TEXT DEFAULT 'USDT',
+                            status TEXT DEFAULT 'pending',
+                            wallet_address TEXT,
+                            memo TEXT,
+                            details TEXT,
+                            failure_reason TEXT,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+                    """)
+                    needs_reload = True
+
+                # تحويل عمود details فقط إذا كان نوعه لا يزال json أو jsonb
+                for tbl in ['processed_txs', 'deposit_invoices', 'withdraw_requests', 'transactions']:
+                    dtype = col_types.get((tbl, 'details'), '')
+                    if 'json' in str(dtype).lower():
+                        _safe_exec(cur, f"ALTER TABLE {tbl} ALTER COLUMN details TYPE TEXT USING details::TEXT;")
+                        needs_reload = True
+
+                # إنشاء فهارس سريعة (Indexes) على user_id لتسريع الاستعلامات
+                index_queries = [
+                    "CREATE INDEX IF NOT EXISTS idx_processed_txs_user_id ON processed_txs (user_id);",
+                    "CREATE INDEX IF NOT EXISTS idx_deposit_invoices_user_id ON deposit_invoices (user_id);",
+                    "CREATE INDEX IF NOT EXISTS idx_withdraw_requests_user_id ON withdraw_requests (user_id);",
+                    "CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions (user_id);"
                 ]
-                for stmt in alter_statements:
-                    _safe_exec(cur, stmt)
+                for idx_sql in index_queries:
+                    _safe_exec(cur, idx_sql)
+
+                if needs_reload:
+                    _load_schema_cache(cur)
 
             conn.commit()
         _TABLES_INITIALIZED = True
@@ -243,14 +274,12 @@ def normalize_status(raw_status, default_status='pending'):
         return 'pending', 'قيد المراجعة'
 
 
-def _fetch_table_rows_for_user(cur, table_name: str, clean_id: str, limit: int = 100):
-    """جلب صفوف المستخدم من أي جدول في Supabase بأمان تام"""
-    cur.execute("""
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = %s
-    """, (table_name,))
-    cols = [r[0] for r in cur.fetchall()]
+def _fetch_table_rows_fast(cur, table_name: str, clean_id: str, limit: int = 80):
+    """
+    جلب صفوف المستخدم بسرعة فائقة بالاعتماد على الكاش الداخلي للأعمدة
+    واستبعاد الأعمدة الضخمة غير اللازمة مثل boc.
+    """
+    cols = _TABLE_COLUMNS_CACHE.get(table_name)
     if not cols:
         return []
 
@@ -258,196 +287,265 @@ def _fetch_table_rows_for_user(cur, table_name: str, clean_id: str, limit: int =
     if not id_columns:
         return []
 
-    where_clauses = [f"CAST({col} AS TEXT) = %s" for col in id_columns]
+    # استبعاد عمود boc الثقيل لتسريع نقل البيانات من Supabase
+    select_cols = [c for c in cols if c != 'boc']
+    select_clause = ", ".join(select_cols) if select_cols else "*"
+
+    where_clauses = [f"{col}::text = %s" for col in id_columns]
     params = [clean_id] * len(id_columns)
 
-    order_col = 'created_at' if 'created_at' in cols else ('processed_at' if 'processed_at' in cols else ('id' if 'id' in cols else cols[0]))
+    if 'created_at' in cols:
+        order_col = 'created_at'
+    elif 'processed_at' in cols:
+        order_col = 'processed_at'
+    elif 'id' in cols:
+        order_col = 'id'
+    else:
+        order_col = select_cols[0]
 
     query = f"""
-        SELECT * FROM {table_name}
+        SELECT {select_clause}
+        FROM {table_name}
         WHERE {" OR ".join(where_clauses)}
-        ORDER BY {order_col} DESC
+        ORDER BY {order_col} DESC NULLS LAST
         LIMIT {int(limit)}
     """
-    cur.execute(query, tuple(params))
-    col_names = [desc[0] for desc in cur.description]
-    return [dict(zip(col_names, row)) for row in cur.fetchall()]
+
+    sp_name = f"sp_q_{table_name}"
+    try:
+        cur.execute(f"SAVEPOINT {sp_name}")
+        cur.execute(query, tuple(params))
+        col_names = [desc[0] for desc in cur.description]
+        rows = [dict(zip(col_names, row)) for row in cur.fetchall()]
+        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
+        return rows
+    except Exception as e:
+        try:
+            cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+        except Exception:
+            pass
+        logger.error(f"⚠️ [history_db] خطأ قراءة جدول {table_name}: {e}")
+        return []
 
 
-def get_user_transaction_history(user_id):
-    """جلب كافة سجلات الإيداع والسحب الخاصة بالمستخدم من Supabase"""
+def invalidate_user_history_cache(user_id=None):
+    """مسح الكاش اللحظي عند إضافة معاملة جديدة"""
+    global _USER_HISTORY_CACHE
+    if user_id is None:
+        _USER_HISTORY_CACHE.clear()
+    else:
+        clean_id = _sanitize_id(user_id)
+        _USER_HISTORY_CACHE.pop(clean_id, None)
+
+
+def get_user_transaction_history(user_id, force_refresh: bool = False):
+    """جلب كافة سجلات الإيداع والسحب الخاصة بالمستخدم من Supabase بسرعة فائقة"""
+    clean_id = _sanitize_id(user_id)
+    if not clean_id:
+        return []
+
+    now = time.time()
+    if not force_refresh and clean_id in _USER_HISTORY_CACHE:
+        cached_time, cached_data = _USER_HISTORY_CACHE[clean_id]
+        if now - cached_time < _CACHE_TTL_SECONDS:
+            return cached_data
+
     init_history_tables()
 
     transactions = []
     seen_keys = set()
 
-    clean_id = _sanitize_id(user_id)
-    if not clean_id:
-        return transactions
-
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # تحديد مهلة قصوى للاستعلام حتى لا يعلق الاتصال أبداً
+                _safe_exec(cur, "SET LOCAL statement_timeout = '6000';")
+
+                if not _TABLE_COLUMNS_CACHE:
+                    _load_schema_cache(cur)
 
                 # 1. جلب الإيداعات المؤكدة من جدول processed_txs
-                try:
-                    rows = _fetch_table_rows_for_user(cur, 'processed_txs', clean_id)
-                    for d in rows:
-                        raw_hash = d.get('tx_hash') or d.get('memo') or d.get('id')
-                        tx_id = str(raw_hash or f"DEP-{d.get('id')}")
-                        dedup_key = f"dep_{tx_id}"
-                        if dedup_key in seen_keys:
-                            continue
-                        seen_keys.add(dedup_key)
-                        if d.get('memo'):
-                            seen_keys.add(f"memo_{d.get('memo')}")
+                rows = _fetch_table_rows_fast(cur, 'processed_txs', clean_id)
+                for d in rows:
+                    raw_hash = d.get('tx_hash') or d.get('memo') or d.get('id')
+                    tx_id = str(raw_hash or f"DEP-{d.get('id')}")
+                    dedup_key = f"dep_{tx_id}"
+                    if dedup_key in seen_keys:
+                        continue
+                    seen_keys.add(dedup_key)
+                    if d.get('memo'):
+                        seen_keys.add(f"memo_{d.get('memo')}")
 
-                        status_code, status_ar = normalize_status(d.get('status'), default_status='completed')
-                        ts = parse_timestamp(d.get('processed_at') or d.get('created_at') or d.get('timestamp'))
-                        amount = float(d.get('usdt_amount') or d.get('amount') or 0.0)
-                        currency = str(d.get('currency') or 'USDT').upper()
-                        memo = d.get('memo')
+                    status_code, status_ar = normalize_status(d.get('status'), default_status='completed')
+                    ts = parse_timestamp(d.get('processed_at') or d.get('created_at') or d.get('timestamp'))
+                    amount = float(d.get('usdt_amount') or d.get('amount') or 0.0)
+                    currency = str(d.get('currency') or 'USDT').upper()
+                    memo = d.get('memo')
 
-                        fallback_details = f"إيداع عبر شبكة TON (الفاتورة: {memo})" if memo else "إيداع تلقائي عبر شبكة TON"
-                        details_text = _clean_details_value(d.get('details'), fallback_details)
+                    fallback_details = f"إيداع عبر شبكة TON (الفاتورة: {memo})" if memo else "إيداع تلقائي عبر شبكة TON"
+                    details_text = _clean_details_value(d.get('details'), fallback_details)
 
-                        transactions.append({
-                            'id': tx_id,
-                            'type': 'deposit',
-                            'type_ar': 'إيداع',
-                            'amount': amount,
-                            'currency': currency,
-                            'status': status_code,
-                            'status_ar': status_ar,
-                            'failure_reason': d.get('failure_reason') or d.get('error') or None,
-                            'timestamp': ts,
-                            'formatted_date': format_exact_datetime(ts),
-                            'wallet_address': d.get('sender_address') or d.get('wallet_address') or None,
-                            'details': details_text
-                        })
-                except Exception as e:
-                    logger.error(f"⚠️ [history_db] خطأ في استعلام processed_txs: {e}")
+                    transactions.append({
+                        'id': tx_id,
+                        'type': 'deposit',
+                        'type_ar': 'إيداع',
+                        'amount': amount,
+                        'currency': currency,
+                        'status': status_code,
+                        'status_ar': status_ar,
+                        'failure_reason': d.get('failure_reason') or d.get('error') or None,
+                        'timestamp': ts,
+                        'formatted_date': format_exact_datetime(ts),
+                        'wallet_address': d.get('sender_address') or d.get('wallet_address') or None,
+                        'details': details_text
+                    })
 
                 # 2. جلب فواتير وطلبات الإيداع من جدول deposit_invoices
-                try:
-                    rows = _fetch_table_rows_for_user(cur, 'deposit_invoices', clean_id)
-                    for d in rows:
-                        memo = d.get('memo')
-                        tx_hash = d.get('tx_hash')
-                        inv_id = d.get('invoice_id') or d.get('id')
+                rows = _fetch_table_rows_fast(cur, 'deposit_invoices', clean_id)
+                for d in rows:
+                    memo = d.get('memo')
+                    tx_hash = d.get('tx_hash')
+                    inv_id = d.get('invoice_id') or d.get('id')
 
-                        if (tx_hash and f"dep_{tx_hash}" in seen_keys) or (memo and f"memo_{memo}" in seen_keys):
-                            continue
+                    if (tx_hash and f"dep_{tx_hash}" in seen_keys) or (memo and f"memo_{memo}" in seen_keys):
+                        continue
 
-                        tx_id = str(tx_hash or inv_id or memo or f"INV-{d.get('id')}")
-                        dedup_key = f"inv_{tx_id}"
-                        if dedup_key in seen_keys:
-                            continue
-                        seen_keys.add(dedup_key)
+                    tx_id = str(tx_hash or inv_id or memo or f"INV-{d.get('id')}")
+                    dedup_key = f"inv_{tx_id}"
+                    if dedup_key in seen_keys:
+                        continue
+                    seen_keys.add(dedup_key)
 
-                        status_code, status_ar = normalize_status(d.get('status'), default_status='pending')
-                        ts = parse_timestamp(d.get('updated_at') or d.get('created_at'))
-                        amount = float(d.get('usdt_amount') or d.get('amount') or 0.0)
-                        currency = str(d.get('currency') or 'USDT').upper()
+                    status_code, status_ar = normalize_status(d.get('status'), default_status='pending')
+                    ts = parse_timestamp(d.get('updated_at') or d.get('created_at'))
+                    amount = float(d.get('usdt_amount') or d.get('amount') or 0.0)
+                    currency = str(d.get('currency') or 'USDT').upper()
 
-                        fallback_details = f"طلب إيداع - كود الفاتورة: {memo}" if memo else "طلب إيداع عبر شبكة TON"
-                        details_text = _clean_details_value(d.get('details'), fallback_details)
+                    fallback_details = f"طلب إيداع - كود الفاتورة: {memo}" if memo else "طلب إيداع عبر شبكة TON"
+                    details_text = _clean_details_value(d.get('details'), fallback_details)
 
-                        transactions.append({
-                            'id': tx_id,
-                            'type': 'deposit',
-                            'type_ar': 'إيداع',
-                            'amount': amount,
-                            'currency': currency,
-                            'status': status_code,
-                            'status_ar': status_ar,
-                            'failure_reason': d.get('failure_reason') or None,
-                            'timestamp': ts,
-                            'formatted_date': format_exact_datetime(ts),
-                            'wallet_address': d.get('wallet_address') or None,
-                            'details': details_text
-                        })
-                except Exception as e:
-                    logger.error(f"⚠️ [history_db] خطأ في استعلام deposit_invoices: {e}")
+                    transactions.append({
+                        'id': tx_id,
+                        'type': 'deposit',
+                        'type_ar': 'إيداع',
+                        'amount': amount,
+                        'currency': currency,
+                        'status': status_code,
+                        'status_ar': status_ar,
+                        'failure_reason': d.get('failure_reason') or None,
+                        'timestamp': ts,
+                        'formatted_date': format_exact_datetime(ts),
+                        'wallet_address': d.get('wallet_address') or None,
+                        'details': details_text
+                    })
 
                 # 3. جلب طلبات السحب من جدول withdraw_requests
-                try:
-                    rows = _fetch_table_rows_for_user(cur, 'withdraw_requests', clean_id)
-                    for d in rows:
-                        raw_id = d.get('tx_hash') or d.get('request_id') or f"WD-{d.get('id')}"
-                        tx_id = str(raw_id)
-                        dedup_key = f"wd_{tx_id}"
-                        if dedup_key in seen_keys:
-                            continue
-                        seen_keys.add(dedup_key)
+                rows = _fetch_table_rows_fast(cur, 'withdraw_requests', clean_id)
+                for d in rows:
+                    raw_id = d.get('tx_hash') or d.get('request_id') or f"WD-{d.get('id')}"
+                    tx_id = str(raw_id)
+                    dedup_key = f"wd_{tx_id}"
+                    if dedup_key in seen_keys:
+                        continue
+                    seen_keys.add(dedup_key)
 
-                        status_code, status_ar = normalize_status(d.get('status'), default_status='pending')
-                        ts = parse_timestamp(d.get('processed_at') or d.get('updated_at') or d.get('created_at'))
-                        amount = float(d.get('amount') or d.get('usdt_amount') or 0.0)
-                        currency = str(d.get('currency') or 'USDT').upper()
-                        wallet_addr = d.get('wallet_address') or d.get('address') or 'محفظة TON'
+                    status_code, status_ar = normalize_status(d.get('status'), default_status='pending')
+                    ts = parse_timestamp(d.get('processed_at') or d.get('updated_at') or d.get('created_at'))
+                    amount = float(d.get('amount') or d.get('usdt_amount') or 0.0)
+                    currency = str(d.get('currency') or 'USDT').upper()
+                    wallet_addr = d.get('wallet_address') or d.get('address') or 'محفظة TON'
 
-                        fallback_details = f"سحب إلى المحفظة: {wallet_addr}"
-                        details_text = _clean_details_value(d.get('details'), fallback_details)
+                    fallback_details = f"سحب إلى المحفظة: {wallet_addr}"
+                    details_text = _clean_details_value(d.get('details'), fallback_details)
 
-                        transactions.append({
-                            'id': tx_id,
-                            'type': 'withdraw',
-                            'type_ar': 'سحب',
-                            'amount': amount,
-                            'currency': currency,
-                            'status': status_code,
-                            'status_ar': status_ar,
-                            'failure_reason': d.get('failure_reason') or d.get('reject_reason') or d.get('admin_note') or None,
-                            'timestamp': ts,
-                            'formatted_date': format_exact_datetime(ts),
-                            'wallet_address': wallet_addr,
-                            'details': details_text
-                        })
-                except Exception as e:
-                    logger.error(f"⚠️ [history_db] خطأ في استعلام withdraw_requests: {e}")
+                    transactions.append({
+                        'id': tx_id,
+                        'type': 'withdraw',
+                        'type_ar': 'سحب',
+                        'amount': amount,
+                        'currency': currency,
+                        'status': status_code,
+                        'status_ar': status_ar,
+                        'failure_reason': d.get('failure_reason') or d.get('reject_reason') or d.get('admin_note') or None,
+                        'timestamp': ts,
+                        'formatted_date': format_exact_datetime(ts),
+                        'wallet_address': wallet_addr,
+                        'details': details_text
+                    })
 
                 # 4. جلب أي سجلات إضافية من جدول المعاملات العام transactions
-                try:
-                    rows = _fetch_table_rows_for_user(cur, 'transactions', clean_id)
-                    for d in rows:
-                        raw_id = d.get('tx_id') or d.get('tx_hash') or f"TX-{d.get('id')}"
-                        tx_id = str(raw_id)
-                        if f"dep_{tx_id}" in seen_keys or f"wd_{tx_id}" in seen_keys or f"tx_{tx_id}" in seen_keys:
-                            continue
-                        seen_keys.add(f"tx_{tx_id}")
+                rows = _fetch_table_rows_fast(cur, 'transactions', clean_id)
+                for d in rows:
+                    raw_id = d.get('tx_id') or d.get('tx_hash') or f"TX-{d.get('id')}"
+                    tx_id = str(raw_id)
+                    memo = d.get('memo')
+                    if (
+                        f"dep_{tx_id}" in seen_keys
+                        or f"wd_{tx_id}" in seen_keys
+                        or f"tx_{tx_id}" in seen_keys
+                        or (memo and f"memo_{memo}" in seen_keys)
+                    ):
+                        continue
+                    seen_keys.add(f"tx_{tx_id}")
 
-                        raw_type = str(d.get('type') or 'deposit').lower().strip()
-                        tx_type = 'withdraw' if 'withdraw' in raw_type else 'deposit'
-                        default_st = 'completed' if tx_type == 'deposit' else 'pending'
-                        status_code, status_ar = normalize_status(d.get('status'), default_status=default_st)
-                        ts = parse_timestamp(d.get('updated_at') or d.get('created_at'))
-                        amount = float(d.get('amount') or d.get('usdt_amount') or 0.0)
-                        currency = str(d.get('currency') or 'USDT').upper()
-                        wallet_addr = d.get('wallet_address')
+                    raw_type = str(d.get('type') or 'deposit').lower().strip()
+                    tx_type = 'withdraw' if 'withdraw' in raw_type else 'deposit'
+                    default_st = 'completed' if tx_type == 'deposit' else 'pending'
+                    status_code, status_ar = normalize_status(d.get('status'), default_status=default_st)
+                    ts = parse_timestamp(d.get('updated_at') or d.get('created_at'))
+                    amount = float(d.get('amount') or d.get('usdt_amount') or 0.0)
+                    currency = str(d.get('currency') or 'USDT').upper()
+                    wallet_addr = d.get('wallet_address')
 
-                        fallback_details = f"سحب إلى المحفظة: {wallet_addr or 'محفظة TON'}" if tx_type == 'withdraw' else f"إيداع {currency} عبر شبكة TON"
-                        details_text = _clean_details_value(d.get('details'), fallback_details)
+                    fallback_details = f"سحب إلى المحفظة: {wallet_addr or 'محفظة TON'}" if tx_type == 'withdraw' else f"إيداع {currency} عبر شبكة TON"
+                    details_text = _clean_details_value(d.get('details'), fallback_details)
 
-                        transactions.append({
-                            'id': tx_id,
-                            'type': tx_type,
-                            'type_ar': 'سحب' if tx_type == 'withdraw' else 'إيداع',
-                            'amount': amount,
-                            'currency': currency,
-                            'status': status_code,
-                            'status_ar': status_ar,
-                            'failure_reason': d.get('failure_reason') or None,
-                            'timestamp': ts,
-                            'formatted_date': format_exact_datetime(ts),
-                            'wallet_address': wallet_addr,
-                            'details': details_text
-                        })
-                except Exception as e:
-                    logger.error(f"⚠️ [history_db] خطأ في استعلام transactions: {e}")
+                    transactions.append({
+                        'id': tx_id,
+                        'type': tx_type,
+                        'type_ar': 'سحب' if tx_type == 'withdraw' else 'إيداع',
+                        'amount': amount,
+                        'currency': currency,
+                        'status': status_code,
+                        'status_ar': status_ar,
+                        'failure_reason': d.get('failure_reason') or None,
+                        'timestamp': ts,
+                        'formatted_date': format_exact_datetime(ts),
+                        'wallet_address': wallet_addr,
+                        'details': details_text
+                    })
 
     except Exception as e:
         logger.error(f"❌ [history_db] خطأ في الاتصال بقاعدة بيانات Supabase: {e}")
 
     transactions.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    _USER_HISTORY_CACHE[clean_id] = (time.time(), transactions)
     return transactions
+
+
+def record_transaction(user_id, tx_type: str, amount: float, currency: str = 'USDT',
+                       status: str = 'pending', tx_id: str = None, wallet_address: str = None,
+                       memo: str = None, details: str = None, failure_reason: str = None) -> bool:
+    """تسجيل أي عملية إيداع أو سحب مباشرة في Supabase ومسح الكاش اللحظي"""
+    init_history_tables()
+    clean_id = _sanitize_id(user_id)
+    if not clean_id:
+        return False
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO transactions 
+                    (tx_id, user_id, type, amount, currency, status, wallet_address, memo, details, failure_reason, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (
+                    tx_id, clean_id, tx_type, float(amount), currency,
+                    status, wallet_address, memo, details, failure_reason
+                ))
+            conn.commit()
+        invalidate_user_history_cache(clean_id)
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ [history_db] فشل في تسجيل المعاملة في Supabase: {e}")
+        return False
