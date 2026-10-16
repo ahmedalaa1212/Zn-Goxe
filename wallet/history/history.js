@@ -2,7 +2,15 @@ window.historyModule = (function () {
     let allTransactions = [];
     let currentFilter = 'all';
     let activeAbortController = null;
-    let isFetching = false;
+
+    // مسح أي كاش قديم فارغ كان مخزناً من المحاولة السابقة
+    try {
+        Object.keys(localStorage).forEach(k => {
+            if (k.startsWith('zn_tx_history_cache_v2_')) {
+                localStorage.removeItem(k);
+            }
+        });
+    } catch (e) {}
 
     // جلب معرف المستخدم بكل الطرق الممكنة
     function getUserId() {
@@ -28,7 +36,7 @@ window.historyModule = (function () {
     }
 
     function getCacheKey(userId) {
-        return `zn_tx_history_cache_v2_${userId}`;
+        return `zn_tx_history_cache_v3_${userId}`;
     }
 
     function loadCachedTransactions(userId) {
@@ -37,7 +45,7 @@ window.historyModule = (function () {
             const raw = localStorage.getItem(getCacheKey(userId));
             if (!raw) return null;
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) return parsed;
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         } catch (e) {}
         return null;
     }
@@ -45,7 +53,11 @@ window.historyModule = (function () {
     function saveCachedTransactions(userId, txs) {
         if (!userId || !Array.isArray(txs)) return;
         try {
-            localStorage.setItem(getCacheKey(userId), JSON.stringify(txs.slice(0, 80)));
+            if (txs.length > 0) {
+                localStorage.setItem(getCacheKey(userId), JSON.stringify(txs.slice(0, 80)));
+            } else {
+                localStorage.removeItem(getCacheKey(userId));
+            }
         } catch (e) {}
     }
 
@@ -87,8 +99,8 @@ window.historyModule = (function () {
             return;
         }
 
-        // 1. العرض الفوري من الكاش المحلي (إن وجد) لمنع تعليق شاشة التحميل
-        if (allTransactions.length === 0) {
+        // عرض السجلات المحفوظة مؤقتاً (فقط إن كانت غير فارغة) ريثما يرد السيرفر
+        if (allTransactions.length === 0 && !forceRefresh) {
             const cached = loadCachedTransactions(userId);
             if (cached && cached.length > 0) {
                 allTransactions = cached;
@@ -97,7 +109,6 @@ window.historyModule = (function () {
             }
         }
 
-        // إظهار شاشة التحميل فقط إذا لم تكن هناك أي بيانات معروضة حالياً
         if (allTransactions.length === 0) {
             container.innerHTML = `
                 <div class="history-loading">
@@ -106,7 +117,6 @@ window.historyModule = (function () {
                 </div>`;
         }
 
-        // إلغاء أي طلب سابق معلق قبل بدء طلب جديد
         if (activeAbortController) {
             try { activeAbortController.abort(); } catch (e) {}
         }
@@ -115,13 +125,10 @@ window.historyModule = (function () {
             if (activeAbortController) {
                 try { activeAbortController.abort(); } catch (e) {}
             }
-        }, 7000);
-
-        isFetching = true;
+        }, 8000);
 
         try {
-            const forceParam = forceRefresh ? '&force=1' : '';
-            const response = await fetch(`/api/wallet/history/transactions?user_id=${encodeURIComponent(userId)}${forceParam}&_t=${Date.now()}`, {
+            const response = await fetch(`/api/wallet/history/transactions?user_id=${encodeURIComponent(userId)}&force=1&_t=${Date.now()}`, {
                 method: 'GET',
                 cache: 'no-store',
                 signal: activeAbortController.signal,
@@ -156,9 +163,7 @@ window.historyModule = (function () {
         } catch (error) {
             clearTimeout(timeoutId);
 
-            // إعادة المحاولة تلقائياً مرة واحدة في حال انتهاء المهلة أو انقطاع الاتصال اللحظي
             if (retryCount < 1) {
-                console.warn('⚠️ [history.js] Retrying history fetch automatically...');
                 setTimeout(() => fetchTransactions(true, retryCount + 1), 400);
                 return;
             }
@@ -167,12 +172,10 @@ window.historyModule = (function () {
             if (allTransactions.length === 0) {
                 container.innerHTML = `
                     <div class="history-empty">
-                        <div>⚠️ استغرق الاتصال وقتاً أطول من المعتاد.</div>
+                        <div>⚠️ حدث خطأ أثناء الاتصال بالسيرفر.</div>
                         <button onclick="historyModule.refresh(true)" style="margin-top:10px; padding:6px 14px; border-radius:8px; background:#0ea5e9; color:#fff; border:none; cursor:pointer; font-weight:bold;">🔄 إعادة تحميل السجلات</button>
                     </div>`;
             }
-        } finally {
-            isFetching = false;
         }
     }
 
@@ -350,7 +353,7 @@ window.historyModule = (function () {
     }
 
     return {
-        init: () => fetchTransactions(false),
+        init: () => fetchTransactions(true),
         refresh: (force = true) => fetchTransactions(force),
         filterHistory: filterHistory,
         showDetails: showDetails,
