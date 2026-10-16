@@ -57,7 +57,11 @@ window.closeAutoClaimModal = function() {
     'use strict';
 
     const tele = window.Telegram?.WebApp;
-    const START_PARAM = tele?.initDataUnsafe?.start_param || "";
+    const urlParams = new URLSearchParams(window.location.search);
+    const START_PARAM = tele?.initDataUnsafe?.start_param || urlParams.get('start_param') || sessionStorage.getItem('zn_start_param') || "";
+    if (START_PARAM) {
+        try { sessionStorage.setItem('zn_start_param', START_PARAM); } catch (e) {}
+    }
 
     // إعدادات اللعبة
     const GAME_CONFIG = {
@@ -240,7 +244,6 @@ window.closeAutoClaimModal = function() {
         } catch (e) {}
     }
 
-    // 🎨 دالة تنسيق الأرصدة العلوية (رقمين عشريين مع اختصارات وبدون انقسام السطر)
     function formatSmartBalanceHTML(val) {
         if (typeof val === 'string') {
             val = val.replace(/[^0-9.-]/g, '');
@@ -285,7 +288,6 @@ window.closeAutoClaimModal = function() {
         return num.toFixed(2);
     }
 
-    // 🛠️ دالة ذكية للعداد المباشر (المخزن) تمنع اهتزاز الأرقام أو نزول السعة لسطر جديد
     function formatStorageBalance(val) {
         let num = parseFloat(val || 0);
         if (isNaN(num) || num <= 0) return "0.0000";
@@ -305,7 +307,6 @@ window.closeAutoClaimModal = function() {
         return num.toFixed(4);
     }
 
-    // دالة اختصار سعة المخزن القصوى لتظهر بجانب العداد في سطر واحد أنيق
     function formatStorageCapacity(maxCap) {
         let num = parseFloat(maxCap || 0);
         if (isNaN(num) || num <= 0) return "0";
@@ -316,7 +317,7 @@ window.closeAutoClaimModal = function() {
         }
         if (num >= 1000) {
             let formatted = (num / 1000).toFixed(1);
-            return (formatted.endsWith('.0') ? (num / 1000).toFixed(0) : formatted) + "K";
+            return (formatted.endsWith('.0') ? (num / 1000000).toFixed(0) : formatted) + "K";
         }
         return Number(num.toFixed(2)).toString();
     }
@@ -336,6 +337,8 @@ window.closeAutoClaimModal = function() {
             const val = parseFloat(newBalance);
             patch.balance = val;
             patch.zn_balance = val;
+            localStorage.setItem('zn_balance', val.toString());
+            localStorage.setItem('user_balance', val.toString());
             const balEl = document.getElementById('farm-balance');
             if (balEl) balEl.innerHTML = `${formatSmartBalanceHTML(val)} ZN`;
         }
@@ -409,7 +412,6 @@ window.closeAutoClaimModal = function() {
         if (overlay) overlay.style.display = show ? 'flex' : 'none';
     }
 
-    // --- إعلانات Monetag ---
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
         const zoneId = GAME_CONFIG.monetagZoneId || "11322720";
@@ -454,7 +456,6 @@ window.closeAutoClaimModal = function() {
         });
     }
 
-    // --- إعلانات Monetix ---
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
 
@@ -973,7 +974,6 @@ window.closeAutoClaimModal = function() {
 
         if (progressEl && storageTextEl) {
             progressEl.style.width = `${pct}%`;
-            // تثبيت النص في سطر واحد ومنع اهتزاز العرض أثناء تغير الأرقام
             storageTextEl.style.whiteSpace = 'nowrap';
             storageTextEl.style.direction = 'ltr';
             storageTextEl.style.display = 'inline-block';
@@ -1131,11 +1131,13 @@ window.closeAutoClaimModal = function() {
         const currentCount = parseInt(upgradesObj[`lvl${level}`] || 0, 10);
         upgradesObj[`lvl${level}`] = currentCount + 1;
 
+        const totalUpgradesCount = Object.values(upgradesObj).reduce((acc, v) => acc + (parseInt(v) || 0), 0);
         const addRate = parseFloat(lvlCfg.rate || 0);
         const currentHourly = parseFloat(stateObj.hourly_rate || 0.1);
 
         updateState({
             upgrades: upgradesObj,
+            upgrades_count: totalUpgradesCount,
             hourly_rate: addRate > 0 ? (currentHourly + addRate) : currentHourly,
             unclaimed: 0.0,
             base_unclaimed: 0.0,
@@ -1158,7 +1160,10 @@ window.closeAutoClaimModal = function() {
                     last_accrual_time: parseServerDateMs(resData.server_time)
                 };
                 if (newHourly !== undefined && newHourly !== null) patch.hourly_rate = parseFloat(newHourly);
-                if (resData.upgrades) patch.upgrades = resData.upgrades;
+                if (resData.upgrades) {
+                    patch.upgrades = resData.upgrades;
+                    patch.upgrades_count = Object.values(resData.upgrades).reduce((acc, v) => acc + (parseInt(v) || 0), 0);
+                }
 
                 updateState(patch);
                 showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
