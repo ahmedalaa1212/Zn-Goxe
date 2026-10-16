@@ -11,7 +11,7 @@ from database import get_db_connection, format_iso
 
 logger = logging.getLogger(__name__)
 
-# قائمة الباقات الافتراضية الشاملة تماماً مثل الفيربيس (VIP0 -> VIP5)
+# قائمة الباقات الافتراضية الشاملة (VIP0 -> VIP5) مع ضبط شرط مهام الإحالة إلى 3 ترقيات
 DEFAULT_USDT_PACKAGES = {
     "VIP0": {
         "title": "باقة VIP0 (2 يوم)",
@@ -21,14 +21,14 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "🤖 بوت تجميع تلقائي",
             "📦 زيادة سعة المخزن الضعف ×2",
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     },
@@ -40,7 +40,7 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.0,
-            "ref_min_upgrades": 0,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
@@ -56,12 +56,12 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": False,
             "double_storage": False,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     },
@@ -73,7 +73,7 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.0,
-            "ref_min_upgrades": 0,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
@@ -89,12 +89,12 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": False,
             "double_storage": False,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     },
@@ -106,14 +106,14 @@ DEFAULT_USDT_PACKAGES = {
             "auto_bot": True,
             "double_storage": True,
             "referral_rate": 0.12,
-            "ref_min_upgrades": 1,
+            "ref_min_upgrades": 3,
             "ref_withdraw_fee": 0.0
         },
         "perks_text": [
             "🤖 بوت تجميع تلقائي",
             "📦 زيادة سعة المخزن الضعف ×2",
             "💎 رفع أرباح الإحالة إلى 12%",
-            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "🎯 شرط مهام الإحالة: 3 ترقيات",
             "⚡ إعفاء كامل من رسوم السحب (0%)"
         ]
     }
@@ -155,7 +155,6 @@ def _parse_json_field(field_val, default=None):
     if isinstance(field_val, str):
         try:
             parsed = json.loads(field_val)
-            # معالجة حالة إذا كان النص مشفراً مرتين بسبب لوحة تحكم Supabase
             if isinstance(parsed, str):
                 parsed = json.loads(parsed)
             return parsed if isinstance(parsed, (dict, list)) else default
@@ -184,24 +183,19 @@ def get_shop_catalog():
                     elif row['key'] == 'shop_settings':
                         shop_settings = _parse_json_field(row['value'], {})
 
-        # 1. إعدادات التعدين العامة (فصل تام عن مستويات الترقية)
         mining_cfg = farm_settings.get("mining_config", {})
         if not isinstance(mining_cfg, dict):
             mining_cfg = {}
 
-        # 2. مستويات التعدين (الترقيات)
         upgrade_cfg = farm_settings.get("upgrade_config")
         if not upgrade_cfg or not isinstance(upgrade_cfg, dict) or len(upgrade_cfg) == 0:
             upgrade_cfg = DEFAULT_UPGRADE_CONFIG
 
-        # 3. سعات المخزن
         storage_caps = farm_settings.get("storage_capacities") or farm_settings.get("storage_config")
         if not storage_caps or not isinstance(storage_caps, dict) or len(storage_caps) == 0:
             storage_caps = DEFAULT_STORAGE_CONFIG
 
-        # 4. باقات العروض المميزة - تطبيق الحل القوي لدمج المفاتيح
         db_packages = None
-        
         if "packages" in shop_settings and isinstance(shop_settings["packages"], dict) and len(shop_settings["packages"]) > 0:
             db_packages = shop_settings["packages"]
         elif "usdt_packages" in shop_settings and isinstance(shop_settings["usdt_packages"], dict) and len(shop_settings["usdt_packages"]) > 0:
@@ -213,14 +207,12 @@ def get_shop_catalog():
             
         usdt_pkgs = db_packages if db_packages else DEFAULT_USDT_PACKAGES.copy()
 
-        # 5. استخراج المحفظة وسعر الصرف بأمان
         ton_wallet = shop_settings.get("ton_wallet") or shop_settings.get("wallet_address") or ""
         try:
             ton_usdt_rate = float(shop_settings.get("ton_usdt_rate", 5.5))
         except (ValueError, TypeError):
             ton_usdt_rate = 5.5
 
-        # تحويل المفاتيح إلى نصوص String Keys لضمان معالجتها صحيحة في الـ Frontend
         return {
             "mining_config": mining_cfg,
             "upgrade_config": {str(k): v for k, v in upgrade_cfg.items()},
@@ -290,7 +282,7 @@ def get_user_vip_status(user_id):
                     "auto_bot": bool(vip_status.get("auto_bot", False)) if is_active else False,
                     "double_storage": bool(vip_status.get("double_storage", False)) if is_active else False,
                     "referral_rate": float(vip_status.get("referral_rate", 0.0)) if is_active else 0.0,
-                    "ref_min_upgrades": int(vip_status.get("ref_min_upgrades", 0)) if is_active else 0,
+                    "ref_min_upgrades": 3 if is_active else 3,
                     "ref_withdraw_fee": float(vip_status.get("ref_withdraw_fee", 0.0)) if is_active else 0.0
                 }
     except Exception as e:
@@ -326,7 +318,7 @@ def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0,
 
 
 def buy_mining_upgrade(tg_id, upgrade_level):
-    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن (FOR UPDATE)"""
+    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن وتحديث جدول الأصدقاء مباشرة"""
     try:
         if not tg_id or upgrade_level is None:
             return False, "بيانات الترقية غير صالحة", {}
@@ -411,6 +403,17 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                         last_claim_time = %s
                     WHERE tg_id = %s
                 """, (new_balance, new_usd_balance, new_hourly_rate, Json(user_upgrades), total_upgrades_cnt, new_last_claim_dt, str_uid))
+
+                # تحديث عداد ترقيات الصديق في جدول user_friends ليظهر فوراً لدى الداعي
+                u_name = user_data.get("first_name") or user_data.get("name") or "صديق"
+                cur.execute("""
+                    UPDATE user_friends
+                    SET upgrades_count = GREATEST(COALESCE(upgrades_count, 0), %s),
+                        first_name = %s,
+                        name = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE friend_id = %s;
+                """, (total_upgrades_cnt, u_name, u_name, str_uid))
 
                 updated_fields = {
                     "balance": new_balance,
@@ -566,7 +569,7 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
         auto_bot = bool(features.get("auto_bot", False))
         double_storage = bool(features.get("double_storage", False))
         referral_rate = float(features.get("referral_rate", 0.0))
-        ref_min_upgrades = int(features.get("ref_min_upgrades", 0))
+        ref_min_upgrades = 3  # تثبيت شرط الـ 3 ترقيات دائماً
         ref_withdraw_fee = float(features.get("ref_withdraw_fee", 0.0))
 
         zn_add = float(pkg_info.get("zn_add", 0.0))
