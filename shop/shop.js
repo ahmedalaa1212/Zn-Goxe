@@ -14,6 +14,45 @@
     const CONFIG_CACHE_TTL = 0; 
     let vipTimerInterval = null;
 
+    function syncFriendsAndGlobalState(res) {
+        if (!res || typeof res !== 'object') return;
+        if (!window.userState) window.userState = {};
+        if (!window.PlayerData) window.PlayerData = {};
+
+        const fields = [
+            'balance', 'usd_balance', 'hourly_rate', 'upgrades',
+            'storage_level', 'extra_storage', 'max_cap', 'last_claim_time', 'vip_status'
+        ];
+        fields.forEach(f => {
+            if (res[f] !== undefined) {
+                window.userState[f] = res[f];
+                window.PlayerData[f] = res[f];
+            }
+        });
+
+        if (res.balance !== undefined) {
+            localStorage.setItem('zn_balance', String(res.balance));
+            localStorage.setItem('user_balance', String(res.balance));
+        }
+
+        if (res.upgrades && typeof res.upgrades === 'object') {
+            const totalUpgrades = Object.values(res.upgrades).reduce((a, b) => a + (parseInt(b) || 0), 0);
+            window.userState.upgrades_count = totalUpgrades;
+            window.PlayerData.upgrades_count = totalUpgrades;
+        }
+
+        if (res.vip_status) {
+            window.userState.is_vip = true;
+            window.PlayerData.is_vip = true;
+            // مسح كاش الأصدقاء لإجبار صفحة الأصدقاء على جلب نسب الـ VIP الجديدة (12% و 0% رسوم)
+            const uid = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+            if (uid) {
+                localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
+            }
+            localStorage.removeItem('zn_friends_cache_v2_global');
+        }
+    }
+
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
             try {
@@ -63,7 +102,6 @@
         return val.toFixed(4);
     }
 
-    // ✅ تم التعديل هنا: إضافة منطق الاختصارات (K, M, B) للأرصدة العلوية
     function formatTopBalanceHTML(num) {
         let val = floatVal(num);
         
@@ -226,7 +264,6 @@
 
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        // السعر هنا يُعرض بشكله الطبيعي الحقيقي الوارد من السيرفر بدون تدخل الهامش
         const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
         if (tonPriceElem && livePrice) {
             tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`;
@@ -286,7 +323,6 @@
             const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd, pkg.price);
             let tonAmount = floatVal(pkg.ton_amount);
             
-            // 🎯 في حال عدم استلام السعر من السيرفر بشكل صحيح، يتم حساب الباقة وإضافة هامش 3% لها هنا أيضاً
             if (tonAmount <= 0 && displayedPrice > 0 && usdtPrice > 0) {
                 tonAmount = (usdtPrice / displayedPrice) * 1.03;
             }
@@ -429,16 +465,7 @@
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
                 const res = verifyData.result || verifyData.data || verifyData;
-                if (!window.userState) window.userState = {};
-                if (res.balance !== undefined) window.userState.balance = res.balance;
-                if (res.usd_balance !== undefined) window.userState.usd_balance = res.usd_balance;
-                if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
-                if (res.upgrades !== undefined) window.userState.upgrades = res.upgrades;
-                if (res.storage_level !== undefined) window.userState.storage_level = res.storage_level;
-                if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
-                if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
-                if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
-                if (res.vip_status !== undefined) window.userState.vip_status = res.vip_status;
+                syncFriendsAndGlobalState(res);
 
                 window.updateShopUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated'));
@@ -780,15 +807,7 @@
                 triggerHaptic('notification', 'success');
 
                 const res = resData.result || resData.data || resData;
-                if (!window.userState) window.userState = {};
-                if (res.balance !== undefined) window.userState.balance = res.balance;
-                if (res.usd_balance !== undefined) window.userState.usd_balance = res.usd_balance;
-                if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
-                if (res.upgrades !== undefined) window.userState.upgrades = res.upgrades;
-                if (res.storage_level !== undefined) window.userState.storage_level = res.storage_level;
-                if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
-                if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
-                if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
+                syncFriendsAndGlobalState(res);
 
                 window.updateShopUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated'));
