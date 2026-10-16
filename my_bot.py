@@ -8,6 +8,14 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from telebot.apihelper import ApiTelegramException
 import database
 
+# استيراد دوال نظام الأصدقاء (Supabase) لضمان تسجيل الإحالة فور الضغط على /start
+try:
+    from friends.friends_db import init_friends_tables, register_referral_db
+except Exception as _f_err:
+    print(f"⚠️ تنبيه استيراد friends_db داخل البوت: {_f_err}")
+    init_friends_tables = None
+    register_referral_db = None
+
 # ==========================================
 # 1. إعداد المتغيرات والاتصال
 # ==========================================
@@ -30,11 +38,16 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# تهيئة Firebase عند تشغيل البوت
+# تهيئة قاعدة البيانات وجداول الأصدقاء في Supabase عند تشغيل البوت
 try:
-    database.initialize_firebase()
+    if hasattr(database, "initialize_supabase"):
+        database.initialize_supabase()
+    elif hasattr(database, "initialize_firebase"):
+        database.initialize_firebase()
+    if callable(init_friends_tables):
+        init_friends_tables()
 except Exception as e:
-    print(f"⚠️ تنبيه Firebase أثناء تشغيل البوت: {e}")
+    print(f"⚠️ تنبيه تهيئة قاعدة البيانات أثناء تشغيل البوت: {e}")
 
 # ==========================================
 # 2. معالج أمر /start
@@ -50,8 +63,8 @@ def start_command(message):
         # حماية الاسم من كسر HTML في التليجرام
         first_name = html.escape(raw_first_name)
         
-        # استخراج وتدقيق رابط الإحالة
-        text_parts = message.text.split()
+        # استخراج وتدقيق رابط الإحالة (حماية ضد الإحالة الذاتية والأكواد الوهمية)
+        text_parts = (message.text or "").split()
         ref_id = None
         if len(text_parts) > 1:
             raw_ref = text_parts[1].replace('ref_', '').strip()
@@ -61,7 +74,7 @@ def start_command(message):
         # ⚠️ التعامل مع قاعدة البيانات بشكل معزول لحماية أمر /start من التوقف
         try:
             # الفحص ضد الحظر في قاعدة البيانات
-            if database.is_user_banned(tg_id):
+            if hasattr(database, "is_user_banned") and database.is_user_banned(tg_id):
                 bot.send_message(
                     message.chat.id,
                     "🚫 <b>تم تقييد حسابك!</b>\n\nعذراً، لا يمكنك استخدام تطبيق ZN Goxe حالياً.",
@@ -70,12 +83,22 @@ def start_command(message):
                 return
             
             # 🔍 الفحص مسبقاً للتحقق هل المستخدم جديد أم مسجل سابقاً
-            existing_user = database.get_user(tg_id)
+            existing_user = database.get_user(tg_id) if hasattr(database, "get_user") else None
             is_new_user = (existing_user is None)
             
-            # إنشاء أو تحديث المستخدم في قاعدة البيانات
-            database.init_user(tg_id, ref_id=ref_id, first_name=raw_first_name)
+            # إنشاء أو تحديث المستخدم في قاعدة البيانات الأساسية
+            if hasattr(database, "init_user"):
+                database.init_user(tg_id, ref_id=ref_id, first_name=raw_first_name)
             
+            # 🤝 تسجيل الإحالة مباشرة في جدول user_friends داخل Supabase
+            referral_registered_ok = False
+            if ref_id and callable(register_referral_db):
+                ref_result = register_referral_db(ref_id, tg_id, friend_name=raw_first_name)
+                if isinstance(ref_result, dict) and ref_result.get("success") and not ref_result.get("already_registered"):
+                    referral_registered_ok = True
+            elif is_new_user and ref_id:
+                referral_registered_ok = True
+
             # 📢 إرسال إشعار دخول مستخدم جديد لقناتك الخاصة (إذا كان أول مرة يدخل)
             if is_new_user and NEW_USERS_CHANNEL_ID:
                 try:
@@ -102,15 +125,15 @@ def start_command(message):
                 except Exception as log_err:
                     print(f"⚠️ تعذر إرسال إشعار المستخدم الجديد للقناة: {log_err}")
 
-            # إرسال إشعار للمحيل (في حالة كان مستخدماً جديداً وجاء عن طريق إحالة)
-            if is_new_user and ref_id:
+            # إرسال إشعار للمحيل (فقط إذا كان مستخدماً جديداً وتم قبول الإحالة فعلياً)
+            if (is_new_user or referral_registered_ok) and ref_id:
                 try:
                     bot.send_message(
                         chat_id=int(ref_id), 
                         text=(
                             f"🎉 <b>إنجاز جديد في فريقك!</b>\n\n"
                             f"انضم صديقك <b>{first_name}</b> إلى عالم ZN Goxe عبر رابطك.\n"
-                            f"🎁 ستستمتع بمكافآت نشاط جبارة و <b>10%</b> مشاركة أرباح دورية!"
+                            f"🎁 ستحصل على <b>10%</b> (أو <b>12% للـ VIP</b>) مشاركة أرباح دورية، وعند إتمامه <b>3 ترقيات</b> يُحتسب في مهام الإنجازات!"
                         ),
                         parse_mode='HTML'
                     )
@@ -187,8 +210,8 @@ def how_to_play_callback(call):
             "🎮 <b>3️⃣ الألعاب التفاعلية والتحديات:</b>\n"
             "• يتضمن التطبيق ألعاباً مثل <b>Fogo Sweep</b> و <b>برج النيون Goxe</b> للمنافسة ومضاعفة رصيدك بناءً على المهارة والتحدي.\n\n"
             "🤝 <b>4️⃣ نظام دعوة الأصدقاء (الفريق):</b>\n"
-            "• احصل على <b>10% مشاركة أرباح</b> من كافة الأنشطة التعدينية لأصدقائك المنضمين عبر رابطك.\n"
-            "• فتح جوائز وإنجازات خاصة عند الوصول إلى مستويات دعوة متقدمة.\n\n"
+            "• احصل على <b>10% مشاركة أرباح</b> (و <b>12% لمشتركي VIP</b>) من كافة الأنشطة التعدينية لأصدقائك المنضمين عبر رابطك.\n"
+            "• افتح جوائز وإنجازات خاصة عند وصول أصدقائك إلى <b>3 ترقيات</b> فأكثر.\n\n"
             "💳 <b>5️⃣ عمليات السحب وإثباتات الدفع:</b>\n"
             "• يدعم التطبيق السحب السريع والمباشر عبر منصات السحب المعتمدة مثل <b>FaucetPay</b> والعملات المدعومة (DOGE, TRX, PEPE, LTC) بالإضافة لشبكة TON.\n"
             "• يمكنك الاطلاع على كافة عمليات التحويل والمصداقية الحية من خلال <b>قناة الإثباتات الرسمية</b>.\n\n"
@@ -222,7 +245,6 @@ def send_admin_broadcast(chat_id, message_text, photo_url=None, button_text=None
                 target_url = f"https://{target_url}"
             markup.add(InlineKeyboardButton(text=str(button_text).strip(), url=target_url))
 
-        # إرسال كرسالة ميديا في حالة وجود رابط صورة
         if photo_url and str(photo_url).strip():
             try:
                 return bot.send_photo(
@@ -233,7 +255,6 @@ def send_admin_broadcast(chat_id, message_text, photo_url=None, button_text=None
                     reply_markup=markup
                 )
             except ApiTelegramException as photo_err:
-                # إذا حدث خطأ في تنسيق HTML، يتم إعادة الإرسال كنص عادي بدون التنسيق لمنع توقف الحملة
                 if "can't parse entities" in str(photo_err).lower():
                     return bot.send_photo(
                         chat_id=chat_id,
@@ -243,7 +264,6 @@ def send_admin_broadcast(chat_id, message_text, photo_url=None, button_text=None
                     )
                 raise photo_err
 
-        # إرسال كرسالة نصية معالجة بـ HTML
         try:
             return bot.send_message(
                 chat_id=chat_id,
@@ -253,7 +273,6 @@ def send_admin_broadcast(chat_id, message_text, photo_url=None, button_text=None
                 disable_web_page_preview=False
             )
         except ApiTelegramException as text_err:
-            # إعادة المحاولة بدون parse_mode في حال الإدخال الخاطئ للأكواد
             if "can't parse entities" in str(text_err).lower():
                 return bot.send_message(
                     chat_id=chat_id,
@@ -263,7 +282,6 @@ def send_admin_broadcast(chat_id, message_text, photo_url=None, button_text=None
             raise text_err
 
     except ApiTelegramException as api_err:
-        # التقاط حالة حظر البوت بواسطة المستخدم (403 Forbidden)
         if api_err.error_code == 403 or "bot was blocked by the user" in str(api_err).lower():
             return {"status": "blocked", "error": str(api_err)}
         return {"status": "failed", "error": str(api_err)}
@@ -297,7 +315,6 @@ def default_message_handler(message):
 # 6. تشغيل البوت والحماية من السقوط
 # ==========================================
 if __name__ == '__main__':
-    # 🎯 الخطوة الحاسمة: مسح أي Webhook قديم وتصفية الرسائل المعلقة لإجبار التليجرام على الاستجابة
     try:
         bot.remove_webhook(drop_pending_updates=True)
         print("✅ تم حذف Webhook القديم وتنظيف الأوامر المعلقة بنجاح.")
