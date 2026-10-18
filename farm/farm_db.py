@@ -2,13 +2,14 @@
 """
 farm_db.py - موديول إدارة المزرعة والتعدين المربوط بـ Supabase (PostgreSQL)
 مُعالج من بطء الـ Cooldown ومشكلة تحميل بيانات المتجر والباقات ⚡
-تم تعديله لفصل الإعدادات (farm_settings و shop_settings) لتطابق هيكلة Firebase
+تم توحيد الإعدادات وإزالة تكرار الأعمدة (storage_config و packages فقط)
 ✅ تم تطبيق القاعدة 7: Atomic Updates & COALESCE لمنع الأرصدة السالبة وقيم Null
 ✅ تم حل مشكلة القفزات عند الترقية (Auto-Claim on Upgrade)
 ✅ تم ربط توزيع عمولات الإحالة (10% / 12% VIP) ومزامنة الـ 3 ترقيات تلقائياً مع جدول الأصدقاء
 """
 import time
 import json
+import copy
 from datetime import datetime, timezone, timedelta
 from psycopg2.extras import RealDictCursor, Json
 from database import get_db_connection, format_iso
@@ -220,7 +221,7 @@ DEFAULT_USDT_PACKAGES = {
     }
 }
 
-# ==================== الإعدادات الافتراضية الشاملة (مزرعة ومتجر) ====================
+# ==================== الإعدادات الافتراضية الموحدة (بدون تكرار للأعمدة) ====================
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.20, 1.50, 2.00,
@@ -234,17 +235,6 @@ DEFAULT_GAME_SETTINGS = {
         "claim_cooldown_seconds": 15,
         "base_free_rate": 0.10,
         "max_upgrades_per_level": 15
-    },
-    "storage_capacities": {
-        "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},
-        "1": {"capacity": 1.5, "cost_zn": 50.0, "cost_usd": 0.0},
-        "2": {"capacity": 4.0, "cost_zn": 200.0, "cost_usd": 0.20},
-        "3": {"capacity": 10.0, "cost_zn": 800.0, "cost_usd": 0.50},
-        "4": {"capacity": 25.0, "cost_zn": 2500.0, "cost_usd": 1.00},
-        "5": {"capacity": 60.0, "cost_zn": 7000.0, "cost_usd": 2.50},
-        "6": {"capacity": 150.0, "cost_zn": 20000.0, "cost_usd": 5.00},
-        "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00},
-        "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00}
     },
     "storage_config": {
         "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},
@@ -267,7 +257,6 @@ DEFAULT_GAME_SETTINGS = {
         "7": {"cost_zn": 100000.0, "cost_usd": 12.00, "rate_bonus": 30.00},
         "8": {"cost_zn": 250000.0, "cost_usd": 25.00, "rate_bonus": 70.00}
     },
-    "usdt_packages": DEFAULT_USDT_PACKAGES,
     "packages": DEFAULT_USDT_PACKAGES,
     "ton_usdt_rate": 5.5,
     "ton_wallet": ""
@@ -275,12 +264,12 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def get_game_settings(force_refresh=False):
-    """جلب إعدادات المزرعة والمتجر من Supabase وتلقيم قيم افتراضية بشكل منفصل"""
+    """جلب إعدادات المزرعة والمتجر من Supabase بنسخ عميق وتوحيد المفاتيح بدون تكرار"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
     if not force_refresh and _SETTINGS_CACHE["data"] and (now_ts - _SETTINGS_CACHE["timestamp"] < CACHE_TTL_SECONDS):
-        return _SETTINGS_CACHE["data"]
+        return copy.deepcopy(_SETTINGS_CACHE["data"])
 
     try:
         with get_db_connection() as conn:
@@ -288,10 +277,11 @@ def get_game_settings(force_refresh=False):
                 cur.execute("SELECT key, value FROM settings WHERE key IN ('farm_settings', 'shop_settings')")
                 rows = cur.fetchall()
 
-                data = DEFAULT_GAME_SETTINGS.copy()
+                data = copy.deepcopy(DEFAULT_GAME_SETTINGS)
                 found_farm = False
                 found_shop = False
                 db_packages = None
+                db_storage = None
 
                 for row in rows:
                     if row and row.get('value'):
@@ -310,30 +300,41 @@ def get_game_settings(force_refresh=False):
                                 pass
                         
                         if isinstance(val, dict):
+                            # إعطاء الأولوية لـ storage_config ثم storage_capacities إن وجد قديماً
+                            if "storage_config" in val and isinstance(val["storage_config"], dict) and len(val["storage_config"]) > 0:
+                                db_storage = copy.deepcopy(val["storage_config"])
+                            elif db_storage is None and "storage_capacities" in val and isinstance(val["storage_capacities"], dict) and len(val["storage_capacities"]) > 0:
+                                db_storage = copy.deepcopy(val["storage_capacities"])
+
+                            # إعطاء الأولوية لـ packages ثم usdt_packages إن وجد قديماً
                             if "packages" in val and isinstance(val["packages"], dict) and len(val["packages"]) > 0:
-                                db_packages = val["packages"]
-                            elif "usdt_packages" in val and isinstance(val["usdt_packages"], dict) and len(val["usdt_packages"]) > 0:
-                                db_packages = val["usdt_packages"]
+                                db_packages = copy.deepcopy(val["packages"])
+                            elif db_packages is None and "usdt_packages" in val and isinstance(val["usdt_packages"], dict) and len(val["usdt_packages"]) > 0:
+                                db_packages = copy.deepcopy(val["usdt_packages"])
                                 
                             for k, v in val.items():
-                                if k not in ["packages", "usdt_packages"]:
-                                    if isinstance(v, dict) and k in data and isinstance(data[k], dict):
-                                        data[k].update(v)
-                                    else:
-                                        data[k] = v
+                                if k not in ["packages", "usdt_packages", "storage_config", "storage_capacities"]:
+                                    # استبدال القاموس بالكامل من قاعدة البيانات لضمان تطبيق أي تعديل فوراً
+                                    data[k] = copy.deepcopy(v)
+
+                if db_storage is not None:
+                    data["storage_config"] = db_storage
+                else:
+                    data["storage_config"] = copy.deepcopy(DEFAULT_GAME_SETTINGS["storage_config"])
 
                 if db_packages is not None:
                     data["packages"] = db_packages
-                    data["usdt_packages"] = db_packages
                 else:
-                    data["packages"] = DEFAULT_USDT_PACKAGES.copy()
-                    data["usdt_packages"] = DEFAULT_USDT_PACKAGES.copy()
+                    data["packages"] = copy.deepcopy(DEFAULT_USDT_PACKAGES)
+
+                # إشارات توافقية في الذاكرة فقط (دون حفظها مكررة في قاعدة البيانات)
+                data["storage_capacities"] = data["storage_config"]
+                data["usdt_packages"] = data["packages"]
 
                 if not found_farm:
                     farm_defaults = {
                         "daily_rewards": DEFAULT_GAME_SETTINGS["daily_rewards"],
                         "mining_config": DEFAULT_GAME_SETTINGS["mining_config"],
-                        "storage_capacities": DEFAULT_GAME_SETTINGS["storage_capacities"],
                         "storage_config": DEFAULT_GAME_SETTINGS["storage_config"],
                         "upgrade_config": DEFAULT_GAME_SETTINGS["upgrade_config"]
                     }
@@ -344,7 +345,6 @@ def get_game_settings(force_refresh=False):
 
                 if not found_shop:
                     shop_defaults = {
-                        "usdt_packages": DEFAULT_GAME_SETTINGS["usdt_packages"],
                         "packages": DEFAULT_GAME_SETTINGS["packages"],
                         "ton_usdt_rate": DEFAULT_GAME_SETTINGS["ton_usdt_rate"],
                         "ton_wallet": DEFAULT_GAME_SETTINGS["ton_wallet"]
@@ -358,12 +358,15 @@ def get_game_settings(force_refresh=False):
                     conn.commit()
 
                 _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
-                return data
+                return copy.deepcopy(data)
 
     except Exception as e:
         print(f"⚠️ خطأ جلب إعدادات المزرعة والمتجر من Supabase: {e}")
 
-    return _SETTINGS_CACHE["data"] or DEFAULT_GAME_SETTINGS
+    fallback = copy.deepcopy(_SETTINGS_CACHE["data"] or DEFAULT_GAME_SETTINGS)
+    fallback["storage_capacities"] = fallback.get("storage_config", DEFAULT_GAME_SETTINGS["storage_config"])
+    fallback["usdt_packages"] = fallback.get("packages", DEFAULT_USDT_PACKAGES)
+    return fallback
 
 
 def parse_daily_rewards(rewards_data):
@@ -381,7 +384,7 @@ def get_base_storage_capacity(storage_level, settings=None):
         lvl = 0
     lvl = max(0, min(lvl, 8))
 
-    caps = settings.get("storage_capacities") or settings.get("storage_config") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    caps = settings.get("storage_config") or settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_config"]
     val = caps.get(str(lvl)) or caps.get(lvl)
 
     if isinstance(val, dict):
@@ -632,7 +635,6 @@ def claim_mined_tokens_db(user_id_str):
 
                 now_iso = format_iso(now)
 
-                # ملاحظة: تم حذف تحديث last_daily_claim_date من هنا حتى لا يمنع اللاعب من استلام المكافأة اليومية!
                 cur.execute("""
                     UPDATE users SET
                         balance = GREATEST(0.0, COALESCE(balance, 0.0) + %s),
@@ -687,14 +689,18 @@ def buy_upgrade_db(user_id_str, level):
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
 
+    mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
+    global_max_upgrades = int(mining_cfg.get("max_upgrades_per_level", 15))
+
     upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
     if level_str not in upgrade_configs:
         return {"success": False, "error": "بيانات المستوى غير متوفرة"}
 
     level_cfg = upgrade_configs[level_str]
-    cost_zn = float(level_cfg.get("cost_zn", 0.0))
-    cost_usd = float(level_cfg.get("cost_usd", 0.0))
-    rate_bonus = round(float(level_cfg.get("rate_bonus", 0.0)), 2)
+    cost_zn = float(level_cfg.get("cost_zn", level_cfg.get("price", 0.0)))
+    cost_usd = float(level_cfg.get("cost_usd", level_cfg.get("usd_cost", 0.0)))
+    rate_bonus = round(float(level_cfg.get("rate_bonus", level_cfg.get("rate", 0.0))), 2)
+    max_limit = int(level_cfg.get("max", level_cfg.get("max_limit", global_max_upgrades)))
 
     ref_id = None
     pending_amount = 0.0
@@ -734,10 +740,10 @@ def buy_upgrade_db(user_id_str, level):
                     except Exception: upgrades = {}
 
                 lvl_key = f"lvl{level_str}"
-                current_count = int(upgrades.get(lvl_key, 0))
+                current_count = int(upgrades.get(lvl_key, upgrades.get(level_str, 0)))
 
-                if current_count >= 15:
-                    return {"success": False, "error": "لقد وصلت للحد الأقصى للشراء لهذا المستوى (15/15)"}
+                if current_count >= max_limit:
+                    return {"success": False, "error": f"لقد وصلت للحد الأقصى للشراء لهذا المستوى ({max_limit}/{max_limit})"}
 
                 upgrades[lvl_key] = current_count + 1
                 total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
@@ -798,7 +804,7 @@ def buy_upgrade_db(user_id_str, level):
 def buy_storage_db(user_id_str):
     str_uid = str(user_id_str)
     game_settings = get_game_settings()
-    storage_cfgs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    storage_cfgs = game_settings.get("storage_config") or game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_config"]
 
     ref_id = None
     pending_amount = 0.0
@@ -825,8 +831,8 @@ def buy_storage_db(user_id_str):
                     return {"success": False, "error": "المخزن في أقصى مستوى بالفعل (MAX)"}
 
                 next_cfg = storage_cfgs[str(next_level)]
-                cost_zn = float(next_cfg.get("cost_zn", 0.0)) if isinstance(next_cfg, dict) else 0.0
-                cost_usd = float(next_cfg.get("cost_usd", 0.0)) if isinstance(next_cfg, dict) else 0.0
+                cost_zn = float(next_cfg.get("cost_zn", next_cfg.get("price", 0.0))) if isinstance(next_cfg, dict) else 0.0
+                cost_usd = float(next_cfg.get("cost_usd", next_cfg.get("usd_cost", 0.0))) if isinstance(next_cfg, dict) else 0.0
 
                 current_max_cap = calculate_user_max_cap(user_data, game_settings)
                 pending_amount = calculate_accrued_mined(user_data, now, current_max_cap)
