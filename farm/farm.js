@@ -1,6 +1,6 @@
 /**
  * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Retroactive Jumps)
- * Cleaned, Optimized & Modularized Version
+ * Cleaned, Optimized & Modularized Version (With RichAds -> Monetix Waterfall)
  */
 
 // ==========================================
@@ -65,6 +65,9 @@ window.closeAutoClaimModal = function() {
 
     // إعدادات اللعبة
     const GAME_CONFIG = {
+        richAdsPubId: "1026084",
+        richAdsAppId: "9342",
+        richAdsVideoWidgetId: "418362",
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
         maxUpgradesPerLevel: 15,
@@ -410,6 +413,100 @@ window.closeAutoClaimModal = function() {
     function toggleAdLoadingOverlay(show) {
         const overlay = document.getElementById('ad-loading-overlay');
         if (overlay) overlay.style.display = show ? 'flex' : 'none';
+    }
+
+    // ==========================================
+    // دالة تشغيل إعلان RichAds (فيديو قصير / بيني)
+    // ==========================================
+    async function showRichAdsAd() {
+        toggleAdLoadingOverlay(true);
+
+        return new Promise(async (resolve) => {
+            let resolved = false;
+            let startHideTimer = null;
+
+            const finish = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeoutTimer);
+                    clearTimeout(startHideTimer);
+                    toggleAdLoadingOverlay(false);
+                    resolve(result);
+                }
+            };
+
+            // مهلة 15 ثانية كحد أقصى في حال عدم استجابة سيرفر RichAds للتحويل السريع إلى Monetix
+            const timeoutTimer = setTimeout(() => {
+                console.warn("RichAds timeout - switching to fallback.");
+                finish(false);
+            }, 15000);
+
+            try {
+                // التأكد من تهيئة المتحكم إذا لم يكن مهيأً بعد
+                if (!window.TelegramAdsController && typeof TelegramAdsController === 'function') {
+                    window.TelegramAdsController = new TelegramAdsController();
+                    await window.TelegramAdsController.initialize({
+                        pubId: GAME_CONFIG.richAdsPubId,
+                        appId: GAME_CONFIG.richAdsAppId
+                    });
+                }
+
+                const ctrl = window.TelegramAdsController;
+                if (!ctrl) {
+                    console.warn("RichAds SDK غير محمل.");
+                    return finish(false);
+                }
+
+                startHideTimer = setTimeout(() => toggleAdLoadingOverlay(false), 700);
+
+                // فحص نتيجة الإعلان للتأكد من المشاهدة
+                const isRichAdSuccess = (res) => {
+                    if (res === false) return false;
+                    if (res && typeof res === 'object') {
+                        if (res.error || res.status === 'error' || res.status === 'failed' || res.status === 'no_fill') {
+                            return false;
+                        }
+                    }
+                    return true;
+                };
+
+                // 1. محاولة تشغيل إعلان الفيديو القصير أولاً (triggerInterstitialVideo)
+                if (typeof ctrl.triggerInterstitialVideo === 'function') {
+                    try {
+                        const res = await ctrl.triggerInterstitialVideo();
+                        if (isRichAdSuccess(res)) return finish(true);
+                    } catch (videoErr) {
+                        console.warn("RichAds Video No-Fill, trying RichAds Banner...", videoErr);
+                    }
+                }
+
+                // 2. محاولة تشغيل الإعلان البيني (triggerInterstitialBanner) في حال عدم توفر فيديو
+                if (typeof ctrl.triggerInterstitialBanner === 'function') {
+                    try {
+                        const res = await ctrl.triggerInterstitialBanner();
+                        if (isRichAdSuccess(res)) return finish(true);
+                    } catch (bannerErr) {
+                        console.warn("RichAds Interstitial Banner No-Fill:", bannerErr);
+                    }
+                }
+
+                // 3. دعم احتياطي في حال وجود دالة showAd المباشرة
+                if (typeof ctrl.showAd === 'function') {
+                    try {
+                        const res = await ctrl.showAd(GAME_CONFIG.richAdsVideoWidgetId);
+                        if (isRichAdSuccess(res)) return finish(true);
+                    } catch (showErr) {
+                        console.warn("RichAds showAd No-Fill:", showErr);
+                    }
+                }
+
+                // إذا لم ينجح أي نوع من إعلانات RichAds نُرجع false للتحويل إلى Monetix
+                finish(false);
+            } catch (err) {
+                console.error("خطأ أثناء استدعاء RichAds:", err);
+                finish(false);
+            }
+        });
     }
 
     async function showMonetagAd() {
@@ -1218,12 +1315,23 @@ window.closeAutoClaimModal = function() {
         }
     };
 
+    // ==========================================
+    // دالة زر تسريع التعدين (+0.1/h): RichAds أولاً ثم Monetix تلقائياً
+    // ==========================================
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
-        const adSuccess = await showMonetixAd();
+        // 1. محاولة عرض إعلان RichAds أولاً
+        let adSuccess = await showRichAdsAd();
+
+        // 2. إذا لم يتوفر إعلان في RichAds، يتم التحويل تلقائياً إلى Monetix
         if (!adSuccess) {
-            showToast("❌ يجب مشاهدة إعلان Monetix بكامل مدته لتفعيل تسريع التعدين!");
+            console.log("RichAds غير متاح حالياً، جاري عرض إعلان Monetix...");
+            adSuccess = await showMonetixAd();
+        }
+
+        if (!adSuccess) {
+            showToast("❌ يجب مشاهدة الإعلان بكامل مدته لتفعيل تسريع التعدين!");
             return;
         }
 
