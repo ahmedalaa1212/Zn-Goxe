@@ -227,6 +227,49 @@
         return initTonConnect();
     }
 
+    function normalizeIncomingConfig(data) {
+        if (!data || typeof data !== 'object') return {};
+
+        const rootCfg = data;
+        const farmCfg = (data.farm_settings && typeof data.farm_settings === 'object') ? data.farm_settings : {};
+        const shopCfg = (data.settings && typeof data.settings === 'object') ? data.settings : {};
+
+        const resolvedUpgrades = rootCfg.upgrade_config
+            || farmCfg.upgrade_config
+            || shopCfg.upgrade_config
+            || {};
+
+        const resolvedStorage = rootCfg.storage_config
+            || farmCfg.storage_config
+            || shopCfg.storage_config
+            || rootCfg.storage_capacities
+            || farmCfg.storage_capacities
+            || shopCfg.storage_capacities
+            || {};
+
+        const resolvedPackages = rootCfg.packages
+            || shopCfg.packages
+            || farmCfg.packages
+            || rootCfg.usdt_packages
+            || shopCfg.usdt_packages
+            || farmCfg.usdt_packages
+            || {};
+
+        const resolvedMiningCfg = rootCfg.mining_config
+            || farmCfg.mining_config
+            || shopCfg.mining_config
+            || {};
+
+        return Object.assign({}, rootCfg, farmCfg, shopCfg, {
+            mining_config: resolvedMiningCfg,
+            upgrade_config: resolvedUpgrades,
+            storage_config: resolvedStorage,
+            storage_capacities: resolvedStorage,
+            packages: resolvedPackages,
+            usdt_packages: resolvedPackages
+        });
+    }
+
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
 
@@ -240,21 +283,26 @@
 
         try {
             const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, {
-                method: 'GET'
+                method: 'GET',
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                }
             }), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
             
             const data = await res.json();
             if (data && data.success) {
-                shopDynamicSettings = data.settings || data.farm_settings || data;
-                cachedPackagesData = data.packages || data.usdt_packages || (data.settings && data.settings.usdt_packages);
+                shopDynamicSettings = normalizeIncomingConfig(data);
+                cachedPackagesData = shopDynamicSettings.packages;
                 lastConfigFetchTime = now;
 
                 try {
-                    sessionStorage.setItem('zn_shop_config', JSON.stringify(data));
+                    sessionStorage.setItem('zn_shop_config', JSON.stringify(shopDynamicSettings));
                     sessionStorage.setItem('zn_shop_config_time', now.toString());
                 } catch (e) {}
 
-                applyConfigToUI(data);
+                applyConfigToUI(shopDynamicSettings);
             }
         } catch (e) {
             console.error("خطأ في تحميل إعدادات المتجر:", e);
@@ -264,12 +312,12 @@
 
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
+        const livePrice = floatVal(data.ton_price_usd, data.ton_usdt_rate, window.tonPrice, window.userState?.ton_price);
         if (tonPriceElem && livePrice) {
             tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`;
         }
 
-        const packages = data.packages || data.usdt_packages || (data.settings && data.settings.usdt_packages);
+        const packages = data.packages || data.usdt_packages || (data.settings && (data.settings.packages || data.settings.usdt_packages));
         if (packages) {
             cachedPackagesData = packages;
             renderDynamicPackages(packages);
@@ -614,8 +662,8 @@
         if (!miningSec || !storageSec) return;
 
         const settings = shopDynamicSettings || {};
+        const globalMaxUpgrades = parseInt(settings.mining_config?.max_upgrades_per_level || 15);
         const miningCfg = settings.upgrade_config 
-                       || settings.mining_config 
                        || settings.speed_config 
                        || settings.upgrades 
                        || {};
@@ -625,13 +673,13 @@
 
         for (const [key, cfg] of sortedMiningEntries) {
             let i = parseInt(key);
-            if (isNaN(i)) continue;
+            if (isNaN(i) || !cfg || typeof cfg !== 'object') continue;
 
-            let count = parseInt((pData.upgrades && (pData.upgrades[`lvl${i}`] || pData.upgrades[key])) || 0);
+            let count = parseInt((pData.upgrades && (pData.upgrades[`lvl${i}`] ?? pData.upgrades[key])) || 0);
             let priceZn = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
             let priceUsd = floatVal(cfg.cost_usd, cfg.usd_cost, cfg.usd);
             let speed = floatVal(cfg.rate_bonus, cfg.rate, cfg.speed, cfg.rate_add); 
-            let maxLimit = parseInt(cfg.max || cfg.max_limit || 15);
+            let maxLimit = parseInt(cfg.max || cfg.max_limit || globalMaxUpgrades);
             let isMax = count >= maxLimit;
 
             let canAfford = (totalBal >= priceZn) && (totalUsd >= priceUsd);
@@ -663,8 +711,8 @@
         }
         miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب الباقات...</div>';
 
-        const storageCfg = settings.storage_capacities 
-                        || settings.storage_config 
+        const storageCfg = settings.storage_config 
+                        || settings.storage_capacities 
                         || settings.storages 
                         || {};
 
@@ -674,7 +722,7 @@
 
         for (const [key, cfg] of sortedStorageEntries) {
             let i = parseInt(key);
-            if (isNaN(i) || i === 0) continue;
+            if (isNaN(i) || i === 0 || !cfg || typeof cfg !== 'object') continue;
 
             let priceZn = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
             let priceUsd = floatVal(cfg.cost_usd, cfg.usd_cost, cfg.usd);
