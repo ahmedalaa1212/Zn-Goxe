@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
+    <!-- 1. الأساسيات والترميز (يجب أن تكون أولاً) -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zn Goxe - Crypto Mining & ZNX Wallet</title>
@@ -9,29 +10,32 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="referrer" content="strict-origin-when-cross-origin">
 
-    <!-- Telegram WebApp SDK (يجب أن يكون في البداية قبل سكريبتات الإعلانات) -->
+    <!-- 2. Telegram WebApp SDK (يجب أن يكون قبل أي سكربت إعلاني) -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-    <!-- RichAds Telegram SDK Script -->
+    <!-- 3. RichAds Telegram SDK Script -->
     <script src="https://richinfo.co/richpartners/telegram/js/tg-ob.js"></script>
     <script>
-        try {
-            if (typeof TelegramAdsController !== 'undefined') {
-                window.TelegramAdsController = new TelegramAdsController();
-                window.TelegramAdsController.initialize({
-                    pubId: "1026084",
-                    appId: "9342",
-                });
+        // تشغيل RichAds بأمان بعد تحميل الصفحة حتى لا يعطل التطبيق
+        document.addEventListener("DOMContentLoaded", function() {
+            try {
+                if (typeof TelegramAdsController !== 'undefined') {
+                    window.TelegramAdsController = new TelegramAdsController();
+                    window.TelegramAdsController.initialize({
+                        pubId: "1026084",
+                        appId: "9342",
+                    });
+                }
+            } catch (e) {
+                console.warn("RichAds init error:", e);
             }
-        } catch (e) {
-            console.warn("RichAds init error:", e);
-        }
+        });
     </script>
 
-    <!-- Monetag SDK Script -->
+    <!-- 4. Monetag SDK Script -->
     <script src='//libtl.com/sdk.js' data-zone='11322720' data-sdk='show_11322720'></script>
 
-    <!-- Monetix SDK Script -->
+    <!-- 5. Monetix SDK Script -->
     <script src="https://www.monetixads.online/ads.js" data-mxid="MX-3AE08FE9"></script>
 
     <!-- FontAwesome -->
@@ -42,7 +46,8 @@
     <meta property="og:description" content="انضم الآن وابدأ في جمع العملات والتعدين المباشر عبر التليجرام!" />
     <meta property="og:image" content="https://zn-goxe-production.up.railway.app/banner.jpg" />
   
-    <link rel="stylesheet" href="style.css?v=5.0">
+    <!-- تحديث الإصدار إلى 6.0 لمسح الكاش الإجباري -->
+    <link rel="stylesheet" href="style.css?v=6.0">
 
     <style>
         /* أنيميشن الدوران لشاشة تحميل الإعلانات */
@@ -276,7 +281,7 @@
             <span id="dl-timer-text">⏳ يرجى الانتظار 15 ثانية...</span>
             <button id="dl-close-btn" onclick="window.closeDirectLinkAd && window.closeDirectLinkAd()">استلام المكافأة وإغلاق 🎁</button>
         </div>
-        <iframe id="dl-iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        <iframe id="dl-iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
     </div>
 
     <!-- شاشة التنبيه للمتصفح الخارجي -->
@@ -576,9 +581,9 @@
         })();
     </script>
 
-    <!-- استدعاء سكريبتات المحفظة والمزرعة واللعبة الرئيسي -->
-    <script src="wallet/wallet.js?v=5.0"></script>
-    <script src="farm/farm.js?v=5.0"></script>
-    <script src="game.js?v=5.0"></script>
+    <!-- استدعاء سكريبتات المحفظة والمزرعة واللعبة الرئيسي بإصدار 6.0 لضمان مسح الكاش -->
+    <script src="wallet/wallet.js?v=6.0"></script>
+    <script src="farm/farm.js?v=6.0"></script>
+    <script src="game.js?v=6.0"></script>
 </body>
 </html>
