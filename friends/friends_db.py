@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 friends/friends_db.py - إدارة نظام الأصدقاء والإحالات عبر Supabase (PostgreSQL / psycopg2)
-يدعم الإنشاء التلقائي للجداول، المعاملات الذرية (FOR UPDATE)، وقراءة الترقيات الحية (شرط 3 ترقيات).
+يدعم الإنشاء التلقائي للجداول، المعاملات الذرية (FOR UPDATE)، والمزامنة الحية اللحظية مع Supabase (شرط 5 ترقيات).
 """
 import time
 import json
@@ -23,13 +23,13 @@ def _get_user_lock(tg_id):
         return _USER_LOCKS[key]
 
 
-# الإعدادات الافتراضية لنظام الأصدقاء (شرط الترقيات = 3 ترقيات)
+# الإعدادات الافتراضية لنظام الأصدقاء (شرط الترقيات = 5 ترقيات)
 DEFAULT_FRIENDS_CONFIG = {
     "commission_percent": 10.0,       # نسبة أرباح الإحالة العادية (10%)
     "vip_commission_percent": 12.0,   # نسبة أرباح الإحالة لمشتركي VIP (12%)
     "claim_fee_percent": 1.5,         # نسبة عمولة السحب العادية (1.5%)
     "vip_claim_fee_percent": 0.0,     # نسبة عمولة السحب لمشتركي VIP (0%)
-    "min_upgrades_for_task": 3,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام (3 ترقيات)
+    "min_upgrades_for_task": 5,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام (5 ترقيات)
     "ref_tasks": {
         "1": {"reqFriends": 1, "reward": 50},
         "2": {"reqFriends": 3, "reward": 200},
@@ -45,7 +45,7 @@ DEFAULT_FRIENDS_CONFIG = {
 }
 
 _CONFIG_CACHE = {"data": None, "timestamp": 0}
-CACHE_TTL_SECONDS = 60
+CACHE_TTL_SECONDS = 0  # قراءة لحظية مباشرة من Supabase بدون تأخير
 _TABLES_READY = False
 _TABLES_LOCK = threading.Lock()
 
@@ -117,21 +117,12 @@ def _parse_timestamp(val):
     return None
 
 
-def _calculate_upgrades_from_row(user_row):
-    """حساب إجمالي ترقيات الصديق بدقة من عمود upgrades (JSONB) وعمود upgrades_count"""
-    if not isinstance(user_row, dict):
-        return 0
-
-    stored_count = 0
-    try:
-        stored_count = int(float(user_row.get("upgrades_count") or 0))
-    except (ValueError, TypeError):
-        stored_count = 0
-
-    upgrades_json = _parse_json(user_row.get("upgrades"), {})
+def _calculate_json_upgrades(upgrades_raw):
+    """حساب مجموع الترقيات الفعلي من حقل upgrades (JSONB) فقط"""
+    upgrades_json = _parse_json(upgrades_raw, {})
     calc_sum = 0
     if isinstance(upgrades_json, dict):
-        for k, v in upgrades_json.items():
+        for _, v in upgrades_json.items():
             if isinstance(v, (int, float)):
                 calc_sum += max(0, int(v))
             elif isinstance(v, str) and v.strip().isdigit():
@@ -144,7 +135,21 @@ def _calculate_upgrades_from_row(user_row):
                     pass
     elif isinstance(upgrades_json, list):
         calc_sum = len(upgrades_json)
+    return calc_sum
 
+
+def _calculate_upgrades_from_row(user_row):
+    """حساب إجمالي ترقيات الصديق من عمود upgrades (JSONB) وعمود upgrades_count"""
+    if not isinstance(user_row, dict):
+        return 0
+
+    stored_count = 0
+    try:
+        stored_count = int(float(user_row.get("upgrades_count") or 0))
+    except (ValueError, TypeError):
+        stored_count = 0
+
+    calc_sum = _calculate_json_upgrades(user_row.get("upgrades"))
     return max(stored_count, calc_sum)
 
 
@@ -159,7 +164,7 @@ def init_friends_tables():
             return
         try:
             with database.get_db_connection() as conn:
-                with conn.cursor() as cur:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS settings (
                             key VARCHAR(128) PRIMARY KEY,
@@ -195,13 +200,28 @@ def init_friends_tables():
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_status JSONB DEFAULT '{}'::jsonb;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_active BOOLEAN DEFAULT FALSE;
+                    """)
 
-                        INSERT INTO settings (key, value, updated_at)
-                        VALUES ('friends_config', %s, CURRENT_TIMESTAMP)
-                        ON CONFLICT (key) DO UPDATE
-                        SET value = jsonb_set(settings.value, '{min_upgrades_for_task}', '3'::jsonb, true),
-                            updated_at = CURRENT_TIMESTAMP;
-                    """, (Json(DEFAULT_FRIENDS_CONFIG),))
+                    # إدراج الإعدادات الافتراضية إن لم تكن موجودة، وترقية الشرط القديم (3) إلى (5) مرة واحدة عند الإقلاع
+                    cur.execute("SELECT value FROM settings WHERE key = 'friends_config' LIMIT 1;")
+                    existing_row = cur.fetchone()
+                    if not existing_row or not existing_row.get("value"):
+                        cur.execute("""
+                            INSERT INTO settings (key, value, updated_at)
+                            VALUES ('friends_config', %s, CURRENT_TIMESTAMP)
+                            ON CONFLICT (key) DO UPDATE
+                            SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;
+                        """, (Json(DEFAULT_FRIENDS_CONFIG),))
+                    else:
+                        current_cfg = _parse_json(existing_row.get("value"), {})
+                        if isinstance(current_cfg, dict) and int(current_cfg.get("min_upgrades_for_task", 5)) == 3:
+                            current_cfg["min_upgrades_for_task"] = 5
+                            cur.execute("""
+                                UPDATE settings
+                                SET value = %s, updated_at = CURRENT_TIMESTAMP
+                                WHERE key = 'friends_config';
+                            """, (Json(current_cfg),))
+
             _TABLES_READY = True
         except Exception as e:
             print(f"⚠️ تنبيه أثناء تهيئة جداول الأصدقاء في Supabase: {e}")
@@ -296,13 +316,13 @@ def is_user_vip(tg_id, user_data=None):
         return False
 
 
-def get_friends_config(force_refresh=False):
-    """جلب إعدادات نظام الأصدقاء من جدول settings في Supabase مع تثبيت شرط 3 ترقيات"""
+def get_friends_config(force_refresh=True):
+    """جلب إعدادات نظام الأصدقاء مباشرة وبشكل لحظي من جدول settings في Supabase"""
     global _CONFIG_CACHE
     init_friends_tables()
     now_ts = time.time()
 
-    if not force_refresh and _CONFIG_CACHE["data"] and (now_ts - _CONFIG_CACHE["timestamp"] < CACHE_TTL_SECONDS):
+    if not force_refresh and CACHE_TTL_SECONDS > 0 and _CONFIG_CACHE["data"] and (now_ts - _CONFIG_CACHE["timestamp"] < CACHE_TTL_SECONDS):
         return _CONFIG_CACHE["data"].copy()
 
     try:
@@ -316,23 +336,24 @@ def get_friends_config(force_refresh=False):
                     db_val = _parse_json(row.get("value"), {})
                     if isinstance(db_val, dict):
                         config.update(db_val)
-
-                # ضمان أن شرط الترقيات للمهام دائماً 3 ترقيات
-                if int(config.get("min_upgrades_for_task", 3)) != 3:
-                    config["min_upgrades_for_task"] = 3
+                else:
                     cur.execute("""
                         INSERT INTO settings (key, value, updated_at)
                         VALUES ('friends_config', %s, CURRENT_TIMESTAMP)
-                        ON CONFLICT (key) DO UPDATE
-                        SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;
+                        ON CONFLICT (key) DO NOTHING;
                     """, (Json(config),))
+
+                try:
+                    min_upg = int(float(config.get("min_upgrades_for_task", 5)))
+                    config["min_upgrades_for_task"] = max(1, min_upg)
+                except (ValueError, TypeError):
+                    config["min_upgrades_for_task"] = 5
 
                 _CONFIG_CACHE = {"data": config, "timestamp": now_ts}
                 return config.copy()
     except Exception as e:
         print(f"⚠️ Error getting friends config from Supabase: {e}")
         fallback = (_CONFIG_CACHE["data"] or DEFAULT_FRIENDS_CONFIG).copy()
-        fallback["min_upgrades_for_task"] = 3
         return fallback
 
 
@@ -450,15 +471,15 @@ def sync_friend_upgrades_db(user_id, upgrades_count=None):
                         INSERT INTO user_friends (referrer_id, friend_id, first_name, name, earned_from_him, upgrades_count, updated_at)
                         VALUES (%s, %s, %s, %s, 0.0, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (referrer_id, friend_id) DO UPDATE
-                        SET upgrades_count = GREATEST(user_friends.upgrades_count, EXCLUDED.upgrades_count),
+                        SET upgrades_count = %s,
                             first_name = EXCLUDED.first_name,
                             name = EXCLUDED.name,
                             updated_at = CURRENT_TIMESTAMP;
-                    """, (ref_id, user_str, u_name, u_name, calc_upgrades))
+                    """, (ref_id, user_str, u_name, u_name, calc_upgrades, calc_upgrades))
                 else:
                     cur.execute("""
                         UPDATE user_friends
-                        SET upgrades_count = GREATEST(upgrades_count, %s),
+                        SET upgrades_count = %s,
                             first_name = %s,
                             name = %s,
                             updated_at = CURRENT_TIMESTAMP
@@ -472,9 +493,9 @@ def sync_friend_upgrades_db(user_id, upgrades_count=None):
 
 def get_user_friends(tg_id, limit=100):
     """
-    جلب قائمة الأصدقاء والإحالات الخاصة بالمستخدم من Supabase:
-    1. يزامن تلقائياً أي مستخدم مسجل في users (ref_by أو referred_by) إلى جدول user_friends.
-    2. يقرأ الترقيات الحية (upgrades JSONB و upgrades_count) لكل صديق من جدول users مباشرةً.
+    جلب قائمة الأصدقاء والإحالات الخاصة بالمستخدم من Supabase بشكل لحظي:
+    - يحترم أي تعديلات يدوية تتم مباشرة في جدول user_friends أو جدول users على Supabase.
+    - يقرأ الترقيات والأرباح والأسماء الحية دون الكتابة فوق تعديلات لوحة التحكم.
     """
     init_friends_tables()
     ref_str = _clean_id(tg_id)
@@ -484,7 +505,7 @@ def get_user_friends(tg_id, limit=100):
     try:
         with database.get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 1. مزامنة أي أصدقاء موجودين في جدول users (عبر ref_by أو referred_by) إلى جدول user_friends
+                # 1. مزامنة أي أصدقاء مسجلين في users (عبر ref_by أو referred_by) ولم يضافوا بعد في user_friends
                 cur.execute("""
                     INSERT INTO user_friends (referrer_id, friend_id, first_name, name, earned_from_him, upgrades_count, updated_at)
                     SELECT %s, u.tg_id, COALESCE(u.first_name, u.name, 'صديق'), COALESCE(u.first_name, u.name, 'صديق'), 0.0, COALESCE(u.upgrades_count, 0), CURRENT_TIMESTAMP
@@ -493,11 +514,14 @@ def get_user_friends(tg_id, limit=100):
                     ON CONFLICT (referrer_id, friend_id) DO NOTHING;
                 """, (ref_str, ref_str, ref_str, ref_str))
 
-                # 2. جلب الأصدقاء مع بياناتهم الحية من جدول users في استعلام واحد سريع
+                # 2. جلب الأصدقاء مع بياناتهم الحية من جدول user_friends وجدول users
                 cur.execute("""
                     SELECT 
                         uf.friend_id AS tg_id,
-                        COALESCE(u.first_name, u.name, uf.first_name, uf.name, 'صديق') AS friend_name,
+                        uf.first_name AS uf_first_name,
+                        uf.name AS uf_name,
+                        u.first_name AS u_first_name,
+                        u.name AS u_name,
                         COALESCE(uf.earned_from_him, 0.0) AS earned_from_him,
                         COALESCE(uf.upgrades_count, 0) AS uf_upgrades_count,
                         COALESCE(u.upgrades_count, 0) AS u_upgrades_count,
@@ -514,24 +538,36 @@ def get_user_friends(tg_id, limit=100):
                 for r in rows:
                     r_dict = dict(r)
                     fid = str(r_dict.get("tg_id"))
-                    fname = r_dict.get("friend_name") or "صديق"
+
+                    # إعطاء الأولوية للاسم المحدد في user_friends إذا تم تعديله يدوياً، وإلا اسم المستخدم في users
+                    uf_name = (r_dict.get("uf_name") or r_dict.get("uf_first_name") or "").strip()
+                    u_name = (r_dict.get("u_first_name") or r_dict.get("u_name") or "").strip()
+                    if uf_name and uf_name not in ("صديق", "لاعب"):
+                        fname = uf_name
+                    elif u_name:
+                        fname = u_name
+                    else:
+                        fname = uf_name or "صديق"
+
                     earned = round(float(r_dict.get("earned_from_him") or 0.0), 6)
 
-                    live_upgrades = _calculate_upgrades_from_row({
-                        "upgrades_count": max(int(r_dict.get("uf_upgrades_count") or 0), int(r_dict.get("u_upgrades_count") or 0)),
-                        "upgrades": r_dict.get("u_upgrades")
-                    })
+                    uf_upg = int(r_dict.get("uf_upgrades_count") or 0)
+                    u_upg = int(r_dict.get("u_upgrades_count") or 0)
+                    json_upg = _calculate_json_upgrades(r_dict.get("u_upgrades"))
 
-                    # تحديث الكاش في user_friends و users إذا زادت الترقيات
-                    if live_upgrades > int(r_dict.get("uf_upgrades_count") or 0):
+                    # إذا قام الأدمن بتعديل upgrades_count في user_friends أو users يدوياً يظهر فوراً
+                    if json_upg > uf_upg and json_upg > u_upg:
+                        live_upgrades = json_upg
                         cur.execute("""
                             UPDATE user_friends
-                            SET upgrades_count = %s, first_name = %s, name = %s, updated_at = CURRENT_TIMESTAMP
+                            SET upgrades_count = %s, updated_at = CURRENT_TIMESTAMP
                             WHERE referrer_id = %s AND friend_id = %s;
-                        """, (live_upgrades, fname, fname, ref_str, fid))
-
-                    if live_upgrades > int(r_dict.get("u_upgrades_count") or 0):
-                        cur.execute("UPDATE users SET upgrades_count = %s WHERE tg_id = %s;", (live_upgrades, fid))
+                        """, (live_upgrades, ref_str, fid))
+                    elif uf_upg != u_upg:
+                        # احترام التعديل اليدوي في جدول user_friends مباشرةً
+                        live_upgrades = uf_upg if uf_upg > 0 or json_upg == 0 else max(u_upg, json_upg)
+                    else:
+                        live_upgrades = max(uf_upg, json_upg)
 
                     friends.append({
                         "tg_id": fid,
@@ -549,7 +585,7 @@ def get_user_friends(tg_id, limit=100):
 
 
 def add_referral_reward(referrer_id, user_id, mined_amount, user_upgrades_count=None, user_name=None):
-    """إضافة أرباح التعدين للمُحيل وتحديث بيانات الصديق تلقائياً مع مراعاة نسبة VIP (12%)"""
+    """إضافة أرباح التعدين للمُحيل وتحديث بيانات الصديق تلقائياً مع مراعاة نسبة VIP"""
     init_friends_tables()
     ref_str = _clean_id(referrer_id)
     user_str = _clean_id(user_id)
@@ -612,7 +648,7 @@ def get_friends_list_db(tg_id):
 
 
 def get_friends_data_db(tg_id, start_param=None, user_name=None):
-    """جلب ملخص إحصائيات الأصدقاء والمكافآت وإعدادات قائمة الأصدقاء مع شرط 3 ترقيات"""
+    """جلب ملخص إحصائيات الأصدقاء والمكافآت وإعدادات قائمة الأصدقاء مباشرة وبشكل حي من Supabase"""
     init_friends_tables()
     tg_str = _clean_id(tg_id)
     if not tg_str:
@@ -620,15 +656,26 @@ def get_friends_data_db(tg_id, start_param=None, user_name=None):
 
     try:
         ref_candidate = _clean_id(start_param) if start_param else None
-        user_data = database.init_user(tg_str, ref_id=ref_candidate, first_name=user_name or "لاعب")
+        database.init_user(tg_str, ref_id=ref_candidate, first_name=user_name or "لاعب")
+
+        # قراءة بيانات اللاعب مباشرة من Supabase لتجنب أي كاش قديم في الذاكرة
+        user_data = {}
+        with database.get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM users WHERE tg_id = %s LIMIT 1;", (tg_str,))
+                row = cur.fetchone()
+                if row:
+                    user_data = dict(row)
+
+        if not user_data:
+            user_data = database.get_user(tg_str) or {}
 
         friends = get_user_friends(tg_str)
-        config = get_friends_config().copy()
+        config = get_friends_config(force_refresh=True).copy()
         vip_status = is_user_vip(tg_str, user_data)
 
-        # تثبيت شرط الترقيات على 3 ترقيات للجميع
-        config["min_upgrades_for_task"] = 3
-        min_upgrades = 3
+        min_upgrades = int(config.get("min_upgrades_for_task", 5) or 5)
+        config["min_upgrades_for_task"] = min_upgrades
 
         if vip_status:
             effective_commission = float(config.get("vip_commission_percent", 12.0))
@@ -654,12 +701,12 @@ def get_friends_data_db(tg_id, start_param=None, user_name=None):
             "is_vip": vip_status,
             "effective_commission": effective_commission,
             "effective_claim_fee": effective_claim_fee,
-            "friends_config": config
+            "friends_config": config,
+            "friends": friends
         }
     except Exception as e:
         print(f"❌ Error getting friends data for {tg_id}: {e}")
-        config = get_friends_config().copy()
-        config["min_upgrades_for_task"] = 3
+        config = get_friends_config(force_refresh=False).copy()
         return {
             "balance": 0.0,
             "pending_ref_earnings": 0.0,
@@ -671,7 +718,8 @@ def get_friends_data_db(tg_id, start_param=None, user_name=None):
             "is_vip": False,
             "effective_commission": 10.0,
             "effective_claim_fee": 1.5,
-            "friends_config": config
+            "friends_config": config,
+            "friends": []
         }
 
 
@@ -684,7 +732,7 @@ def claim_ref_earnings_db(tg_id):
 
     with _get_user_lock(tg_str):
         try:
-            config = get_friends_config()
+            config = get_friends_config(force_refresh=True)
             with database.get_db_connection() as conn:
                 old_autocommit = conn.autocommit
                 conn.autocommit = False
@@ -750,8 +798,8 @@ def claim_ref_earnings_db(tg_id):
 def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
     """
     استلام مكافأة مهمة دعوة الأصدقاء داخل معاملة SQL ذرية آمنة (FOR UPDATE):
-    - يتم تجاهل reward و req_friends المرسلة من العميل والاعتماد حصراً على إعدادات السيرفر لمنع التزوير.
-    - يشترط إتمام كل صديق 3 ترقيات على الأقل لاحتسابه في المهمة.
+    - يتم الاعتماد حصراً على إعدادات السيرفر الحية في Supabase لمنع التزوير.
+    - يتحقق من إتمام كل صديق لعدد الترقيات المطلوب في الإعدادات (5 ترقيات افتراضياً).
     """
     init_friends_tables()
     tg_str = _clean_id(tg_id)
@@ -762,7 +810,7 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
 
     with _get_user_lock(tg_str):
         try:
-            config = get_friends_config()
+            config = get_friends_config(force_refresh=True)
             ref_tasks = config.get("ref_tasks") or DEFAULT_FRIENDS_CONFIG["ref_tasks"]
 
             task_info = ref_tasks.get(task_key)
@@ -775,8 +823,7 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
             if actual_reward <= 0 or actual_req_friends <= 0:
                 return {"success": False, "error": "إعدادات المهمة غير صالحة"}
 
-            # جلب قائمة الأصدقاء الحية والتحقق من إتمام 3 ترقيات لكل صديق مؤهل
-            min_upgrades = 3
+            min_upgrades = int(config.get("min_upgrades_for_task", 5) or 5)
             friends = get_user_friends(tg_str)
             eligible_count = sum(1 for f in friends if int(f.get("upgrades_count", 0) or 0) >= min_upgrades)
 
