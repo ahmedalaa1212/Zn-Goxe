@@ -92,7 +92,7 @@ def get_expiration_dt(raw_val):
         if isinstance(raw_val, (int, float)):
             return datetime.fromtimestamp(raw_val, tz=timezone.utc)
         if isinstance(raw_val, datetime):
-            return raw_val.replace(tzinfo=timezone.utc) if raw_val.tzinfo is None else raw_val.astimezone(timezone.utc)
+            return raw_val.replace(tzinfo=timezone.utc) if raw_val.tzinfo is None else dt.astimezone(timezone.utc)
         s = str(raw_val).replace('Z', '+00:00')
         dt = datetime.fromisoformat(s)
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
@@ -229,6 +229,9 @@ def get_player_data():
         storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
         mining_cfg = game_settings.get("mining_config", {})
 
+        monetag_id = (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "11322720").strip()
+        monetix_id = (os.environ.get("MONETIX_BLOCK_ID") or os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "MX-3AE08FE9").strip()
+
         return jsonify({
             "success": True, 
             "player": user_data, 
@@ -237,6 +240,8 @@ def get_player_data():
             "auto_claimed": auto_claimed,
             "auto_claimed_amount": round(auto_claimed_amount, 8),
             "is_auto_bot_active": bool(user_data.get("is_auto_bot_active", False)),
+            "monetag_zone_id": monetag_id,
+            "monetix_block_id": monetix_id,
             "game_config": {
                 "daily_rewards": parsed_rewards,
                 "upgrade_costs": upgrade_costs,
@@ -247,10 +252,9 @@ def get_player_data():
                 "max_upgrades_per_level": int(mining_cfg.get("max_upgrades_per_level", 15)),
                 "boost_cooldown_seconds": 10800,
                 "boost_duration_seconds": 7200,
-                "monetag_zone_id": (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "11322720").strip(),
-                "monetix_zone_id": (os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "").strip(),
-                # سحب رابط Adsterra من Railway وإرساله للعبة
-                "adsterra_direct_link": os.environ.get("ADSTERRA_DIRECT_LINK", "").strip()
+                "monetag_zone_id": monetag_id,
+                "monetix_block_id": monetix_id,
+                "monetix_zone_id": monetix_id
             }
         }), 200
     except Exception as e:
