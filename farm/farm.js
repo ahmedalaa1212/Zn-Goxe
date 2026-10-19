@@ -1,7 +1,8 @@
 /**
  * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Retroactive Jumps)
- * Cleaned, Optimized, Hardened Security & Full Ad Waterfall Version
- * Boost Waterfall: RichAds -> Monetix -> Adsterra Smartlink (15s Protected Timer)
+ * Cleaned, Optimized & Modularized Version
+ * Boost Waterfall: Monetix (Primary) -> Monetag (Fallback)
+ * Daily Claim: Monetag (Primary) -> Monetix (Fallback)
  */
 
 // ==========================================
@@ -63,9 +64,6 @@ window.closeAutoClaimModal = function() {
     const NativeSetTimeout = window.setTimeout.bind(window);
     const NativeClearTimeout = window.clearTimeout.bind(window);
     const NativeDateNow = Date.now.bind(Date);
-    const NativePerfNow = (window.performance && typeof window.performance.now === 'function')
-        ? window.performance.now.bind(window.performance)
-        : Date.now.bind(Date);
 
     const tele = window.Telegram?.WebApp;
     const urlParams = new URLSearchParams(window.location.search);
@@ -74,18 +72,10 @@ window.closeAutoClaimModal = function() {
         try { sessionStorage.setItem('zn_start_param', START_PARAM); } catch (e) {}
     }
 
-    // الرابط الأساسي الخاص بك من Adsterra (الرابط الاحتياطي)
-    const DEFAULT_ADSTERRA_SMARTLINK = "https://www.profitableratecpmnetwork.com/y9dnh33nn?key=bd3d7086212b604116dd994b522d03db";
-
-    // إعدادات اللعبة والإعلانات
+    // إعدادات اللعبة والإعلانات (Monetix + Monetag فقط)
     const GAME_CONFIG = {
-        richAdsPubId: "1026084",
-        richAdsAppId: "9342",
-        richAdsVideoWidgetId: "418362",
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
-        adsterraDirectLink: window.ADSTERRA_DIRECT_LINK || DEFAULT_ADSTERRA_SMARTLINK,
-        adsterraTimerSeconds: 15,
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.10,
         boostDurationMs: 2 * 60 * 60 * 1000, 
@@ -129,7 +119,6 @@ window.closeAutoClaimModal = function() {
     let isAutoClaiming = false;
     let upgradingLevel = null;
     let isUpgradingStorage = false;
-    let directLinkTimerInterval = null;
 
     let lastFetchTime = 0;
     const FETCH_THROTTLE_MS = 0; 
@@ -195,9 +184,6 @@ window.closeAutoClaimModal = function() {
                 if (parsed && typeof parsed === 'object') {
                     window.userState = parsed;
                     window.PlayerData = parsed;
-                    if (parsed.adsterra_direct_link && typeof parsed.adsterra_direct_link === 'string' && parsed.adsterra_direct_link.startsWith('http')) {
-                        GAME_CONFIG.adsterraDirectLink = parsed.adsterra_direct_link;
-                    }
                     return true;
                 }
             }
@@ -436,264 +422,30 @@ window.closeAutoClaimModal = function() {
     }
 
     // ==========================================
-    // جلب رابط Adsterra المباشر (من Railway عبر السيرفر أو الرابط الاحتياطي)
-    // ==========================================
-    function getAdsterraDirectLinkUrl() {
-        const state = getState();
-        let candidate = (
-            GAME_CONFIG.adsterraDirectLink ||
-            window.ADSTERRA_DIRECT_LINK ||
-            state.adsterra_direct_link ||
-            localStorage.getItem('zn_adsterra_direct_link') ||
-            ""
-        ).trim();
-
-        if (!candidate || !candidate.startsWith('http')) {
-            candidate = DEFAULT_ADSTERRA_SMARTLINK;
-        }
-        return candidate;
-    }
-
-    // ==========================================
-    // إنشاء أو جلب نافذة Adsterra الإجبارية المؤمنة (15 ثانية بدون زر إلغاء)
-    // ==========================================
-    function ensureDirectLinkOverlayDOM() {
-        let overlay = document.getElementById('direct-link-overlay');
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = 'direct-link-overlay';
-            overlay.style.cssText = 'display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: #0f172a; z-index: 9999999; flex-direction: column;';
-            overlay.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; background: #1e293b; border-bottom: 2px solid #334155; font-family: system-ui, -apple-system, sans-serif;">
-                    <span id="dl-timer-text" style="color: #ff9800; font-weight: bold; font-size: 15px;">⏳ يرجى الانتظار 15 ثانية...</span>
-                    <button id="dl-close-btn" style="background: #10b981; color: #ffffff; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer; display: none;">استلام المكافأة وإغلاق 🎁</button>
-                </div>
-                <iframe id="dl-iframe" referrerpolicy="no-referrer-when-downgrade" style="flex: 1; width: 100%; border: none; background: #ffffff;" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
-            `;
-            document.body.appendChild(overlay);
-        }
-        return overlay;
-    }
-
-    // ==========================================
-    // دالة تشغيل إعلان Adsterra Smartlink المؤمنة ضد التلاعب (15 ثانية إجباري)
-    // ==========================================
-    async function showAdsterraDirectLinkAd() {
-        const directLinkUrl = getAdsterraDirectLinkUrl();
-        if (!directLinkUrl) {
-            toggleAdLoadingOverlay(false);
-            return false;
-        }
-
-        return new Promise((resolve) => {
-            const overlay = ensureDirectLinkOverlayDOM();
-            let iframe = document.getElementById('dl-iframe');
-            const timerText = document.getElementById('dl-timer-text');
-            const closeBtn = document.getElementById('dl-close-btn');
-
-            if (directLinkTimerInterval) {
-                NativeClearInterval(directLinkTimerInterval);
-                directLinkTimerInterval = null;
-            }
-
-            // إزالة أي onclick خارجي لمنع التلاعب عبر Console
-            closeBtn.removeAttribute('onclick');
-            closeBtn.style.display = 'none';
-            closeBtn.disabled = true;
-
-            const requiredSeconds = parseInt(GAME_CONFIG.adsterraTimerSeconds || 15, 10);
-            let elapsedValidHalfSeconds = 0; 
-            let timerFinished = false;
-            let sessionResolved = false;
-            const startPerfMs = NativePerfNow();
-            const startWallMs = NativeDateNow();
-
-            timerText.style.color = '#ff9800';
-            timerText.innerText = `⏳ يرجى الانتظار ${requiredSeconds} ثانية...`;
-
-            // إضافة باراميتر عشوائي لمنع الكاش وضمان احتساب الزيارة في Adsterra
-            const sep = directLinkUrl.includes('?') ? '&' : '?';
-            const finalUrl = `${directLinkUrl}${sep}_t=${NativeDateNow()}`;
-
-            if (iframe) {
-                iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox');
-                iframe.src = finalUrl;
-            }
-
-            // إظهار نافذة الإعلان وإخفاء شاشة التحميل الخلفية
-            overlay.style.display = 'flex';
-            toggleAdLoadingOverlay(false);
-
-            directLinkTimerInterval = NativeSetInterval(() => {
-                // حماية: إذا قام المستخدم بتصغير التطبيق أو الخروج منه يتوقف العداد مؤقتاً
-                if (document.visibilityState === 'hidden') {
-                    timerText.innerText = `⏸️ الإعلان متوقف مؤقتاً (ارجع للتطبيق)...`;
-                    return;
-                }
-
-                const currentIframe = document.getElementById('dl-iframe');
-                if (!currentIframe || overlay.style.display === 'none') {
-                    NativeClearInterval(directLinkTimerInterval);
-                    directLinkTimerInterval = null;
-                    if (!sessionResolved) {
-                        sessionResolved = true;
-                        overlay.style.display = 'none';
-                        resolve(false);
-                    }
-                    return;
-                }
-
-                elapsedValidHalfSeconds++;
-                const elapsedSec = Math.floor(elapsedValidHalfSeconds / 2);
-                const remainingSec = Math.max(0, requiredSeconds - elapsedSec);
-
-                const realPerfElapsedSec = (NativePerfNow() - startPerfMs) / 1000;
-                const realWallElapsedSec = (NativeDateNow() - startWallMs) / 1000;
-
-                if (remainingSec > 0 || realPerfElapsedSec < (requiredSeconds - 0.5) || realWallElapsedSec < (requiredSeconds - 0.5)) {
-                    const displayWait = Math.max(1, remainingSec, Math.ceil(requiredSeconds - realPerfElapsedSec));
-                    timerText.style.color = '#ff9800';
-                    timerText.innerText = `⏳ يرجى الانتظار ${displayWait} ثانية...`;
-                } else {
-                    NativeClearInterval(directLinkTimerInterval);
-                    directLinkTimerInterval = null;
-                    timerFinished = true;
-                    timerText.innerText = '✅ اكتملت المشاهدة بنجاح!';
-                    timerText.style.color = '#10b981';
-                    closeBtn.disabled = false;
-                    closeBtn.style.display = 'inline-block';
-                }
-            }, 500);
-
-            // معالج إغلاق محمي داخل النطاق المغلق (لا يمكن استدعاؤه من الـ Console)
-            closeBtn.onclick = function(event) {
-                if (sessionResolved) return;
-
-                // 1. رفض النقرات الوهمية عبر السكريبتات
-                if (!event || event.isTrusted !== true) {
-                    showToast("⚠️ تم رفض الإجراء غير المصرح به!");
-                    return;
-                }
-
-                // 2. التحقق الصارم من انتهاء الـ 15 ثانية فعلياً
-                const realPerfElapsed = NativePerfNow() - startPerfMs;
-                const realWallElapsed = NativeDateNow() - startWallMs;
-                const minRequiredMs = (requiredSeconds * 1000) - 500;
-
-                if (!timerFinished || realPerfElapsed < minRequiredMs || realWallElapsed < minRequiredMs) {
-                    showToast("⏳ يرجى الانتظار حتى انتهاء عداد الـ 15 ثانية بالكامل!");
-                    return;
-                }
-
-                sessionResolved = true;
-                if (directLinkTimerInterval) {
-                    NativeClearInterval(directLinkTimerInterval);
-                    directLinkTimerInterval = null;
-                }
-
-                overlay.style.display = 'none';
-                if (iframe) iframe.src = 'about:blank';
-                resolve(true);
-            };
-        });
-    }
-
-    // إتاحة دالة Adsterra بشكل عام لاستخدامها في أي مكان آخر بالتطبيق
-    window.showAdsterraDirectLinkAd = showAdsterraDirectLinkAd;
-
-    // ==========================================
-    // 1. دالة تشغيل إعلان RichAds (مهلة سريعة للتحويل السلس)
-    // ==========================================
-    async function showRichAdsAd() {
-        toggleAdLoadingOverlay(true);
-
-        return new Promise(async (resolve) => {
-            let resolved = false;
-
-            const finish = (result) => {
-                if (!resolved) {
-                    resolved = true;
-                    NativeClearTimeout(timeoutTimer);
-                    resolve(result);
-                }
-            };
-
-            const timeoutTimer = NativeSetTimeout(() => {
-                console.warn("RichAds timeout - switching to Monetix.");
-                finish(false);
-            }, 4500);
-
-            try {
-                if (!window.TelegramAdsController && typeof TelegramAdsController === 'function') {
-                    window.TelegramAdsController = new TelegramAdsController();
-                    await window.TelegramAdsController.initialize({
-                        pubId: GAME_CONFIG.richAdsPubId,
-                        appId: GAME_CONFIG.richAdsAppId
-                    });
-                }
-
-                const ctrl = window.TelegramAdsController;
-                if (!ctrl) {
-                    return finish(false);
-                }
-
-                const isRichAdSuccess = (res) => {
-                    if (!res || res === false) return false;
-                    if (typeof res === 'object') {
-                        if (res.error || res.status === 'error' || res.status === 'failed' || res.status === 'no_fill' || res.done === false) {
-                            return false;
-                        }
-                    }
-                    return true;
-                };
-
-                if (typeof ctrl.triggerInterstitialVideo === 'function') {
-                    try {
-                        const res = await ctrl.triggerInterstitialVideo();
-                        if (isRichAdSuccess(res)) return finish(true);
-                    } catch (videoErr) {
-                        console.warn("RichAds Video No-Fill:", videoErr);
-                    }
-                }
-
-                if (typeof ctrl.triggerInterstitialBanner === 'function') {
-                    try {
-                        const res = await ctrl.triggerInterstitialBanner();
-                        if (isRichAdSuccess(res)) return finish(true);
-                    } catch (bannerErr) {
-                        console.warn("RichAds Banner No-Fill:", bannerErr);
-                    }
-                }
-
-                finish(false);
-            } catch (err) {
-                console.warn("RichAds error:", err);
-                finish(false);
-            }
-        });
-    }
-
-    // ==========================================
-    // 2. دالة تشغيل إعلان Monetix
+    // 1. دالة تشغيل إعلان Monetix
     // ==========================================
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
 
         return new Promise((resolve) => {
             let resolved = false;
+            let startHideTimer = null;
 
             const finish = (result) => {
                 if (!resolved) {
                     resolved = true;
                     NativeClearTimeout(timeoutTimer);
+                    NativeClearTimeout(startHideTimer);
+                    toggleAdLoadingOverlay(false);
                     resolve(result);
                 }
             };
 
+            // مهلة 12 ثانية في حال عدم رد سيرفر Monetix للتحويل السلس إلى Monetag
             const timeoutTimer = NativeSetTimeout(() => {
-                console.warn("Monetix timeout - switching to Adsterra Smartlink.");
+                console.warn("Monetix Ad timeout.");
                 finish(false);
-            }, 5000);
+            }, 12000);
 
             const blockId = GAME_CONFIG.monetixBlockId || "MX-3AE08FE9";
             const cleanBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '_');
@@ -716,35 +468,40 @@ window.closeAutoClaimModal = function() {
                     if (status === true) return true;
                     if (typeof status === 'string') {
                         const str = status.toLowerCase();
-                        return ['completed', 'rewarded', 'true', 'success'].includes(str);
+                        return ['completed', 'closed', 'rewarded', 'true', 'success'].includes(str);
                     }
                     if (typeof status === 'object' && status !== null) {
-                        if (status.rewarded === true || status.completed === true || status.success === true) return true;
+                        if (status.rewarded || status.completed || status.closed || status.success) return true;
                         const st = (status.status || status.state || status.event || status.type || '').toString().toLowerCase();
-                        return ['completed', 'rewarded', 'success'].includes(st);
+                        return ['completed', 'closed', 'rewarded', 'success'].includes(st);
                     }
                     return false;
                 };
 
                 const handleMonetixCallback = (status) => {
+                    toggleAdLoadingOverlay(false);
                     if (checkSuccessStatus(status)) {
                         finish(true);
-                    } else {
+                    } else if (status === false || (typeof status === 'string' && ['failed', 'error', 'skipped', 'dismissed', 'no_fill', 'nofill'].includes(status.toLowerCase()))) {
+                        finish(false);
+                    } else if (status && typeof status === 'object' && (status.error || status.failed)) {
                         finish(false);
                     }
                 };
 
                 const res = monetixFn(handleMonetixCallback);
+                startHideTimer = NativeSetTimeout(() => toggleAdLoadingOverlay(false), 800);
 
                 if (res && typeof res.then === 'function') {
                     res.then((r) => {
+                        toggleAdLoadingOverlay(false);
                         if (checkSuccessStatus(r)) {
                             finish(true);
                         } else {
                             finish(false);
                         }
                     }).catch((err) => {
-                        console.warn("Monetix Promise No-Fill/Error:", err);
+                        console.warn("Monetix Promise Error / No-Fill:", err);
                         finish(false);
                     });
                 } else if (res === false) {
@@ -758,7 +515,7 @@ window.closeAutoClaimModal = function() {
     }
 
     // ==========================================
-    // دالة Monetag (مخصصة للمكافأة اليومية فقط)
+    // 2. دالة تشغيل إعلان Monetag
     // ==========================================
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
@@ -772,6 +529,7 @@ window.closeAutoClaimModal = function() {
                 if (!resolved) {
                     resolved = true;
                     NativeClearTimeout(timeoutTimer);
+                    toggleAdLoadingOverlay(false);
                     resolve(result);
                 }
             };
@@ -779,20 +537,27 @@ window.closeAutoClaimModal = function() {
             const timeoutTimer = NativeSetTimeout(() => {
                 console.warn("Monetag Ad timeout.");
                 finish(false);
-            }, 6000);
+            }, 45000);
 
             if (typeof window[functionName] === 'function') {
                 try {
                     const adPromise = window[functionName]();
                     if (adPromise && typeof adPromise.then === 'function') {
-                        adPromise.then((res) => finish(res !== false)).catch(() => finish(false));
+                        adPromise.then((res) => {
+                            finish(res !== false);
+                        }).catch((e) => {
+                            console.warn("خطأ أو عدم توفر إعلان Monetag:", e);
+                            finish(false);
+                        });
                     } else {
-                        finish(false);
+                        finish(true);
                     }
                 } catch (e) {
+                    console.warn("استدعاء Monetag فشل:", e);
                     finish(false);
                 }
             } else {
+                console.warn(`دالة Monetag الإعلانية غير متوفرة (${functionName}).`);
                 finish(false);
             }
         });
@@ -930,20 +695,16 @@ window.closeAutoClaimModal = function() {
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
                 if (resData.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.monetag_zone_id;
-                if (resData.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
-
-                // تحديث رابط Adsterra المباشر من السيرفر إذا كان موجوداً
-                const serverDirectLink = resData.game_config?.adsterra_direct_link || resData.adsterra_direct_link;
-                if (serverDirectLink && typeof serverDirectLink === 'string' && serverDirectLink.startsWith('http')) {
-                    GAME_CONFIG.adsterraDirectLink = serverDirectLink;
-                    window.ADSTERRA_DIRECT_LINK = serverDirectLink;
-                    try { localStorage.setItem('zn_adsterra_direct_link', serverDirectLink); } catch (e) {}
+                if (resData.monetix_block_id || resData.monetix_zone_id) {
+                    GAME_CONFIG.monetixBlockId = resData.monetix_block_id || resData.monetix_zone_id;
                 }
 
                 if (resData.game_config) {
                     const cfg = resData.game_config;
                     if (cfg.monetag_zone_id) GAME_CONFIG.monetagZoneId = cfg.monetag_zone_id;
-                    if (cfg.monetix_block_id) GAME_CONFIG.monetixBlockId = cfg.monetix_block_id;
+                    if (cfg.monetix_block_id || cfg.monetix_zone_id) {
+                        GAME_CONFIG.monetixBlockId = cfg.monetix_block_id || cfg.monetix_zone_id;
+                    }
                     if (cfg.daily_rewards && Array.isArray(cfg.daily_rewards)) GAME_CONFIG.dailyRewards = cfg.daily_rewards;
                     if (cfg.upgrade_costs) GAME_CONFIG.upgradeCosts = cfg.upgrade_costs;
                     if (cfg.storage_config) GAME_CONFIG.storageConfig = cfg.storage_config;
@@ -965,8 +726,7 @@ window.closeAutoClaimModal = function() {
                         bot_active: isBotActive,
                         base_unclaimed: parseFloat(resData.player.unclaimed || 0),
                         unclaimed: parseFloat(resData.player.unclaimed || 0),
-                        last_accrual_time: serverTimeMs,
-                        adsterra_direct_link: GAME_CONFIG.adsterraDirectLink
+                        last_accrual_time: serverTimeMs
                     });
 
                     updateState(newState);
@@ -1114,7 +874,7 @@ window.closeAutoClaimModal = function() {
         boostBtn.onclick = window.handleDailyBoost;
         const lastBoostTimeStr = pData.last_boost_time;
 
-        // منع التفاعل الفوري إذا كان الزر في وضع التحميل أو تم قفله
+        // قفل الزر تماماً طالما الإعلان يحمل أو جاري التفعيل
         if (isBoosting) {
             boostBtn.className = "boost-btn btn-disabled";
             boostBtn.disabled = true;
@@ -1459,7 +1219,7 @@ window.closeAutoClaimModal = function() {
     };
 
     // ==========================================
-    // دالة المكافأة اليومية: Monetag -> RichAds -> Monetix -> Adsterra Smartlink (15s)
+    // دالة المكافأة اليومية: Monetag أساسي (وإذا لم يظهر يحول إلى Monetix)
     // ==========================================
     window.handleDailyClaim = async function(dayNum) {
         if (isDebouncedClick() || isClaimingDaily) return;
@@ -1468,18 +1228,13 @@ window.closeAutoClaimModal = function() {
         renderDailyRewards();
 
         try {
+            // 1. تشغيل Monetag كإعلان أساسي في التسجيل اليومي
             let adSuccess = await showMonetagAd();
 
+            // 2. إذا لم يظهر نهائياً، يحول احتياطياً إلى Monetix
             if (!adSuccess) {
-                adSuccess = await showRichAdsAd();
-            }
-
-            if (!adSuccess) {
+                console.log("Monetag لم يظهر، جاري التحويل إلى Monetix...");
                 adSuccess = await showMonetixAd();
-            }
-
-            if (!adSuccess) {
-                adSuccess = await showAdsterraDirectLinkAd();
             }
 
             toggleAdLoadingOverlay(false);
@@ -1491,7 +1246,10 @@ window.closeAutoClaimModal = function() {
 
             const stateBackup = cloneCurrentState();
             try {
-                let resData = await window.fetchAPI(`/api/farm/daily_claim?t=${NativeDateNow()}`, 'POST', {});
+                let resData = await window.fetchAPI(`/api/farm/daily_claim?t=${NativeDateNow()}`, 'POST', {
+                    ad_watched: true,
+                    monetag_watched: true
+                });
                 if (resData && resData.success) {
                     if (resData.server_time) syncServerTime(resData.server_time);
                     setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
@@ -1518,26 +1276,23 @@ window.closeAutoClaimModal = function() {
     };
 
     // ==========================================
-    // دالة زر تسريع التعدين (+0.1/h): RichAds -> Monetix -> Adsterra Smartlink (15s)
+    // دالة زر تسريع التعدين (+0.1/h): Monetix أساسي -> ثم Monetag كبديل
     // ==========================================
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
-        // 1. قفل الزر فوراً
+        // قفل الزر فوراً لحظة الضغط لمنع التكرار
         isBoosting = true;
         updateBoostButtonUI(getState());
         
         try {
-            let adSuccess = await showRichAdsAd();
+            // 1. تشغيل Monetix أولاً كإعلان أساسي
+            let adSuccess = await showMonetixAd();
 
+            // 2. إذا لم يظهر إعلان Monetix نهائياً، يتم تشغيل إعلان Monetag فوراً
             if (!adSuccess) {
-                console.log("RichAds غير متاح حالياً، جاري التحويل فوراً إلى Monetix...");
-                adSuccess = await showMonetixAd();
-            }
-
-            if (!adSuccess) {
-                console.log("Monetix غير متاح، جاري فتح إعلان Adsterra Smartlink (15 ثانية)...");
-                adSuccess = await showAdsterraDirectLinkAd();
+                console.log("Monetix غير متاح حالياً، جاري عرض إعلان Monetag البديل...");
+                adSuccess = await showMonetagAd();
             }
 
             toggleAdLoadingOverlay(false);
@@ -1551,7 +1306,11 @@ window.closeAutoClaimModal = function() {
             const stateBackup = cloneCurrentState();
 
             try {
-                let resData = await window.fetchAPI(`/api/farm/daily_boost?t=${NativeDateNow()}`, 'POST', {});
+                let resData = await window.fetchAPI(`/api/farm/daily_boost?t=${NativeDateNow()}`, 'POST', {
+                    ad_watched: true,
+                    monetix_watched: true,
+                    monetag_watched: true
+                });
                 if (resData && resData.success) {
                     if (resData.server_time) syncServerTime(resData.server_time);
 
@@ -1576,7 +1335,7 @@ window.closeAutoClaimModal = function() {
             }
         } finally {
             toggleAdLoadingOverlay(false);
-            isBoosting = false; // إعادة فتح الزر إذا لزم الأمر
+            isBoosting = false;
             window.updateFarmUI();
         }
     };
