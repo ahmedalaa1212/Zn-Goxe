@@ -74,7 +74,7 @@ window.closeAutoClaimModal = function() {
         try { sessionStorage.setItem('zn_start_param', START_PARAM); } catch (e) {}
     }
 
-    // الرابط الأساسي الخاص بك من Adsterra + دعم التحديث التلقائي من متغير Railway (ADSTERRA_DIRECT_LINK)
+    // الرابط الأساسي الخاص بك من Adsterra (الرابط الاحتياطي)
     const DEFAULT_ADSTERRA_SMARTLINK = "https://www.profitableratecpmnetwork.com/y9dnh33nn?key=bd3d7086212b604116dd994b522d03db";
 
     // إعدادات اللعبة والإعلانات
@@ -436,19 +436,22 @@ window.closeAutoClaimModal = function() {
     }
 
     // ==========================================
-    // جلب رابط Adsterra المباشر (من متغير Railway أو الرابط الأساسي المدمج)
+    // جلب رابط Adsterra المباشر (من Railway عبر السيرفر أو الرابط الاحتياطي)
     // ==========================================
     function getAdsterraDirectLinkUrl() {
         const state = getState();
-        const candidate = (
+        let candidate = (
+            GAME_CONFIG.adsterraDirectLink ||
             window.ADSTERRA_DIRECT_LINK ||
             state.adsterra_direct_link ||
-            GAME_CONFIG.adsterraDirectLink ||
             localStorage.getItem('zn_adsterra_direct_link') ||
-            DEFAULT_ADSTERRA_SMARTLINK
+            ""
         ).trim();
 
-        return candidate.startsWith('http') ? candidate : DEFAULT_ADSTERRA_SMARTLINK;
+        if (!candidate || !candidate.startsWith('http')) {
+            candidate = DEFAULT_ADSTERRA_SMARTLINK;
+        }
+        return candidate;
     }
 
     // ==========================================
@@ -499,7 +502,7 @@ window.closeAutoClaimModal = function() {
             closeBtn.disabled = true;
 
             const requiredSeconds = parseInt(GAME_CONFIG.adsterraTimerSeconds || 15, 10);
-            let elapsedValidHalfSeconds = 0; // نحسب كل 500ms بشرط أن تكون الصفحة مرئية للمستخدم
+            let elapsedValidHalfSeconds = 0; 
             let timerFinished = false;
             let sessionResolved = false;
             const startPerfMs = NativePerfNow();
@@ -528,7 +531,6 @@ window.closeAutoClaimModal = function() {
                     return;
                 }
 
-                // حماية: التأكد من عدم حذف الـ iframe من الـ DOM بواسطة أدوات الفحص
                 const currentIframe = document.getElementById('dl-iframe');
                 if (!currentIframe || overlay.style.display === 'none') {
                     NativeClearInterval(directLinkTimerInterval);
@@ -545,7 +547,6 @@ window.closeAutoClaimModal = function() {
                 const elapsedSec = Math.floor(elapsedValidHalfSeconds / 2);
                 const remainingSec = Math.max(0, requiredSeconds - elapsedSec);
 
-                // التحقق المزدوج من الوقت الحقيقي المنقضي (ضد برامج تسريع المتصفح)
                 const realPerfElapsedSec = (NativePerfNow() - startPerfMs) / 1000;
                 const realWallElapsedSec = (NativeDateNow() - startWallMs) / 1000;
 
@@ -568,7 +569,7 @@ window.closeAutoClaimModal = function() {
             closeBtn.onclick = function(event) {
                 if (sessionResolved) return;
 
-                // 1. رفض النقرات الوهمية عبر السكريبتات (يجب أن تكون ضغطة حقيقية من المستخدم)
+                // 1. رفض النقرات الوهمية عبر السكريبتات
                 if (!event || event.isTrusted !== true) {
                     showToast("⚠️ تم رفض الإجراء غير المصرح به!");
                     return;
@@ -597,8 +598,11 @@ window.closeAutoClaimModal = function() {
         });
     }
 
+    // إتاحة دالة Adsterra بشكل عام لاستخدامها في أي مكان آخر بالتطبيق
+    window.showAdsterraDirectLinkAd = showAdsterraDirectLinkAd;
+
     // ==========================================
-    // 1. دالة تشغيل إعلان RichAds (مهلة سريعة 4.5 ثانية للتحويل السلس)
+    // 1. دالة تشغيل إعلان RichAds (مهلة سريعة للتحويل السلس)
     // ==========================================
     async function showRichAdsAd() {
         toggleAdLoadingOverlay(true);
@@ -614,7 +618,6 @@ window.closeAutoClaimModal = function() {
                 }
             };
 
-            // مهلة سريعة 4.5 ثانية حتى لا ينتظر المستخدم طويلاً إذا لم يتوفر إعلان
             const timeoutTimer = NativeSetTimeout(() => {
                 console.warn("RichAds timeout - switching to Monetix.");
                 finish(false);
@@ -671,7 +674,7 @@ window.closeAutoClaimModal = function() {
     }
 
     // ==========================================
-    // 2. دالة تشغيل إعلان Monetix (تم إصلاح مشكلة التعليق 15 ثانية)
+    // 2. دالة تشغيل إعلان Monetix
     // ==========================================
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
@@ -687,7 +690,6 @@ window.closeAutoClaimModal = function() {
                 }
             };
 
-            // مهلة 5 ثوانٍ فقط في حال عدم رد سيرفر Monetix للتحويل الفوري إلى Adsterra Smartlink
             const timeoutTimer = NativeSetTimeout(() => {
                 console.warn("Monetix timeout - switching to Adsterra Smartlink.");
                 finish(false);
@@ -728,7 +730,6 @@ window.closeAutoClaimModal = function() {
                     if (checkSuccessStatus(status)) {
                         finish(true);
                     } else {
-                        // أي حالة غير النجاح تحول فوراً إلى Adsterra بدون انتظار
                         finish(false);
                     }
                 };
@@ -740,7 +741,6 @@ window.closeAutoClaimModal = function() {
                         if (checkSuccessStatus(r)) {
                             finish(true);
                         } else {
-                            // إصلاح: التحويل الفوري إذا لم يرجع الإعلان حالة نجاح
                             finish(false);
                         }
                     }).catch((err) => {
@@ -758,7 +758,7 @@ window.closeAutoClaimModal = function() {
     }
 
     // ==========================================
-    // دالة Monetag (مخصصة للمكافأة اليومية فقط وليس زر التسريع)
+    // دالة Monetag (مخصصة للمكافأة اليومية فقط)
     // ==========================================
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
@@ -932,8 +932,8 @@ window.closeAutoClaimModal = function() {
                 if (resData.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.monetag_zone_id;
                 if (resData.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
 
-                // قراءة رابط Adsterra المباشر إذا أرسله السيرفر من متغير Railway (ADSTERRA_DIRECT_LINK)
-                const serverDirectLink = resData.ADSTERRA_DIRECT_LINK || resData.adsterra_direct_link || resData.direct_link_url || resData.game_config?.ADSTERRA_DIRECT_LINK || resData.game_config?.adsterra_direct_link || resData.game_config?.direct_link_url;
+                // تحديث رابط Adsterra المباشر من السيرفر إذا كان موجوداً
+                const serverDirectLink = resData.game_config?.adsterra_direct_link || resData.adsterra_direct_link;
                 if (serverDirectLink && typeof serverDirectLink === 'string' && serverDirectLink.startsWith('http')) {
                     GAME_CONFIG.adsterraDirectLink = serverDirectLink;
                     window.ADSTERRA_DIRECT_LINK = serverDirectLink;
@@ -1114,7 +1114,7 @@ window.closeAutoClaimModal = function() {
         boostBtn.onclick = window.handleDailyBoost;
         const lastBoostTimeStr = pData.last_boost_time;
 
-        // إذا كان جاري تحميل الإعلان أو تفعيل التسريع يظل الزر مقفولاً تماماً
+        // منع التفاعل الفوري إذا كان الزر في وضع التحميل أو تم قفله
         if (isBoosting) {
             boostBtn.className = "boost-btn btn-disabled";
             boostBtn.disabled = true;
@@ -1464,7 +1464,6 @@ window.closeAutoClaimModal = function() {
     window.handleDailyClaim = async function(dayNum) {
         if (isDebouncedClick() || isClaimingDaily) return;
 
-        // قفل زر المكافأة اليومية فوراً لمنع التكرار
         isClaimingDaily = true;
         renderDailyRewards();
 
@@ -1524,22 +1523,18 @@ window.closeAutoClaimModal = function() {
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
-        // 1. قفل زر التسريع فوراً لحظة الضغط حتى لا يظل مفعلاً أثناء التحميل
+        // 1. قفل الزر فوراً
         isBoosting = true;
         updateBoostButtonUI(getState());
-        toggleAdLoadingOverlay(true);
-
+        
         try {
-            // الخطوة 1: محاولة عرض إعلان RichAds أولاً
             let adSuccess = await showRichAdsAd();
 
-            // الخطوة 2: إذا لم يتوفر إعلان في RichAds، يحول فوراً إلى Monetix
             if (!adSuccess) {
                 console.log("RichAds غير متاح حالياً، جاري التحويل فوراً إلى Monetix...");
                 adSuccess = await showMonetixAd();
             }
 
-            // الخطوة 3: إذا لم يتوفر في الاثنين، يفتح فوراً إعلان Adsterra Smartlink لمدة 15 ثانية
             if (!adSuccess) {
                 console.log("Monetix غير متاح، جاري فتح إعلان Adsterra Smartlink (15 ثانية)...");
                 adSuccess = await showAdsterraDirectLinkAd();
@@ -1581,7 +1576,7 @@ window.closeAutoClaimModal = function() {
             }
         } finally {
             toggleAdLoadingOverlay(false);
-            isBoosting = false;
+            isBoosting = false; // إعادة فتح الزر إذا لزم الأمر
             window.updateFarmUI();
         }
     };
