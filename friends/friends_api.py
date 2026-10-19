@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, make_response
 from core.security import get_authenticated_user
 from .friends_db import (
     get_friends_data_db,
@@ -13,11 +13,20 @@ friends_bp = Blueprint('friends_bp', __name__)
 friends_api = friends_bp
 
 
+def _no_cache_json(payload, status_code=200):
+    """منع المتصفح أو WebView من تخزين استجابات الـ API لضمان التحديث اللحظي من Supabase"""
+    resp = make_response(jsonify(payload), status_code)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @friends_bp.route('/data', methods=['GET', 'POST'])
 @friends_bp.route('/friends/data', methods=['GET', 'POST'])
 @friends_bp.route('/api/friends/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب ملخص بيانات الأصدقاء والمكافآت مع المصادقة وحالة VIP وربط الإحالات تلقائياً"""
+    """جلب ملخص بيانات الأصدقاء والمكافآت وقائمة الأصدقاء الحية من Supabase"""
     is_auth, user_id, user_info, err_resp = get_authenticated_user(request, is_post=(request.method == 'POST'))
     if not is_auth:
         return err_resp
@@ -31,24 +40,25 @@ def get_friends_data():
 
         player_data = get_friends_data_db(str(user_id), start_param=start_param, user_name=user_name)
 
-        friends_config = player_data.get("friends_config") or get_friends_config()
-        friends_config["min_upgrades_for_task"] = 3
+        friends_config = player_data.get("friends_config") or get_friends_config(force_refresh=True)
+        friends_list = player_data.get("friends", [])
 
         is_vip = player_data.get("is_vip", False)
         effective_commission = player_data.get("effective_commission", 10.0)
         effective_claim_fee = player_data.get("effective_claim_fee", 1.5)
 
-        return jsonify({
+        return _no_cache_json({
             "success": True,
             "player": player_data,
+            "friends": friends_list,
             "friends_config": friends_config,
             "is_vip": is_vip,
             "effective_commission": effective_commission,
             "effective_claim_fee": effective_claim_fee
-        }), 200
+        }, 200)
     except Exception as e:
         print(f"❌ خطأ في API جلب بيانات الأصدقاء: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب البيانات"}), 500
+        return _no_cache_json({"success": False, "error": "حدث خطأ أثناء جلب البيانات"}, 500)
 
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
@@ -62,10 +72,10 @@ def get_friends_list():
 
     try:
         friends_list = get_friends_list_db(str(user_id))
-        return jsonify({"success": True, "friends": friends_list}), 200
+        return _no_cache_json({"success": True, "friends": friends_list}, 200)
     except Exception as e:
         print(f"❌ خطأ في API جلب قائمة الأصدقاء: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب القائمة"}), 500
+        return _no_cache_json({"success": False, "error": "حدث خطأ أثناء جلب القائمة"}, 500)
 
 
 @friends_bp.route('/register', methods=['POST'])
@@ -80,7 +90,7 @@ def register_referral():
     data = request.get_json(silent=True) or {}
     referrer_id = data.get("referrer_id") or data.get("ref") or data.get("start_param")
     if not referrer_id:
-        return jsonify({"success": False, "error": "مطلوب معرف الداعي referrer_id"}), 400
+        return _no_cache_json({"success": False, "error": "مطلوب معرف الداعي referrer_id"}, 400)
 
     user_name = "صديق"
     if isinstance(user_info, dict):
@@ -89,10 +99,10 @@ def register_referral():
     try:
         result = register_referral_db(str(referrer_id), str(user_id), friend_name=user_name)
         status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return _no_cache_json(result, status_code)
     except Exception as e:
         print(f"❌ خطأ في API تسجيل الإحالة: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء تسجيل الإحالة"}), 500
+        return _no_cache_json({"success": False, "error": "حدث خطأ أثناء تسجيل الإحالة"}, 500)
 
 
 @friends_bp.route('/claim-earnings', methods=['POST'])
@@ -101,7 +111,7 @@ def register_referral():
 @friends_bp.route('/api/friends/claim-earnings', methods=['POST'])
 @friends_bp.route('/api/friends/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب أرباح الإحالة المعلقة مع احتساب خصم 0% للـ VIP أو 1.5% للعاديين"""
+    """سحب أرباح الإحالة المعلقة مع احتساب خصم 0% للـ VIP أو النسبة المحددة للعاديين"""
     is_auth, user_id, user_info, err_resp = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_resp
@@ -109,10 +119,10 @@ def claim_ref_earnings():
     try:
         result = claim_ref_earnings_db(str(user_id))
         status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return _no_cache_json(result, status_code)
     except Exception as e:
         print(f"❌ خطأ في API سحب الأرباح: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء عملية السحب"}), 500
+        return _no_cache_json({"success": False, "error": "حدث خطأ أثناء عملية السحب"}, 500)
 
 
 @friends_bp.route('/claim-task', methods=['POST'])
@@ -121,7 +131,7 @@ def claim_ref_earnings():
 @friends_bp.route('/api/friends/claim-task', methods=['POST'])
 @friends_bp.route('/api/friends/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافأة مهمة دعوة الأصدقاء مع التحقق الصارم من شرط الـ 3 ترقيات"""
+    """استلام مكافأة مهمة دعوة الأصدقاء مع التحقق الصارم من شرط الترقيات المحدد في Supabase"""
     is_auth, user_id, user_info, err_resp = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_resp
@@ -132,12 +142,12 @@ def claim_ref_task():
     req_friends = data.get('reqFriends') if data.get('reqFriends') is not None else data.get('req_friends', 1)
 
     if task_id is None:
-        return jsonify({"success": False, "error": "مطلوب معرف المهمة task_id"}), 400
+        return _no_cache_json({"success": False, "error": "مطلوب معرف المهمة task_id"}, 400)
 
     try:
         result = claim_ref_task_db(str(user_id), task_id, reward, req_friends)
         status_code = 200 if result.get("success") else 400
-        return jsonify(result), status_code
+        return _no_cache_json(result, status_code)
     except Exception as e:
         print(f"❌ خطأ في API استلام مكافأة المهمة: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء استلام المكافأة"}), 500
+        return _no_cache_json({"success": False, "error": "حدث خطأ أثناء استلام المكافأة"}, 500)
