@@ -248,7 +248,9 @@ def get_player_data():
                 "boost_cooldown_seconds": 10800,
                 "boost_duration_seconds": 7200,
                 "monetag_zone_id": (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "11322720").strip(),
-                "monetix_zone_id": (os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "").strip()
+                "monetix_zone_id": (os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "").strip(),
+                # سحب رابط Adsterra من Railway وإرساله للعبة
+                "adsterra_direct_link": os.environ.get("ADSTERRA_DIRECT_LINK", "").strip()
             }
         }), 200
     except Exception as e:
@@ -423,7 +425,7 @@ def claim_daily():
     if not is_ad_watched(data):
         return jsonify({
             "success": False, 
-            "error": "يجب مشاهدة إعلان Monetag بالكامل أولاً لاستلام المكافأة اليومية"
+            "error": "يجب مشاهدة الإعلان بالكامل أولاً لاستلام المكافأة اليومية"
         }), 400
 
     try:
@@ -453,7 +455,7 @@ def claim_daily_boost():
     if not is_ad_watched(data):
         return jsonify({
             "success": False, 
-            "error": "يجب مشاهدة إعلان Monetix بالكامل أولاً لتفعيل معزز سرعة التعدين"
+            "error": "يجب مشاهدة الإعلان بالكامل أولاً لتفعيل معزز سرعة التعدين"
         }), 400
 
     try:
