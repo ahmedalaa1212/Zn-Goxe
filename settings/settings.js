@@ -10,6 +10,14 @@
         }
     }
 
+    // متغيرات التحديث اللحظي (Live Sync) لمنع التداخل أو الوميض
+    let statsLiveInterval = null;
+    let leaderboardLiveInterval = null;
+    let isFetchingStats = false;
+    let isFetchingLeaderboard = false;
+    let hasLoadedLeaderboardOnce = false;
+    let lastLeaderboardSignature = "";
+
     function getTgUser() {
         if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
             return window.Telegram.WebApp.initDataUnsafe.user;
@@ -19,7 +27,7 @@
 
     function getTgId() {
         const user = getTgUser();
-        return user ? String(user.id) : (window.userState?.tg_id || "5102387551"); 
+        return user ? String(user.id) : (window.userState?.tg_id || "5102387551");
     }
 
     function getPlayerName() {
@@ -27,7 +35,7 @@
         if (user) {
             return user.first_name + (user.last_name ? " " + user.last_name : "");
         }
-        return window.userState?.first_name || "اللاعب المحترف";
+        return window.userState?.first_name || window.userState?.name || "اللاعب المحترف";
     }
 
     // 🎯 دالة إخفاء أرقام الـ ID للحفاظ على الخصوصية (أول 3 أرقام + ***** + آخر 3 أرقام)
@@ -56,29 +64,71 @@
         });
     }
 
+    // تحديث الواجهة والحالة العامة (window.userState) لحظياً
+    function applyStatsToDOM(farmLevels, storageLevels, balanceVal, upgradesObj) {
+        const totalMiningEl = document.getElementById('stat-total-mining');
+        const totalStorageEl = document.getElementById('stat-total-storage');
+
+        if (totalMiningEl && farmLevels !== undefined && farmLevels !== null) {
+            const newMiningText = `${farmLevels} مستويات`;
+            if (totalMiningEl.innerText !== newMiningText) {
+                totalMiningEl.innerText = newMiningText;
+            }
+        }
+
+        if (totalStorageEl && storageLevels !== undefined && storageLevels !== null) {
+            const newStorageText = `${storageLevels} مستويات`;
+            if (totalStorageEl.innerText !== newStorageText) {
+                totalStorageEl.innerText = newStorageText;
+            }
+        }
+
+        // مزامنة الكائن العالمي لضمان تطابق كل الشاشات لحظياً
+        const state = window.userState || window.PlayerData || window.GameState;
+        if (state) {
+            if (farmLevels !== undefined) state.farm_levels_count = farmLevels;
+            if (storageLevels !== undefined) {
+                state.storage_level = storageLevels;
+                state.storage_levels_count = storageLevels;
+            }
+            if (balanceVal !== undefined && balanceVal !== null && !isNaN(parseFloat(balanceVal))) {
+                state.balance = parseFloat(balanceVal);
+            }
+            if (upgradesObj && typeof upgradesObj === 'object' && Object.keys(upgradesObj).length > 0) {
+                state.upgrades = upgradesObj;
+            }
+        }
+
+        // تحديث أي عنصر يعرض الرصيد في الصفحة إن وجد
+        if (balanceVal !== undefined && balanceVal !== null && !isNaN(parseFloat(balanceVal))) {
+            const numBal = parseFloat(balanceVal);
+            const balanceEls = document.querySelectorAll('#user-balance, #stat-balance, .user-balance-value');
+            balanceEls.forEach(el => {
+                el.innerText = numBal.toLocaleString('en-US');
+            });
+        }
+    }
+
     function updateStatsFromLocalData() {
         const state = window.userState || window.PlayerData || window.GameState;
         if (state) {
-            const totalMiningEl = document.getElementById('stat-total-mining');
-            const totalStorageEl = document.getElementById('stat-total-storage');
-            
             let totalUpgradesCount = 0;
-            if (state.upgrades && typeof state.upgrades === 'object') {
+            if (state.upgrades && typeof state.upgrades === 'object' && Object.keys(state.upgrades).length > 0) {
                 for (let i = 1; i <= 9; i++) {
                     totalUpgradesCount += parseInt(state.upgrades[`lvl${i}`] || 0, 10) || 0;
                 }
             } else if (typeof state.farm_levels_count === 'number') {
                 totalUpgradesCount = state.farm_levels_count;
+            } else if (typeof state.upgrades_count === 'number') {
+                totalUpgradesCount = state.upgrades_count;
             }
 
-            let storageLevelsCount = parseInt(state.storage_level || state.storage_levels_count || 0, 10) || 0;
-
-            if (totalMiningEl) totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
-            if (totalStorageEl) totalStorageEl.innerText = `${storageLevelsCount} مستويات`;
+            let storageLevelsCount = parseInt(state.storage_level ?? state.storage_levels_count ?? 0, 10) || 0;
+            applyStatsToDOM(totalUpgradesCount, storageLevelsCount, state.balance, state.upgrades);
         }
     }
 
-    async function fetchAndRenderData() {
+    function renderUserProfileHeader() {
         const telegramId = getTgId();
         const usernameEl = document.getElementById('player-username');
         const telegramIdEl = document.getElementById('player-telegram-id');
@@ -88,12 +138,15 @@
         if (telegramIdEl) telegramIdEl.innerText = telegramId;
 
         const user = getTgUser();
-        if (user && user.photo_url && avatarEl) {
+        if (user && user.photo_url && avatarEl && !avatarEl.querySelector('img')) {
             avatarEl.innerHTML = `<img src="${escapeHTML(user.photo_url)}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;" alt="Avatar">`;
         }
+    }
 
-        updateStatsFromLocalData();
-        fetchLeaderboard();
+    // جلب الإحصائيات لحظياً من السيرفر (بدون قفل الشاشة)
+    async function fetchStatsLive() {
+        if (isFetchingStats) return;
+        isFetchingStats = true;
 
         try {
             let data;
@@ -101,24 +154,71 @@
                 data = await window.fetchAPI('/api/settings/stats');
             } else {
                 const initData = window.Telegram?.WebApp?.initData || "";
-                const res = await fetch('/api/settings/stats', {
-                    headers: { 
+                const res = await fetch(`/api/settings/stats?_t=${Date.now()}`, {
+                    headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${initData}`,
                         'X-Telegram-Init-Data': initData
-                    }
+                    },
+                    cache: 'no-store'
                 });
                 data = await res.json();
             }
 
             if (data && data.success) {
-                const miningEl = document.getElementById('stat-total-mining');
-                const storageEl = document.getElementById('stat-total-storage');
-                if (miningEl) miningEl.innerText = `${data.farm_levels_count || 0} مستويات`;
-                if (storageEl) storageEl.innerText = `${data.storage_levels_count || 0} مستويات`;
+                applyStatsToDOM(
+                    data.farm_levels_count || 0,
+                    data.storage_levels_count || 0,
+                    data.balance,
+                    data.upgrades
+                );
             }
         } catch (error) {
-            console.warn("Settings stats info:", error);
+            console.warn("Settings stats live sync info:", error);
+        } finally {
+            isFetchingStats = false;
+        }
+    }
+
+    async function fetchAndRenderData(isSilent = false) {
+        renderUserProfileHeader();
+        updateStatsFromLocalData();
+        await Promise.all([
+            fetchStatsLive(),
+            fetchLeaderboard(isSilent || hasLoadedLeaderboardOnce)
+        ]);
+    }
+
+    // ==========================================
+    // ⚡ نظام المزامنة اللحظية المستمرة (Live Polling)
+    // ==========================================
+    function startLiveSettingsSync() {
+        stopLiveSettingsSync();
+
+        // تحديث إحصائيات المزرعة والمخزن والرصيد كل 3 ثوانٍ أثناء فتح الشاشة
+        statsLiveInterval = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                updateStatsFromLocalData();
+                fetchStatsLive();
+            }
+        }, 3000);
+
+        // تحديث قائمة المتصدرين في الخلفية كل 8 ثوانٍ بدون وميض
+        leaderboardLiveInterval = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchLeaderboard(true);
+            }
+        }, 8000);
+    }
+
+    function stopLiveSettingsSync() {
+        if (statsLiveInterval) {
+            clearInterval(statsLiveInterval);
+            statsLiveInterval = null;
+        }
+        if (leaderboardLiveInterval) {
+            clearInterval(leaderboardLiveInterval);
+            leaderboardLiveInterval = null;
         }
     }
 
@@ -198,7 +298,7 @@
             if (!data) {
                 const res = await fetch('/api/settings/redeem-code', {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${initData}`,
                         'X-Telegram-Init-Data': initData
@@ -211,7 +311,21 @@
             if (data && data.success) {
                 inputEl.value = '';
                 showRewardModal(data.message, data.coins);
-                fetchAndRenderData();
+
+                // تحديث لحظي للرصيد والإحصائيات فوراً
+                if (data.stats) {
+                    applyStatsToDOM(
+                        data.stats.farm_levels_count,
+                        data.stats.storage_levels_count,
+                        data.new_balance ?? data.stats.balance,
+                        data.stats.upgrades
+                    );
+                } else if (data.new_balance !== undefined) {
+                    applyStatsToDOM(undefined, undefined, data.new_balance, undefined);
+                }
+
+                window.dispatchEvent(new CustomEvent('userStateUpdated'));
+                fetchAndRenderData(true);
             } else if (data && data.message) {
                 showToast(data.message);
             } else {
@@ -231,13 +345,17 @@
     window.redeemPromoCode = redeemPromoCode;
 
     // ==========================================
-    // 🏆 نظام المتصدرين في التعدين
+    // 🏆 نظام المتصدرين في التعدين (تحديث لحظي بدون وميض)
     // ==========================================
-    async function fetchLeaderboard() {
+    async function fetchLeaderboard(silentRefresh = false) {
         const listEl = document.getElementById('leaderboard-list');
-        if (!listEl) return;
+        if (!listEl || isFetchingLeaderboard) return;
 
-        listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">جاري تحميل المتصدرين... ⏳</div>';
+        isFetchingLeaderboard = true;
+
+        if (!silentRefresh && !hasLoadedLeaderboardOnce) {
+            listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">جاري تحميل المتصدرين... ⏳</div>';
+        }
 
         try {
             let data;
@@ -245,21 +363,32 @@
                 data = await window.fetchAPI('/api/settings/leaderboard');
             } else {
                 const initData = window.Telegram?.WebApp?.initData || "";
-                const res = await fetch('/api/settings/leaderboard', {
-                    headers: { 
+                const res = await fetch(`/api/settings/leaderboard?_t=${Date.now()}`, {
+                    headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${initData}`,
                         'X-Telegram-Init-Data': initData
-                    }
+                    },
+                    cache: 'no-store'
                 });
                 data = await res.json();
             }
 
             if (data && data.success && Array.isArray(data.leaderboard)) {
+                hasLoadedLeaderboardOnce = true;
+
                 if (data.leaderboard.length === 0) {
                     listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">لا يوجد متصدرين حالياً.</div>';
+                    lastLeaderboardSignature = "empty";
                     return;
                 }
+
+                // فحص ما إذا تغيرت البيانات لتجنب إعادة رسم الـ DOM بدون داعي
+                const currentSignature = JSON.stringify(data.leaderboard);
+                if (silentRefresh && currentSignature === lastLeaderboardSignature) {
+                    return;
+                }
+                lastLeaderboardSignature = currentSignature;
 
                 let html = '';
                 data.leaderboard.forEach((item, index) => {
@@ -274,14 +403,14 @@
                     const maskedId = item.masked_id || maskTelegramId(rawUid);
                     const name = escapeHTML(item.first_name || item.username || `لاعب #${String(rawUid).slice(-4)}`);
 
-                    const rawScore = (item.mined_points !== undefined && item.mined_points !== null) 
-                        ? item.mined_points 
+                    const rawScore = (item.mined_points !== undefined && item.mined_points !== null)
+                        ? item.mined_points
                         : (item.mining_points !== undefined && item.mining_points !== null)
                         ? item.mining_points
                         : item.total_mined || 0;
-                    
+
                     const numScore = parseFloat(rawScore) || 0;
-                    const strScore = numScore.toFixed(4).replace(/\.?0+$/, ''); 
+                    const strScore = numScore.toFixed(4).replace(/\.?0+$/, '');
                     const scoreParts = strScore.split('.');
                     const mainInt = parseInt(scoreParts[0], 10).toLocaleString('en-US');
 
@@ -304,14 +433,16 @@
                     `;
                 });
                 listEl.innerHTML = html;
-            } else {
+            } else if (!hasLoadedLeaderboardOnce) {
                 listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">تعذر تحميل قائمة المتصدرين.</div>';
             }
         } catch (error) {
             console.warn("Leaderboard error:", error);
-            if (listEl) {
+            if (listEl && !hasLoadedLeaderboardOnce) {
                 listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">خطأ في الاتصال بالشبكة.</div>';
             }
+        } finally {
+            isFetchingLeaderboard = false;
         }
     }
     window.fetchLeaderboard = fetchLeaderboard;
@@ -369,7 +500,7 @@
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }
-        
+
         const cached = getStoredSupportData();
         if (cached && cached.ticket_id) {
             supportTicketId = cached.ticket_id;
@@ -418,7 +549,7 @@
 
         try {
             let data;
-            const endpoint = supportTicketId 
+            const endpoint = supportTicketId
                 ? `/api/support/ticket?ticket_id=${encodeURIComponent(supportTicketId)}`
                 : '/api/support/ticket';
 
@@ -428,7 +559,7 @@
                 const initData = window.Telegram?.WebApp?.initData || "";
                 const response = await fetch(endpoint, {
                     method: 'GET',
-                    headers: { 
+                    headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${initData}`,
                         'X-Telegram-Init-Data': initData
@@ -441,11 +572,11 @@
                 supportTicketId = data.ticket_id || supportTicketId;
                 isSupportClosed = (data.status === 'closed');
                 localMessagesList = data.messages || [];
-                
+
                 if (ticketDisplay) ticketDisplay.innerText = `تذكرة #${supportTicketId} 📋`;
                 renderMessages(localMessagesList);
                 saveSupportDataLocally(supportTicketId, localMessagesList, data.status);
-                
+
                 if (isSupportClosed) {
                     disableSupportInput("تم إنهاء هذه المحادثة.");
                 } else {
@@ -484,7 +615,7 @@
         supportLastMsgCount = messages.length;
         supportLastTimestamp = lastTs;
 
-        chatBox.innerHTML = ''; 
+        chatBox.innerHTML = '';
 
         if (messages.length === 0) {
             chatBox.innerHTML = `
@@ -498,7 +629,7 @@
                 const div = document.createElement('div');
                 const isUser = (msg.sender === 'user');
                 div.className = `chat-msg ${isUser ? 'msg-user' : 'msg-admin'}`;
-                
+
                 const timeStr = formatTime(msg.timestamp);
                 div.innerHTML = `
                     <div style="white-space: pre-wrap;">${escapeHTML(msg.text)}</div>
@@ -537,7 +668,7 @@
         const ticketDisplay = document.getElementById('ticket-id-display');
 
         if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري تفعيل محادثة جديدة... ⏳</div>';
-        
+
         const newLocalId = generateLocalTicketId();
         supportTicketId = newLocalId;
         isSupportClosed = false;
@@ -546,7 +677,7 @@
             text: getWelcomeNoticeText(newLocalId),
             timestamp: new Date().toISOString()
         }];
-        
+
         if (ticketDisplay) ticketDisplay.innerText = `تذكرة #${supportTicketId} 📋`;
         enableSupportInput();
         renderMessages(localMessagesList, true);
@@ -560,7 +691,7 @@
                 const initData = window.Telegram?.WebApp?.initData || "";
                 const response = await fetch('/api/support/new_ticket', {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Authorization': `Bearer ${initData}`,
                         'X-Telegram-Init-Data': initData,
                         'Content-Type': 'application/json'
@@ -617,7 +748,7 @@
                 const initData = window.Telegram?.WebApp?.initData || "";
                 const response = await fetch('/api/support/message', {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Authorization': `Bearer ${initData}`,
                         'X-Telegram-Init-Data': initData,
                         'Content-Type': 'application/json'
@@ -696,7 +827,6 @@
                 }
             });
 
-            // 🎯 حل سلس لفتح الكيبورد والتمركز التلقائي
             msgInput.addEventListener('focus', function () {
                 setTimeout(() => {
                     msgInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -706,7 +836,6 @@
             });
         }
 
-        // الاستجابة لتغير حجم شاشة التليجرام عند ظهور وإخفاء الكيبورد
         if (window.Telegram?.WebApp) {
             try {
                 window.Telegram.WebApp.onEvent('viewportChanged', () => {
@@ -748,16 +877,16 @@
         document.body.removeChild(textArea);
     }
 
-    window.showPrivacyModal = function() { 
+    window.showPrivacyModal = function() {
         const modal = document.getElementById('settings-modal');
-        if (modal) modal.style.display = 'flex'; 
+        if (modal) modal.style.display = 'flex';
     };
-    
-    window.closeSettingsModal = function() { 
+
+    window.closeSettingsModal = function() {
         const modal = document.getElementById('settings-modal');
-        if (modal) modal.style.display = 'none'; 
+        if (modal) modal.style.display = 'none';
     };
-    
+
     function showToast(text) {
         const toast = document.getElementById('toast-msg');
         if (!toast) return;
@@ -766,25 +895,32 @@
         setTimeout(() => toast.style.display = 'none', 2200);
     }
 
+    // الاستماع لأي تغييرات محلية أو عامة في حالة اللاعب لتنعكس فوراً
     window.addEventListener('userStateUpdated', updateStatsFromLocalData);
+    window.addEventListener('balanceUpdated', updateStatsFromLocalData);
+    window.addEventListener('storage', updateStatsFromLocalData);
 
     window.addEventListener('pageshow', () => {
         updateStatsFromLocalData();
-        fetchAndRenderData();
+        fetchAndRenderData(true);
+        startLiveSettingsSync();
     });
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
             updateStatsFromLocalData();
-            fetchAndRenderData();
+            fetchAndRenderData(true);
+            startLiveSettingsSync();
         } else {
             stopSupportPolling();
+            stopLiveSettingsSync();
         }
     });
 
     function initPage() {
         setupEventListeners();
-        fetchAndRenderData();
+        fetchAndRenderData(false);
+        startLiveSettingsSync();
     }
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
