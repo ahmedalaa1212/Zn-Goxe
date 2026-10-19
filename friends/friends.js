@@ -22,6 +22,8 @@
 
         const headers = {
             Accept: "application/json",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
             "X-Telegram-Init-Data": initData,
             Authorization: `Bearer ${initData}`
         };
@@ -38,7 +40,11 @@
             options.body = JSON.stringify(body);
         }
 
-        const response = await fetch(url, options);
+        // إضافة طابع زمني للرابط لمنع أي كاش على مستوى WebView
+        const sep = url.includes("?") ? "&" : "?";
+        const liveUrl = `${url}${sep}_t=${Date.now()}`;
+
+        const response = await fetch(liveUrl, options);
         let data = {};
 
         try {
@@ -55,13 +61,15 @@
     }
 
     let lastFetchTimestamp = 0;
-    const FETCH_COOLDOWN_MS = 3000;
+    const FETCH_COOLDOWN_MS = 1000;
+    const LIVE_POLL_INTERVAL_MS = 2500; // مزامنة حية مع Supabase كل 2.5 ثانية
+    let isFetchingLive = false;
     let isTaskClaiming = false;
     let isClaimingRefEarnings = false;
 
-    // الإعدادات الافتراضية (تم ضبط شرط الترقيات إلى 3 ترقيات)
+    // الإعدادات الافتراضية (5 ترقيات، ويتم تحديثها لحظياً من Supabase)
     window.FriendsConfig = {
-        min_upgrades_for_task: 3,
+        min_upgrades_for_task: 5,
         commission_percent: 10,
         vip_commission_percent: 12,
         claim_fee_percent: 1.5,
@@ -80,6 +88,11 @@
         }
     };
 
+    function getMinUpgrades() {
+        const val = parseInt(window.FriendsConfig?.min_upgrades_for_task);
+        return (!isNaN(val) && val > 0) ? val : 5;
+    }
+
     function getUserId() {
         if (tele?.initDataUnsafe?.user?.id) {
             return String(tele.initDataUnsafe.user.id);
@@ -93,13 +106,12 @@
 
     function getCacheKey() {
         const userId = getUserId();
-        return userId ? `zn_friends_cache_v2_${userId}` : 'zn_friends_cache_v2_global';
+        return userId ? `zn_friends_cache_v3_${userId}` : 'zn_friends_cache_v3_global';
     }
 
     function saveCachedData(data) {
         try {
             if (!data) return;
-            window.FriendsConfig.min_upgrades_for_task = 3;
             const payloadToSave = {
                 PlayerData: data,
                 FriendsConfig: window.FriendsConfig
@@ -112,10 +124,14 @@
 
     function loadCachedData() {
         try {
-            // حذف الكاش القديم من النسخة السابقة لضمان عدم ظهور (+1 ترقية)
+            // مسح نسخ الكاش القديمة لضمان عدم بقاء شرط الـ 3 ترقيات القديم
             const uid = getUserId();
-            if (uid) localStorage.removeItem(`zn_friends_cache_${uid}`);
+            if (uid) {
+                localStorage.removeItem(`zn_friends_cache_${uid}`);
+                localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
+            }
             localStorage.removeItem('zn_friends_cache_global');
+            localStorage.removeItem('zn_friends_cache_v2_global');
 
             const cached = localStorage.getItem(getCacheKey());
             if (cached) {
@@ -129,7 +145,6 @@
                     if (parsed.FriendsConfig) {
                         window.FriendsConfig = { ...window.FriendsConfig, ...parsed.FriendsConfig };
                     }
-                    window.FriendsConfig.min_upgrades_for_task = 3;
                     return true;
                 }
             }
@@ -155,7 +170,6 @@
         if (!backup) return;
         if (backup.PlayerData) window.PlayerData = backup.PlayerData;
         if (backup.FriendsConfig) window.FriendsConfig = backup.FriendsConfig;
-        window.FriendsConfig.min_upgrades_for_task = 3;
         if (backup.balance !== undefined) setStoredBalance(backup.balance);
         saveCachedData(window.PlayerData);
     }
@@ -205,22 +219,14 @@
     }
 
     function getStoredBalance() {
+        if (window.PlayerData && window.PlayerData.balance !== undefined && window.PlayerData.balance !== null && !isNaN(window.PlayerData.balance)) {
+            return parseFloat(window.PlayerData.balance);
+        }
+
         const sources = [
             window.userState?.balance,
-            window.PlayerData?.balance,
             window.GameState?.balance
         ];
-
-        for (const src of sources) {
-            if (src !== undefined && src !== null && !isNaN(src) && parseFloat(src) > 0) {
-                return parseFloat(src);
-            }
-        }
-
-        const localBal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        if (localBal !== null && !isNaN(parseFloat(localBal)) && parseFloat(localBal) > 0) {
-            return parseFloat(localBal);
-        }
 
         for (const src of sources) {
             if (src !== undefined && src !== null && !isNaN(src)) {
@@ -228,6 +234,7 @@
             }
         }
 
+        const localBal = localStorage.getItem('zn_balance') ?? localStorage.getItem('user_balance');
         if (localBal !== null && !isNaN(parseFloat(localBal))) {
             return parseFloat(localBal);
         }
@@ -277,9 +284,9 @@
         const pData = window.PlayerData || {};
         const isVip = pData.is_vip || false;
 
-        const commPercent = pData.effective_commission ?? (isVip ? (cfg.vip_commission_percent || 12) : (cfg.commission_percent || 10));
-        const feePercent = pData.effective_claim_fee ?? (isVip ? (cfg.vip_claim_fee_percent || 0) : (cfg.claim_fee_percent || 1.5));
-        const minUpgrades = 3;
+        const commPercent = pData.effective_commission ?? (isVip ? (cfg.vip_commission_percent ?? 12) : (cfg.commission_percent ?? 10));
+        const feePercent = pData.effective_claim_fee ?? (isVip ? (cfg.vip_claim_fee_percent ?? 0) : (cfg.claim_fee_percent ?? 1.5));
+        const minUpgrades = getMinUpgrades();
 
         const elComm = document.getElementById('info-comm-percent');
         if (elComm) {
@@ -295,6 +302,72 @@
         if (elFee) {
             elFee.innerText = isVip ? "0% (👑 VIP معفي)" : `${feePercent}%`;
         }
+
+        // تحديث أي نصوص ثابتة في الصفحة في حال لم تكن مربوطة بـ ID مباشر
+        document.querySelectorAll('p, li, span, div, small').forEach(el => {
+            if (el.children.length === 0 && el.textContent) {
+                if (/شراء\s+\d+\s+ترقيات/.test(el.textContent)) {
+                    el.textContent = el.textContent.replace(/شراء\s+\d+\s+ترقيات/g, `شراء ${minUpgrades} ترقيات`);
+                } else if (/^\s*\d+\s+ترقيات\s*$/.test(el.textContent) && el.id !== 'info-min-upgrades') {
+                    el.textContent = `${minUpgrades} ترقيات`;
+                }
+                if (/يتم خصم\s+[\d.]+\s*%\s*رسوم/.test(el.textContent)) {
+                    el.textContent = el.textContent.replace(/يتم خصم\s+[\d.]+\s*%\s*رسوم/g, `يتم خصم ${feePercent}% رسوم`);
+                }
+            }
+        });
+    }
+
+    function renderFriendsListHTML(friendsArr) {
+        const container = document.getElementById('friends-list-container');
+        if (!container) return;
+
+        const minUpgrades = getMinUpgrades();
+        const list = Array.isArray(friendsArr) ? friendsArr : [];
+
+        // تحديث عدد الأصدقاء والمؤهلين في الواجهة مباشرة بناءً على القائمة الحية
+        const eligibleLive = list.filter(f => (parseInt(f.upgrades_count) || 0) >= minUpgrades).length;
+        if (window.PlayerData) {
+            window.PlayerData.invited_friends_count = list.length;
+            window.PlayerData.eligible_task_friends_count = eligibleLive;
+        }
+
+        if (list.length === 0) {
+            container.innerHTML = '<div class="empty-state">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
+            return;
+        }
+
+        let html = '<ul style="padding:0; margin:0;">';
+        list.forEach(f => {
+            const cnt = parseInt(f.upgrades_count) || 0;
+            const isEligible = cnt >= minUpgrades;
+            let statusHtml = isEligible 
+                ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`
+                : `<span style="color: #f39c12; font-size:11px;">ينقصه ترقيات (${cnt}/${minUpgrades}) ⏳</span>`;
+            
+            const genVal = parseFloat(f.generated ?? f.earned_from_him ?? 0);
+            const formattedGen = formatNumberHTML(genVal);
+            const safeName = escapeHTML(f.name || f.first_name || 'مستخدم مجهول');
+            const initial = escapeHTML((f.name || f.first_name || 'U').trim().charAt(0).toUpperCase() || 'U');
+
+            html += `
+                <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div style="width:34px; height:34px; background:#f39c12; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#000; font-weight:bold; font-size:13px;">${initial}</div>
+                        <div style="display:flex; flex-direction:column;">
+                            <span style="color:#fff; font-size:13px; font-weight:600;">${safeName}</span>
+                            ${statusHtml}
+                        </div>
+                    </div>
+                    <div style="text-align: left;">
+                        <span style="display:block; color:#2ecc71; font-weight:bold; font-size:13px;">+${formattedGen} ZN</span>
+                        <span style="font-size:10px; color:#888;">المجمع منه</span>
+                    </div>
+                </li>
+            `;
+        });
+        html += '</ul>';
+        container.innerHTML = html;
     }
 
     function initFriendsPage() {
@@ -338,6 +411,7 @@
     async function loadFriendsData(force = false) {
         const userId = getUserId();
         if (!INIT_DATA && (!userId || userId === "0000")) return;
+        if (isFetchingLive || isTaskClaiming || isClaimingRefEarnings) return;
 
         const now = Date.now();
         if (!force && (now - lastFetchTimestamp < FETCH_COOLDOWN_MS)) {
@@ -345,6 +419,7 @@
             return;
         }
 
+        isFetchingLive = true;
         lastFetchTimestamp = now;
 
         try {
@@ -354,27 +429,36 @@
             });
             
             if (data && data.success && data.player) {
+                if (data.friends_config) {
+                    window.FriendsConfig = { ...window.FriendsConfig, ...data.friends_config };
+                } else if (data.player.friends_config) {
+                    window.FriendsConfig = { ...window.FriendsConfig, ...data.player.friends_config };
+                }
+
                 window.PlayerData = { ...window.PlayerData, ...data.player };
                 if (data.is_vip !== undefined) window.PlayerData.is_vip = data.is_vip;
                 if (data.effective_commission !== undefined) window.PlayerData.effective_commission = data.effective_commission;
                 if (data.effective_claim_fee !== undefined) window.PlayerData.effective_claim_fee = data.effective_claim_fee;
 
-                if (data.friends_config) {
-                    window.FriendsConfig = { ...window.FriendsConfig, ...data.friends_config };
-                }
-                window.FriendsConfig.min_upgrades_for_task = 3;
-
                 if (data.player.balance !== undefined && data.player.balance !== null) {
                     setStoredBalance(data.player.balance);
                 }
+
+                const liveFriends = data.friends || data.player.friends;
+                if (Array.isArray(liveFriends)) {
+                    renderFriendsListHTML(liveFriends);
+                } else {
+                    await fetchAndRenderFriendsList();
+                }
+
                 saveCachedData(window.PlayerData);
+                window.updateFriendsUI();
             }
         } catch (error) {
             console.error("فشل في جلب بيانات الأصدقاء:", error);
+        } finally {
+            isFetchingLive = false;
         }
-
-        window.updateFriendsUI();
-        await fetchAndRenderFriendsList();
     }
 
     window.updateFriendsUI = function() {
@@ -444,7 +528,7 @@
         if (!listEl) return;
 
         const rawTasks = window.FriendsConfig?.ref_tasks || {};
-        const minUpgrades = 3;
+        const minUpgrades = getMinUpgrades();
 
         let taskKeys = Object.keys(rawTasks).sort((a, b) => {
             return (parseInt(rawTasks[a].reqFriends) || 0) - (parseInt(rawTasks[b].reqFriends) || 0);
@@ -545,7 +629,7 @@
         const isVip = pData.is_vip || false;
         const feePercent = pData.effective_claim_fee !== undefined 
             ? parseFloat(pData.effective_claim_fee) 
-            : (isVip ? 0.0 : parseFloat(window.FriendsConfig?.claim_fee_percent || 1.5));
+            : (isVip ? 0.0 : parseFloat(window.FriendsConfig?.claim_fee_percent ?? 1.5));
 
         const estimatedNet = pending * (1 - (feePercent / 100));
         const currentBal = getStoredBalance();
@@ -648,7 +732,6 @@
         if (!container) return;
 
         const userId = getUserId();
-        const minUpgrades = 3;
 
         try {
             let data = await secureRequest('/api/friends/list', 'POST', {
@@ -656,53 +739,9 @@
             });
 
             if (data && data.success) {
-                const friendsArr = data.friends || [];
-
-                // تحديث عدد الأصدقاء والمؤهلين في الواجهة مباشرة بناءً على القائمة الحية
-                const eligibleLive = friendsArr.filter(f => (parseInt(f.upgrades_count) || 0) >= minUpgrades).length;
-                if (window.PlayerData) {
-                    window.PlayerData.invited_friends_count = friendsArr.length;
-                    window.PlayerData.eligible_task_friends_count = eligibleLive;
-                    saveCachedData(window.PlayerData);
-                    window.updateFriendsUI();
-                }
-
-                if (friendsArr.length === 0) {
-                    container.innerHTML = '<div class="empty-state">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
-                    return;
-                }
-                
-                let html = '<ul style="padding:0; margin:0;">';
-                friendsArr.forEach(f => {
-                    const cnt = parseInt(f.upgrades_count) || 0;
-                    const isEligible = cnt >= minUpgrades;
-                    let statusHtml = isEligible 
-                        ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`
-                        : `<span style="color: #f39c12; font-size:11px;">ينقصه ترقيات (${cnt}/${minUpgrades}) ⏳</span>`;
-                    
-                    const genVal = parseFloat(f.generated || f.earned_from_him || 0);
-                    const formattedGen = formatNumberHTML(genVal);
-                    const safeName = escapeHTML(f.name || 'مستخدم مجهول');
-                    const initial = escapeHTML((f.name || 'U').trim().charAt(0).toUpperCase() || 'U');
-
-                    html += `
-                        <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
-                            <div style="display:flex; align-items:center; gap:10px;">
-                                <div style="width:34px; height:34px; background:#f39c12; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#000; font-weight:bold; font-size:13px;">${initial}</div>
-                                <div style="display:flex; flex-direction:column;">
-                                    <span style="color:#fff; font-size:13px; font-weight:600;">${safeName}</span>
-                                    ${statusHtml}
-                                </div>
-                            </div>
-                            <div style="text-align: left;">
-                                <span style="display:block; color:#2ecc71; font-weight:bold; font-size:13px;">+${formattedGen} ZN</span>
-                                <span style="font-size:10px; color:#888;">المجمع منه</span>
-                            </div>
-                        </li>
-                    `;
-                });
-                html += '</ul>';
-                container.innerHTML = html;
+                renderFriendsListHTML(data.friends || []);
+                saveCachedData(window.PlayerData);
+                window.updateFriendsUI();
             } else if (!container.innerHTML || container.innerHTML.trim() === '') {
                 container.innerHTML = '<div class="empty-state">فشل في تحميل قائمة الأصدقاء.</div>';
             }
@@ -713,30 +752,19 @@
         }
     }
 
+    // مزامنة حية ومستمرة من Supabase أثناء وقوف المستخدم داخل التطبيق
     setInterval(() => {
-        const cachedBal = getStoredBalance();
-        if (window.PlayerData && window.PlayerData.balance !== cachedBal) {
-            window.PlayerData.balance = cachedBal;
-            if (typeof window.updateFriendsUI === 'function') {
-                window.updateFriendsUI();
-            }
+        if (document.visibilityState === "visible") {
+            loadFriendsData(true);
         }
-    }, 1000);
+    }, LIVE_POLL_INTERVAL_MS);
 
     window.addEventListener('pageshow', () => {
-        loadCachedData();
-        const stored = getStoredBalance();
-        if (window.PlayerData) window.PlayerData.balance = stored;
-        window.updateFriendsUI();
         loadFriendsData(true);
     });
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
-            loadCachedData();
-            const stored = getStoredBalance();
-            if (window.PlayerData) window.PlayerData.balance = stored;
-            window.updateFriendsUI();
             loadFriendsData(true);
         }
     });
