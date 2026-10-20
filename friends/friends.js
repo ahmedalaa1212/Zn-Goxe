@@ -70,6 +70,7 @@
     // الإعدادات الافتراضية (5 ترقيات، ويتم تحديثها لحظياً من Supabase)
     window.FriendsConfig = {
         min_upgrades_for_task: 5,
+        vip_min_upgrades_for_task: 3,
         commission_percent: 10,
         vip_commission_percent: 12,
         claim_fee_percent: 1.5,
@@ -89,8 +90,14 @@
     };
 
     function getMinUpgrades() {
-        const val = parseInt(window.FriendsConfig?.min_upgrades_for_task);
-        return (!isNaN(val) && val > 0) ? val : 5;
+        // فحص الشرط الفعّال الخاص باللاعب أولاً (يتأثر بحالة VIP)
+        if (window.PlayerData && window.PlayerData.effective_min_upgrades !== undefined) {
+            const val = parseInt(window.PlayerData.effective_min_upgrades);
+            if (!isNaN(val) && val > 0) return val;
+        }
+        // الرجوع للشرط الافتراضي العام في حال لم يتوفر
+        const cfgVal = parseInt(window.FriendsConfig?.min_upgrades_for_task);
+        return (!isNaN(cfgVal) && cfgVal > 0) ? cfgVal : 5;
     }
 
     function getUserId() {
@@ -286,6 +293,8 @@
 
         const commPercent = pData.effective_commission ?? (isVip ? (cfg.vip_commission_percent ?? 12) : (cfg.commission_percent ?? 10));
         const feePercent = pData.effective_claim_fee ?? (isVip ? (cfg.vip_claim_fee_percent ?? 0) : (cfg.claim_fee_percent ?? 1.5));
+        
+        // جلب الشرط الديناميكي الذي يتغير بناءً على حالة الـ VIP
         const minUpgrades = getMinUpgrades();
 
         const elComm = document.getElementById('info-comm-percent');
@@ -303,7 +312,7 @@
             elFee.innerText = isVip ? "0% (👑 VIP معفي)" : `${feePercent}%`;
         }
 
-        // تحديث أي نصوص ثابتة في الصفحة في حال لم تكن مربوطة بـ ID مباشر
+        // تحديث أي نصوص ثابتة في الصفحة وتغييرها للرقم الصحيح
         document.querySelectorAll('p, li, span, div, small').forEach(el => {
             if (el.children.length === 0 && el.textContent) {
                 if (/شراء\s+\d+\s+ترقيات/.test(el.textContent)) {
@@ -325,7 +334,7 @@
         const minUpgrades = getMinUpgrades();
         const list = Array.isArray(friendsArr) ? friendsArr : [];
 
-        // تحديث عدد الأصدقاء والمؤهلين في الواجهة مباشرة بناءً على القائمة الحية
+        // تحديث عدد الأصدقاء والمؤهلين في الواجهة مباشرة بناءً على القائمة الحية والشرط الفعال
         const eligibleLive = list.filter(f => (parseInt(f.upgrades_count) || 0) >= minUpgrades).length;
         if (window.PlayerData) {
             window.PlayerData.invited_friends_count = list.length;
@@ -436,9 +445,13 @@
                 }
 
                 window.PlayerData = { ...window.PlayerData, ...data.player };
+                
+                // استقبال وتحديث بيانات وميزات הـ VIP والترقيات من السيرفر
                 if (data.is_vip !== undefined) window.PlayerData.is_vip = data.is_vip;
                 if (data.effective_commission !== undefined) window.PlayerData.effective_commission = data.effective_commission;
                 if (data.effective_claim_fee !== undefined) window.PlayerData.effective_claim_fee = data.effective_claim_fee;
+                if (data.effective_min_upgrades !== undefined) window.PlayerData.effective_min_upgrades = data.effective_min_upgrades;
+                else if (data.player && data.player.effective_min_upgrades !== undefined) window.PlayerData.effective_min_upgrades = data.player.effective_min_upgrades;
 
                 if (data.player.balance !== undefined && data.player.balance !== null) {
                     setStoredBalance(data.player.balance);
