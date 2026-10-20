@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 friends/friends_db.py - إدارة نظام الأصدقاء والإحالات عبر Supabase (PostgreSQL / psycopg2)
-يدعم الإنشاء التلقائي للجداول، المعاملات الذرية (FOR UPDATE)، والمزامنة الحية اللحظية مع Supabase (شرط 5 ترقيات).
+يدعم الإنشاء التلقائي للجداول، المعاملات الذرية (FOR UPDATE)، والمزامنة الحية اللحظية مع Supabase مع دعم شروط VIP.
 """
 import time
 import json
@@ -23,13 +23,14 @@ def _get_user_lock(tg_id):
         return _USER_LOCKS[key]
 
 
-# الإعدادات الافتراضية لنظام الأصدقاء (شرط الترقيات = 5 ترقيات)
+# الإعدادات الافتراضية لنظام الأصدقاء (بإضافة شرط خاص للمشتركين في VIP)
 DEFAULT_FRIENDS_CONFIG = {
     "commission_percent": 10.0,       # نسبة أرباح الإحالة العادية (10%)
     "vip_commission_percent": 12.0,   # نسبة أرباح الإحالة لمشتركي VIP (12%)
     "claim_fee_percent": 1.5,         # نسبة عمولة السحب العادية (1.5%)
     "vip_claim_fee_percent": 0.0,     # نسبة عمولة السحب لمشتركي VIP (0%)
-    "min_upgrades_for_task": 5,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام (5 ترقيات)
+    "min_upgrades_for_task": 5,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام (للمستخدم العادي)
+    "vip_min_upgrades_for_task": 3,   # عدد الترقيات المطلوب للمشتركين في VIP (يتم التحقق منه تلقائياً)
     "ref_tasks": {
         "1": {"reqFriends": 1, "reward": 50},
         "2": {"reqFriends": 3, "reward": 200},
@@ -202,7 +203,6 @@ def init_friends_tables():
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_active BOOLEAN DEFAULT FALSE;
                     """)
 
-                    # إدراج الإعدادات الافتراضية إن لم تكن موجودة، وترقية الشرط القديم (3) إلى (5) مرة واحدة عند الإقلاع
                     cur.execute("SELECT value FROM settings WHERE key = 'friends_config' LIMIT 1;")
                     existing_row = cur.fetchone()
                     if not existing_row or not existing_row.get("value"):
@@ -214,8 +214,15 @@ def init_friends_tables():
                         """, (Json(DEFAULT_FRIENDS_CONFIG),))
                     else:
                         current_cfg = _parse_json(existing_row.get("value"), {})
-                        if isinstance(current_cfg, dict) and int(current_cfg.get("min_upgrades_for_task", 5)) == 3:
+                        changed = False
+                        if int(current_cfg.get("min_upgrades_for_task", 5)) == 3:
                             current_cfg["min_upgrades_for_task"] = 5
+                            changed = True
+                        if "vip_min_upgrades_for_task" not in current_cfg:
+                            current_cfg["vip_min_upgrades_for_task"] = 3
+                            changed = True
+                            
+                        if changed:
                             cur.execute("""
                                 UPDATE settings
                                 SET value = %s, updated_at = CURRENT_TIMESTAMP
@@ -348,6 +355,9 @@ def get_friends_config(force_refresh=True):
                     config["min_upgrades_for_task"] = max(1, min_upg)
                 except (ValueError, TypeError):
                     config["min_upgrades_for_task"] = 5
+                    
+                if "vip_min_upgrades_for_task" not in config:
+                    config["vip_min_upgrades_for_task"] = 3
 
                 _CONFIG_CACHE = {"data": config, "timestamp": now_ts}
                 return config.copy()
@@ -648,7 +658,7 @@ def get_friends_list_db(tg_id):
 
 
 def get_friends_data_db(tg_id, start_param=None, user_name=None):
-    """جلب ملخص إحصائيات الأصدقاء والمكافآت وإعدادات قائمة الأصدقاء مباشرة وبشكل حي من Supabase"""
+    """جلب ملخص إحصائيات الأصدقاء والمكافآت وإعدادات قائمة الأصدقاء مباشرة وبشكل حي مع حساب شروط VIP"""
     init_friends_tables()
     tg_str = _clean_id(tg_id)
     if not tg_str:
@@ -658,7 +668,6 @@ def get_friends_data_db(tg_id, start_param=None, user_name=None):
         ref_candidate = _clean_id(start_param) if start_param else None
         database.init_user(tg_str, ref_id=ref_candidate, first_name=user_name or "لاعب")
 
-        # قراءة بيانات اللاعب مباشرة من Supabase لتجنب أي كاش قديم في الذاكرة
         user_data = {}
         with database.get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -674,17 +683,27 @@ def get_friends_data_db(tg_id, start_param=None, user_name=None):
         config = get_friends_config(force_refresh=True).copy()
         vip_status = is_user_vip(tg_str, user_data)
 
-        min_upgrades = int(config.get("min_upgrades_for_task", 5) or 5)
-        config["min_upgrades_for_task"] = min_upgrades
+        # استخراج شرط الترقيات الأساسي وشرط الترقيات للـ VIP
+        base_min_upgrades = int(config.get("min_upgrades_for_task", 5))
+        vip_min_upgrades = int(config.get("vip_min_upgrades_for_task", 3))
 
         if vip_status:
             effective_commission = float(config.get("vip_commission_percent", 12.0))
             effective_claim_fee = float(config.get("vip_claim_fee_percent", 0.0))
+            # استخراج الشرط من بيانات الباقة نفسها وإلا استخدام الافتراضي للـ VIP
+            vip_data = _parse_json(user_data.get("vip_status"), {})
+            effective_min_upgrades = int(vip_data.get("ref_min_upgrades", vip_min_upgrades))
         else:
             effective_commission = float(config.get("commission_percent", 10.0))
             effective_claim_fee = float(config.get("claim_fee_percent", 1.5))
+            effective_min_upgrades = base_min_upgrades
 
-        eligible_count = sum(1 for f in friends if int(f.get("upgrades_count", 0) or 0) >= min_upgrades)
+        # تحديث الكائن ليعكس القيم الحالية قبل إرساله للواجهة
+        config["min_upgrades_for_task"] = base_min_upgrades
+        config["vip_min_upgrades_for_task"] = vip_min_upgrades
+
+        # الاعتماد على الشرط الفعّال (effective_min_upgrades) لحساب المؤهلين
+        eligible_count = sum(1 for f in friends if int(f.get("upgrades_count", 0) or 0) >= effective_min_upgrades)
 
         claimed_tasks = _parse_json(user_data.get("claimed_ref_tasks"), [])
         if not isinstance(claimed_tasks, list):
@@ -701,6 +720,7 @@ def get_friends_data_db(tg_id, start_param=None, user_name=None):
             "is_vip": vip_status,
             "effective_commission": effective_commission,
             "effective_claim_fee": effective_claim_fee,
+            "effective_min_upgrades": effective_min_upgrades, # تمرير الشرط للواجهة الأمامية
             "friends_config": config,
             "friends": friends
         }
@@ -718,6 +738,7 @@ def get_friends_data_db(tg_id, start_param=None, user_name=None):
             "is_vip": False,
             "effective_commission": 10.0,
             "effective_claim_fee": 1.5,
+            "effective_min_upgrades": int(config.get("min_upgrades_for_task", 5)),
             "friends_config": config,
             "friends": []
         }
@@ -798,8 +819,7 @@ def claim_ref_earnings_db(tg_id):
 def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
     """
     استلام مكافأة مهمة دعوة الأصدقاء داخل معاملة SQL ذرية آمنة (FOR UPDATE):
-    - يتم الاعتماد حصراً على إعدادات السيرفر الحية في Supabase لمنع التزوير.
-    - يتحقق من إتمام كل صديق لعدد الترقيات المطلوب في الإعدادات (5 ترقيات افتراضياً).
+    - يتم الاعتماد حصراً على إعدادات السيرفر الحية لمعرفة الشرط (3 للـ VIP و 5 للعادي) لمنع التزوير.
     """
     init_friends_tables()
     tg_str = _clean_id(tg_id)
@@ -823,14 +843,26 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
             if actual_reward <= 0 or actual_req_friends <= 0:
                 return {"success": False, "error": "إعدادات المهمة غير صالحة"}
 
-            min_upgrades = int(config.get("min_upgrades_for_task", 5) or 5)
+            # جلب بيانات المستخدم قبل بدء المعاملة الذرية لمعرفة حالة VIP
+            user_data = database.get_user(tg_str) or {}
+            vip_status = is_user_vip(tg_str, user_data)
+            
+            base_min_upgrades = int(config.get("min_upgrades_for_task", 5))
+            vip_min_upgrades = int(config.get("vip_min_upgrades_for_task", 3))
+
+            if vip_status:
+                vip_data = _parse_json(user_data.get("vip_status"), {})
+                effective_min_upgrades = int(vip_data.get("ref_min_upgrades", vip_min_upgrades))
+            else:
+                effective_min_upgrades = base_min_upgrades
+
             friends = get_user_friends(tg_str)
-            eligible_count = sum(1 for f in friends if int(f.get("upgrades_count", 0) or 0) >= min_upgrades)
+            eligible_count = sum(1 for f in friends if int(f.get("upgrades_count", 0) or 0) >= effective_min_upgrades)
 
             if eligible_count < actual_req_friends:
                 return {
                     "success": False,
-                    "error": f"تحتاج إلى {actual_req_friends} أصدقاء مؤهلين (+{min_upgrades} ترقيات لكل صديق) لاستلام هذه المكافأة"
+                    "error": f"تحتاج إلى {actual_req_friends} أصدقاء مؤهلين (+{effective_min_upgrades} ترقيات لكل صديق) لاستلام هذه المكافأة"
                 }
 
             with database.get_db_connection() as conn:
