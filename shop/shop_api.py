@@ -13,6 +13,7 @@ from shop.shop_db import (
     verify_and_apply_package as db_verify_and_apply_package
 )
 from friends.friends_db import sync_friend_upgrades_db
+import database  # جلب قاعدة البيانات لقراءة حالة المستخدم الحية
 
 shop_bp = Blueprint('shop', __name__)
 
@@ -20,7 +21,7 @@ PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 TON_SAFETY_MARGIN = 1.03  # إضافة 3% على الكمية المطلوبة كحماية
 
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
-CACHE_TTL_TON = 0      # بدون كاش لضمان التحديث اللحظي
+CACHE_TTL_TON = 15      # كاش لمدة 15 ثانية فقط لسعر TON لمنع بطء الاتصال، بينما بيانات Supabase تظل لحظية 100%
 
 def invalidate_shop_cache():
     _TON_PRICE_CACHE["price"] = 0.0
@@ -80,13 +81,20 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
     return False, None
 
 
-@shop_bp.route('/get_config', methods=['GET'])
+@shop_bp.route('/get_config', methods=['GET', 'POST'])
 def get_config():
-    """مسار جلب الباقات وعرض السعر الحقيقي المطابق للمحفظة"""
+    """مسار جلب الباقات والبيانات الحية للاعب لعرضها فوراً بدون إعادة تحميل"""
     try:
+        # التحقق من المستخدم لجلب بياناته الحية
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=(request.method == 'POST'))
+        
         settings = get_shop_catalog() 
         raw_ton_price = get_cached_ton_price()
         
+        user_state = {}
+        if success and user_id:
+            user_state = database.get_user(str(user_id)) or {}
+            
         usdt_pkgs = settings.get('packages', {})
         packages_with_ton = {}
 
@@ -116,7 +124,8 @@ def get_config():
             "success": True,
             "settings": settings,
             "ton_price_usd": raw_ton_price,
-            "packages": packages_with_ton
+            "packages": packages_with_ton,
+            "user_state": user_state
         })
         
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
