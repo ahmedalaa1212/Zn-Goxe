@@ -14,6 +14,11 @@
     const CONFIG_CACHE_TTL = 0; 
     let vipTimerInterval = null;
 
+    // متغيرات حفظ حالة الـ UI لمنع الرمشة (Smart Diffing)
+    let _lastPackagesHTML = '';
+    let _lastMiningHTML = '';
+    let _lastStorageHTML = '';
+
     function syncFriendsAndGlobalState(res) {
         if (!res || typeof res !== 'object') return;
         if (!window.userState) window.userState = {};
@@ -44,12 +49,16 @@
         if (res.vip_status) {
             window.userState.is_vip = true;
             window.PlayerData.is_vip = true;
-            // مسح كاش الأصدقاء لإجبار صفحة الأصدقاء على جلب نسب الـ VIP الجديدة (12% و 0% رسوم)
+            // مسح جميع إصدارات كاش الأصدقاء (v2 و v3) لإجبار الواجهة على تحديث نسب وإعدادات الـ VIP
             const uid = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
             if (uid) {
+                localStorage.removeItem(`zn_friends_cache_v3_${uid}`);
                 localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
+                localStorage.removeItem(`zn_friends_cache_${uid}`);
             }
+            localStorage.removeItem('zn_friends_cache_v3_global');
             localStorage.removeItem('zn_friends_cache_v2_global');
+            localStorage.removeItem('zn_friends_cache_global');
         }
     }
 
@@ -176,11 +185,14 @@
         vipTimerInterval = setInterval(() => {
             const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
             if (activeVipStatus && activeVipStatus.expires_at) {
-                const badgeElems = document.querySelectorAll('.vip-active-badge');
                 const remText = formatRemainingTime(activeVipStatus.expires_at);
+                const badgeElems = document.querySelectorAll('.vip-active-badge');
                 if (remText) {
                     badgeElems.forEach(el => {
-                        el.innerText = `نشطة (متبقي ${remText})`;
+                        const targetText = `نشطة (متبقي ${remText})`;
+                        if (el.innerText !== targetText) {
+                            el.innerText = targetText;
+                        }
                     });
                 } else {
                     if (window.updateShopUI) window.updateShopUI();
@@ -282,17 +294,36 @@
         }
 
         try {
-            const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            // إرسال POST لتمرير initData والحصول على التحديث اللحظي لبيانات اللاعب (user_state)
+            const fetchOptions = initData ? {
+                method: 'POST',
+                cache: 'no-store',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `twa ${initData}`,
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                },
+                body: JSON.stringify({ initData: initData })
+            } : {
                 method: 'GET',
                 cache: 'no-store',
                 headers: {
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'Pragma': 'no-cache'
                 }
-            }), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
+            };
+
+            const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, fetchOptions), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
             
             const data = await res.json();
             if (data && data.success) {
+                // مزامنة أحدث أرصدة وترقيات من Supabase للواجهة الأمامية
+                if (data.user_state && Object.keys(data.user_state).length > 0) {
+                    syncFriendsAndGlobalState(data.user_state);
+                }
+
                 shopDynamicSettings = normalizeIncomingConfig(data);
                 cachedPackagesData = shopDynamicSettings.packages;
                 lastConfigFetchTime = now;
@@ -314,7 +345,8 @@
         const tonPriceElem = document.getElementById('ton-live-rate-text');
         const livePrice = floatVal(data.ton_price_usd, data.ton_usdt_rate, window.tonPrice, window.userState?.ton_price);
         if (tonPriceElem && livePrice) {
-            tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`;
+            const newPriceHtml = `$${formatTopBalanceHTML(livePrice)}`;
+            if (tonPriceElem.innerHTML !== newPriceHtml) tonPriceElem.innerHTML = newPriceHtml;
         }
 
         const packages = data.packages || data.usdt_packages || (data.settings && (data.settings.packages || data.settings.usdt_packages));
@@ -331,7 +363,8 @@
         if (!container) return;
 
         if (!packages || (typeof packages !== 'object')) {
-            container.innerHTML = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
+            const emptyHtml = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
+            if (_lastPackagesHTML !== emptyHtml) { container.innerHTML = emptyHtml; _lastPackagesHTML = emptyHtml; }
             return;
         }
 
@@ -340,7 +373,8 @@
             : Object.entries(packages);
 
         if (entries.length === 0) {
-            container.innerHTML = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
+            const emptyHtml = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
+            if (_lastPackagesHTML !== emptyHtml) { container.innerHTML = emptyHtml; _lastPackagesHTML = emptyHtml; }
             return;
         }
 
@@ -392,7 +426,8 @@
             }
 
             const activeClass = isActive ? 'active-vip' : '';
-            const activeBadgeHtml = isActive ? `<div class="vip-active-badge" style="background: rgba(255, 204, 0, 0.2); color: #ffcc00; font-size: 11px; padding: 4px 8px; border-radius: 8px; font-weight: bold; margin-bottom: 6px; border: 1px solid #ffcc00;">نشطة (متبقي ${remainingTimeText})</div>` : '';
+            // النص الداخلي يتم تحديثه ديناميكياً بواسطة startVipLiveTimer لمنع الرمشة أثناء المزامنة
+            const activeBadgeHtml = isActive ? `<div class="vip-active-badge" style="background: rgba(255, 204, 0, 0.2); color: #ffcc00; font-size: 11px; padding: 4px 8px; border-radius: 8px; font-weight: bold; margin-bottom: 6px; border: 1px solid #ffcc00;">نشطة</div>` : '';
             const btnLabel = isActive ? 'تجديد الاشتراك ⚡' : 'شراء تلقائي ⚡';
 
             html += `
@@ -413,8 +448,12 @@
             index++;
         }
 
-        container.innerHTML = html;
-        startVipLiveTimer();
+        // تطبيق التحديث بالـ Diff لمنع إعادة الرسم
+        if (_lastPackagesHTML !== html) {
+            container.innerHTML = html;
+            _lastPackagesHTML = html;
+        }
+        startVipLiveTimer(); // تنشيط النص الفعلي للوقت المتبقي فوراً
     }
 
     window.buyPackageWithTon = async function(packageId) {
@@ -634,29 +673,31 @@
 
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
-            balElem.innerHTML = `${formatTopBalanceHTML(totalBal)} ZN`;
+            const newHtml = `${formatTopBalanceHTML(totalBal)} ZN`;
+            if (balElem.innerHTML !== newHtml) balElem.innerHTML = newHtml;
         }
 
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-shop, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
             if (el.id !== 'shop-balance-text') {
-                if (el.textContent.includes('ZN') || el.innerHTML.includes('ZN')) {
-                    el.innerHTML = `${formatTopBalanceHTML(totalBal)} ZN`;
-                } else {
-                    el.innerHTML = formatTopBalanceHTML(totalBal);
-                }
+                const newHtml = (el.textContent.includes('ZN') || el.innerHTML.includes('ZN')) 
+                    ? `${formatTopBalanceHTML(totalBal)} ZN` 
+                    : formatTopBalanceHTML(totalBal);
+                if (el.innerHTML !== newHtml) el.innerHTML = newHtml;
             }
         });
 
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            usdElem.innerHTML = `$${formatTopBalanceHTML(totalUsd)}`;
+            const newHtml = `$${formatTopBalanceHTML(totalUsd)}`;
+            if (usdElem.innerHTML !== newHtml) usdElem.innerHTML = newHtml;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
             const hRate = floatVal(pData.hourly_rate);
-            rateElem.innerText = `+${cleanNum(hRate)}/h ⚡`;
+            const newText = `+${cleanNum(hRate)}/h ⚡`;
+            if (rateElem.innerText !== newText) rateElem.innerText = newText;
         }
 
         if (!miningSec || !storageSec) return;
@@ -709,7 +750,13 @@
                 </div>
             `;
         }
-        miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب الباقات...</div>';
+        
+        // تطبيق التحديث بالـ Diff لترقيات التعدين
+        const newMiningHtml = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب الباقات...</div>';
+        if (_lastMiningHTML !== newMiningHtml) {
+            miningSec.innerHTML = newMiningHtml;
+            _lastMiningHTML = newMiningHtml;
+        }
 
         const storageCfg = settings.storage_config 
                         || settings.storage_capacities 
@@ -765,7 +812,13 @@
                 </div>
             `;
         }
-        storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب مستويات التخزين...</div>';
+        
+        // تطبيق التحديث بالـ Diff لترقيات المخزن
+        const newStorageHtml = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب مستويات التخزين...</div>';
+        if (_lastStorageHTML !== newStorageHtml) {
+            storageSec.innerHTML = newStorageHtml;
+            _lastStorageHTML = newStorageHtml;
+        }
     };
 
     window.requestShopPurchase = function(type, level, priceZn, priceUsd) {
@@ -871,6 +924,13 @@
             isBuying = false; 
         }
     }
+
+    // جلب البيانات اللحظية من السيرفر بشكل مستمر كل 2.5 ثانية (Live Polling)
+    setInterval(() => {
+        if (document.visibilityState === 'visible' && !isBuying) {
+            loadShopConfig(true);
+        }
+    }, 2500);
 
     function boot() {
         initTonConnect();
