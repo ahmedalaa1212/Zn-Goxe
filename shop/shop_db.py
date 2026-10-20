@@ -167,14 +167,16 @@ def _parse_json_field(field_val, default=None):
     return copy.deepcopy(default)
 
 
-def get_shop_catalog():
-    """جلب بيانات المزرعة والمتجر من Supabase مباشرة وتوحيد جميع المفاتيح للواجهة الأمامية بدون كاش قديم"""
+def get_shop_catalog(tg_id=None):
+    """جلب بيانات المتجر وبيانات اللاعب الحية في اتصال واحد من Supabase لضمان التحديث اللحظي"""
     try:
         farm_settings = {}
         shop_settings = {}
+        user_state = {}
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. جلب إعدادات المتجر
                 cur.execute(
                     "SELECT key, value FROM settings WHERE key IN ('farm_settings', 'shop_settings')"
                 )
@@ -184,6 +186,13 @@ def get_shop_catalog():
                         farm_settings = _parse_json_field(row["value"], {})
                     elif row["key"] == "shop_settings":
                         shop_settings = _parse_json_field(row["value"], {})
+
+                # 2. جلب بيانات اللاعب الحية في نفس الاتصال
+                if tg_id:
+                    cur.execute("SELECT * FROM users WHERE tg_id = %s LIMIT 1", (str(tg_id),))
+                    u_row = cur.fetchone()
+                    if u_row:
+                        user_state = dict(u_row)
 
         mining_cfg = farm_settings.get("mining_config") or shop_settings.get("mining_config") or {}
         if not isinstance(mining_cfg, dict):
@@ -290,6 +299,7 @@ def get_shop_catalog():
             "usdt_packages": usdt_pkgs,
             "ton_wallet": ton_wallet,
             "ton_usdt_rate": ton_usdt_rate,
+            "user_state": user_state
         }
     except Exception as e:
         logger.error(f"❌ Error in get_shop_catalog: {e}")
@@ -302,12 +312,13 @@ def get_shop_catalog():
             "usdt_packages": copy.deepcopy(DEFAULT_USDT_PACKAGES),
             "ton_wallet": "",
             "ton_usdt_rate": 5.5,
+            "user_state": {}
         }
 
 
-def get_shop_settings():
+def get_shop_settings(tg_id=None):
     """جلب إعدادات المتجر الكاملة لتظهر فوراً في الواجهة"""
-    return get_shop_catalog()
+    return get_shop_catalog(tg_id)
 
 
 def get_user_vip_status(user_id):
@@ -740,7 +751,7 @@ def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
 
 
 def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
-    """تفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase"""
+    """تفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase مع تحديث is_vip"""
     try:
         if not tg_id or not package_id:
             return False, "بيانات غير صالحة", {}
@@ -881,6 +892,7 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                     "updated_at": format_iso(now_dt),
                 }
 
+                # التحديث في قاعدة البيانات مع تعديل is_vip و vip_active
                 cur.execute(
                     """
                     UPDATE users SET
@@ -892,7 +904,9 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                         last_claim_time = %s,
                         vip_status = %s,
                         bot_active = %s,
-                        bot_expires_at = %s
+                        bot_expires_at = %s,
+                        is_vip = TRUE,
+                        vip_active = TRUE
                     WHERE tg_id = %s
                     """,
                     (
@@ -927,6 +941,8 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                     "max_cap": new_max_cap,
                     "last_claim_time": format_iso(new_last_claim_dt),
                     "vip_status": new_vip_status,
+                    "is_vip": True,
+                    "vip_active": True
                 }
 
         log_purchase_transaction(
@@ -972,3 +988,4 @@ def get_user_purchase_history(tg_id, limit=20):
     except Exception as e:
         logger.error(f"❌ Error fetching user purchase history: {e}")
         return []
+
