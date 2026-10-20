@@ -46,6 +46,9 @@ def get_friends_data():
         is_vip = player_data.get("is_vip", False)
         effective_commission = player_data.get("effective_commission", 10.0)
         effective_claim_fee = player_data.get("effective_claim_fee", 1.5)
+        
+        # استخراج شرط الترقيات الفعال (بناءً على حالة VIP) وتمريره للواجهة
+        effective_min_upgrades = player_data.get("effective_min_upgrades", int(friends_config.get("min_upgrades_for_task", 5)))
 
         return _no_cache_json({
             "success": True,
@@ -54,7 +57,8 @@ def get_friends_data():
             "friends_config": friends_config,
             "is_vip": is_vip,
             "effective_commission": effective_commission,
-            "effective_claim_fee": effective_claim_fee
+            "effective_claim_fee": effective_claim_fee,
+            "effective_min_upgrades": effective_min_upgrades
         }, 200)
     except Exception as e:
         print(f"❌ خطأ في API جلب بيانات الأصدقاء: {e}")
