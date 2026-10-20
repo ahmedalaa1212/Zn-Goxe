@@ -106,7 +106,7 @@
         cache_ttl_seconds: 0
     };
 
-    // 🔄 تحديث كائن الإعدادات الديناميكية فوراً من بيانات السيرفر
+    // 🔄 تحديث كائن الإعدادات الديناميكية فوراً من بيانات السيرفر (Supabase)
     function updateConfig(configObj) {
         if (!configObj) return;
 
@@ -126,7 +126,7 @@
         updateDynamicUIElements();
     }
 
-    // 🎨 تحديث جميع عناصر الواجهة بأرقام الفايربيس اللحظية
+    // 🎨 تحديث جميع عناصر الواجهة بأرقام السيرفر اللحظية
     function updateDynamicUIElements() {
         const setElText = (id, text) => {
             const el = document.getElementById(id);
@@ -239,8 +239,9 @@
     }
 
     function syncUserBalance(val) {
-        let numVal = parseFloat(val) || 0;
-        
+        let numVal = parseFloat(val);
+        if (!Number.isFinite(numVal) || numVal < 0) numVal = 0;
+
         if (window.GameState) window.GameState.balance = numVal;
         if (window.PlayerData) window.PlayerData.balance = numVal;
         if (window.userState) window.userState.balance = numVal;
@@ -273,8 +274,9 @@
     }
 
     function syncUserAdBalance(val) {
-        let numVal = parseFloat(val) || 0;
-        
+        let numVal = parseFloat(val);
+        if (!Number.isFinite(numVal) || numVal < 0) numVal = 0;
+
         if (window.GameState) window.GameState.ad_balance = numVal;
         if (window.PlayerData) window.PlayerData.ad_balance = numVal;
         if (window.userState) window.userState.ad_balance = numVal;
@@ -295,7 +297,7 @@
 
     function updateBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-        
+
         const topBal = document.getElementById('top-balance-tasks');
         if (topBal) topBal.innerText = `${formatted} ZN`;
 
@@ -314,7 +316,7 @@
 
     function updateAdBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-        
+
         const adBalDisplay = document.getElementById('ad-balance-display');
         if (adBalDisplay) {
             adBalDisplay.innerText = `${formatted} AdZ`;
@@ -330,7 +332,9 @@
     window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
     window.lastGoOutside = window.lastGoOutside || {};
     window.taskIntervals = window.taskIntervals || {};
-    
+    const startingTasksMap = {};
+    const verifyingTasksMap = {};
+
     let isSubmittingCampaign = false;
     let isConvertingBalance = false;
     let isCancelingCampaign = false;
@@ -379,8 +383,8 @@
 
         if (btnEarn) btnEarn.classList.toggle('active', tab === 'earn');
         if (btnPromote) btnPromote.classList.toggle('active', tab === 'promote');
-        
-        window.fetchAndRenderTasks(true); 
+
+        window.fetchAndRenderTasks(true);
     };
 
     window.updateTasksUI = function(forceRefresh = true) {
@@ -421,7 +425,7 @@
 
         const linkInput = document.getElementById('ad-link');
         const usersInput = document.getElementById('ad-users');
-        
+
         if (linkInput) linkInput.value = '';
         if (usersInput) usersInput.value = '';
 
@@ -449,7 +453,7 @@
         if (!inputVal) return;
 
         const amount = parseFloat(inputVal);
-        if (isNaN(amount) || amount <= 0) {
+        if (!Number.isFinite(amount) || amount <= 0) {
             alert('يرجى إدخال مبلغ صحيح للتحويل!');
             return;
         }
@@ -517,18 +521,18 @@
             return;
         }
 
-        if (rewardPerClick < minRewardRequired) {
+        if (!Number.isFinite(rewardPerClick) || rewardPerClick < minRewardRequired) {
             alert(`الحد الأدنى لمكافأة المهمة الواحدة لمنصة (${platform}) هو ${minRewardRequired} AdZ!`);
             return;
         }
 
-        if (totalCount <= 0) {
+        if (!Number.isFinite(totalCount) || totalCount <= 0) {
             alert('يرجى تحديد عدد الأعضاء المطلوبين بشكل صحيح!');
             return;
         }
 
         const totalCost = rewardPerClick * totalCount;
-        if (totalCost < minRewardRequired) {
+        if (!Number.isFinite(totalCost) || totalCost < minRewardRequired) {
             alert(`الحد الأدنى للميزانية الإجمالية للحملة هو ${minRewardRequired} AdZ!`);
             return;
         }
@@ -620,19 +624,19 @@
     window.handleSuccessRedirect = function() {
         const successModal = document.getElementById('success-modal');
         if (successModal) successModal.style.display = 'none';
-        
+
         showBottomNav();
 
         window.switchTasksTab('promote');
         window.fetchAndRenderTasks(true);
     };
 
-    // ⚡ جلب مباشر وحي وبدون كاش إطلاقاً من الفايربيس والسيرفر
+    // ⚡ جلب مباشر وحي وبدون كاش إطلاقاً من Supabase والسيرفر
     window.fetchAndRenderTasks = async function(forceRefresh = true) {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
         let myId = String(getTgId()).trim();
-        
+
         const initData = window.Telegram?.WebApp?.initData || "";
         let realTasks = [];
 
@@ -655,12 +659,12 @@
 
             if (response.ok) {
                 let data = await response.json();
-                if (data.success) { 
+                if (data.success) {
                     if (data.config) {
                         updateConfig(data.config);
                     }
-                    realTasks = data.campaigns || []; 
-                    
+                    realTasks = data.campaigns || [];
+
                     if (data.user_id) {
                         myId = String(data.user_id).trim();
                         if (window.GameState) window.GameState.userId = myId;
@@ -671,8 +675,8 @@
                     if (data.balance !== undefined) syncUserBalance(data.balance);
                 }
             }
-        } catch (e) { 
-            console.warn("خطأ جلب المهام", e); 
+        } catch (e) {
+            console.warn("خطأ جلب المهام", e);
         }
 
         updateDynamicUIElements();
@@ -734,7 +738,7 @@
                                 currentTotalOutside += (Date.now() - (window.lastGoOutside[task.id] || Date.now())) / 1000;
                             }
                             let remaining = Math.max(1, waitSec - Math.floor(currentTotalOutside));
-                            
+
                             if (remaining <= 1 && currentTotalOutside >= waitSec) {
                                 window.taskStates[task.id] = 'ready';
                                 actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="window.verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
@@ -784,7 +788,7 @@
                     let costPerClick = ad.reward || 0;
                     let totalBudget = costPerClick * need;
                     let consumedBudget = costPerClick * comp;
-                    let remainingBudget = totalBudget - consumedBudget;
+                    let remainingBudget = Math.max(0, totalBudget - consumedBudget);
                     let config = platformConfig[ad.platform] || platformConfig['أخرى'];
 
                     adsHtml += `
@@ -840,7 +844,11 @@
         }
     };
 
+    // 🚀 بدء المهمة مع تسجيل الجلسة في السيرفر لحماية المؤقت ضد الغش
     window.startTask = function(taskId, encodedLink, reward) {
+        if (startingTasksMap[taskId] || window.taskStates[taskId] === 'completed') return;
+        startingTasksMap[taskId] = true;
+
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
         window.accumulatedOutsideTime[taskId] = 0;
@@ -848,11 +856,26 @@
 
         const waitSec = Number(dynamicConfig.wait_seconds) || 15;
 
-        if (window.Telegram?.WebApp?.openLink) { 
-            window.Telegram.WebApp.openLink(link, { try_instant_view: false }); 
-        } else { 
-            window.open(link, '_blank'); 
+        // 1. فتح الرابط فوراً داخل حدث الضغطة حتى لا يحظره متصفح الموبايل
+        if (window.Telegram?.WebApp?.openLink) {
+            window.Telegram.WebApp.openLink(link, { try_instant_view: false });
+        } else {
+            window.open(link, '_blank');
         }
+
+        // 2. تسجيل وقت البدء الفعلي في قاعدة بيانات السيرفر (task_sessions)
+        const initData = window.Telegram?.WebApp?.initData || "";
+        const tgId = getTgId();
+        window.fetchAPI('/api/tasks/start_task', 'POST', {
+            taskId: taskId,
+            task_id: taskId,
+            telegram_id: tgId,
+            initData: initData
+        }).catch(err => {
+            console.warn('Start Task Session Warning:', err);
+        }).finally(() => {
+            startingTasksMap[taskId] = false;
+        });
 
         const btn = document.getElementById(`btn-task-${taskId}`);
         if (btn) {
@@ -896,8 +919,9 @@
     };
 
     window.verifyTask = async function(taskId, reward) {
-        if (isVerifyingTask) return;
+        if (isVerifyingTask || verifyingTasksMap[taskId]) return;
         isVerifyingTask = true;
+        verifyingTasksMap[taskId] = true;
 
         const btn = document.getElementById(`btn-task-${taskId}`);
         if (btn) {
@@ -908,7 +932,7 @@
         try {
             const initData = window.Telegram?.WebApp?.initData || "";
             const tgId = getTgId();
-            
+
             const res = await window.fetchAPI('/api/tasks/complete_task', 'POST', {
                 taskId: taskId,
                 task_id: taskId,
@@ -948,13 +972,14 @@
             }
         } finally {
             isVerifyingTask = false;
+            verifyingTasksMap[taskId] = false;
         }
     };
 
     window.cancelServerCampaign = async function(taskId) {
         if (isCancelingCampaign) return;
 
-        if (!confirm('هل أنت تأكد من إلغاء هذه الحملة الإعلانية؟ سيتم استرداد المبلغ المتبقي غير المستهلك فوراً إلى رصيد الإعلانات الخاص بك.')) {
+        if (!confirm('هل أنت متأكد من إلغاء هذه الحملة الإعلانية؟ سيتم استرداد المبلغ المتبقي غير المستهلك فوراً إلى رصيد الإعلانات الخاص بك.')) {
             return;
         }
 
