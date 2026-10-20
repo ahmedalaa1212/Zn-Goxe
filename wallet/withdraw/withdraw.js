@@ -7,16 +7,17 @@
   let currentTierName = "الشريحة الأولى";
   let tonConnectUI = null;
   let isSubmitting = false;
+  let isSavingWallet = false;
 
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
     const cleanStr = val.toString().replace(/,/g, '').trim();
     const num = parseFloat(cleanStr);
-    return isNaN(num) ? 0 : num;
+    return (isNaN(num) || !isFinite(num) || num < 0) ? 0 : num;
   }
 
   function formatCryptoSmartRaw(val) {
-    if (val === null || val === undefined || isNaN(val)) return "0";
+    if (val === null || val === undefined || isNaN(val) || !isFinite(val)) return "0";
     const num = parseFloat(val);
     if (num <= 0) return "0";
 
@@ -38,15 +39,26 @@
     return raw;
   }
 
+  function getTelegramInitData() {
+    return window.Telegram?.WebApp?.initData || "";
+  }
+
+  function getAuthHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'X-Telegram-Init-Data': getTelegramInitData()
+    };
+  }
+
   function getUserId() {
     const urlParams = new URLSearchParams(window.location.search);
     return (
-      urlParams.get('user_id') ||
+      window.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
       window.userState?.userId ||
       window.userState?.id ||
-      window.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
+      urlParams.get('user_id') ||
       "5102387551"
-    );
+    ).toString();
   }
 
   function validateWalletAddress(address) {
@@ -54,9 +66,12 @@
       return { valid: false, message: "⚠️ يرجى اختيار محفظة TON الصحيحة." };
     }
     const addr = address.trim();
-    const tonRegex = /^(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}$/;
+    const tonRegex = /^(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}$/;
     if (!tonRegex.test(addr)) {
-      return { valid: false, message: "⚠️ عنوان المحفظة غير صحيح! يجب أن يكون عنوان TON صالحاً يبدأ بـ EQ أو UQ وطوله 48 حرفاً." };
+      return {
+        valid: false,
+        message: "⚠️ عنوان المحفظة غير صحيح! يجب أن يكون عنوان TON صالحاً يبدأ بـ EQ أو UQ وطوله 48 حرفاً."
+      };
     }
     return { valid: true, message: "" };
   }
@@ -174,29 +189,34 @@
   }
 
   async function saveWalletToServer(val) {
+    if (isSavingWallet) return false;
     const userId = getUserId();
     const check = validateWalletAddress(val);
     if (!check.valid) return false;
 
+    isSavingWallet = true;
     try {
       let res = await fetch('/api/wallet/withdraw/save-wallet', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           user_id: userId,
           currency: 'ZNX',
-          wallet_address: val
+          wallet_address: val.trim(),
+          init_data: getTelegramInitData()
         })
       });
 
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success) {
-        userWallet = val;
+        userWallet = val.trim();
         updateWalletDisplay();
         return true;
       }
     } catch (e) {
       console.error("خطأ حفظ المحفظة بالخادم:", e);
+    } finally {
+      isSavingWallet = false;
     }
     return false;
   }
@@ -234,16 +254,20 @@
     initTonConnect();
 
     try {
-      let response = await fetch(`/api/wallet/withdraw/config?user_id=${currentUid}`);
+      let response = await fetch(`/api/wallet/withdraw/config?user_id=${encodeURIComponent(currentUid)}`, {
+        headers: { 'X-Telegram-Init-Data': getTelegramInitData() }
+      });
       if (!response.ok) {
-        response = await fetch(`/api/withdraw/config?user_id=${currentUid}`);
+        response = await fetch(`/api/withdraw/config?user_id=${encodeURIComponent(currentUid)}`, {
+          headers: { 'X-Telegram-Init-Data': getTelegramInitData() }
+        });
       }
       if (response.ok) {
         const data = await response.json();
-        userBalance = parseFloat(data.znx_balance ?? data.user_balance ?? 0);
-        usdBalance = parseFloat(data.usd_balance ?? 0);
+        userBalance = parseFloat(data.znx_balance ?? data.user_balance ?? 0) || 0;
+        usdBalance = parseFloat(data.usd_balance ?? 0) || 0;
         userWallet = data.wallet_address || (data.wallets && data.wallets.ZNX) || "";
-        
+
         if (data.min_withdraw_znx !== undefined) minWithdraw = parseFloat(data.min_withdraw_znx);
         if (data.fixed_fee_usd !== undefined) fixedFeeUsd = parseFloat(data.fixed_fee_usd);
         if (data.current_tier && data.current_tier.name) currentTierName = data.current_tier.name;
@@ -260,6 +284,7 @@
       console.error("خطأ جلب بيانات السحب:", err);
     }
 
+    window.removeEventListener('userStateUpdated', syncBalanceFromGlobal);
     window.addEventListener('userStateUpdated', syncBalanceFromGlobal);
     if (window.withdrawBalanceInterval) clearInterval(window.withdrawBalanceInterval);
     window.withdrawBalanceInterval = setInterval(syncBalanceFromGlobal, 2000);
@@ -367,7 +392,6 @@
     const coinsVal = parseInputValue(coinsInput?.value);
     const walletAddress = walletInput?.value?.trim() || userWallet;
     const btn = document.getElementById("confirm-withdraw-btn");
-
     const netCryptoElem = document.getElementById("net-crypto");
 
     if (coinsVal <= 0 || coinsVal > userBalance + 0.0001) {
@@ -387,7 +411,9 @@
 
   function resetCalculations() {
     const netCryptoElem = document.getElementById("net-crypto");
-    if (netCryptoElem) netCryptoElem.innerHTML = '0<span style="font-size: 0.8em; opacity: 0.75; font-weight: normal;">.0000</span> ZNX';
+    if (netCryptoElem) {
+      netCryptoElem.innerHTML = '0<span style="font-size: 0.8em; opacity: 0.75; font-weight: normal;">.0000</span> ZNX';
+    }
   }
 
   async function submitWithdrawal(event) {
@@ -436,22 +462,23 @@
     try {
       let res = await fetch('/api/wallet/withdraw/request', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           user_id: userId,
           coins: coins,
           currency: 'ZNX',
-          wallet_address: walletAddress
+          wallet_address: walletAddress,
+          init_data: getTelegramInitData()
         })
       });
 
       const data = await res.json().catch(() => null);
 
-      if (data && data.success) {
+      if (res.ok && data && data.success) {
         alert(data.message || "تم تقديم طلب السحب بنجاح!");
-        userBalance = data.new_balance !== undefined ? parseFloat(data.new_balance) : (userBalance - coins);
+        userBalance = data.new_balance !== undefined ? parseFloat(data.new_balance) : Math.max(0, userBalance - coins);
         usdBalance = data.new_usd_balance !== undefined ? parseFloat(data.new_usd_balance) : Math.max(0, usdBalance - fixedFeeUsd);
-        
+
         if (window.userState) {
           window.userState.znx_balance = userBalance;
           window.userState.usd_balance = usdBalance;
