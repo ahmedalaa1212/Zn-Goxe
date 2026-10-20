@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 database.py - النسخة الكاملة والمستقرة لإدارة قاعدة بيانات Supabase (PostgreSQL)
-مزودة بفحص تلقائي للاتصالات (Auto-Heal Pool) ودعم كامل للأرصدة اللحظية ونظام الأصدقاء ⚡
+مزودة بفحص تلقائي للاتصالات (Auto-Heal Pool)، نظام المعاملات الذرية (Atomic Transactions)،
+ودعم كامل للأرصدة اللحظية ونظام الأصدقاء والمهام الإعلانية ⚡
 """
 import os
+import math
 from datetime import datetime, timezone
 import psycopg2
 from psycopg2 import pool
@@ -78,6 +80,7 @@ def init_db_pool():
                             first_name VARCHAR(100) DEFAULT 'لاعب',
                             name VARCHAR(100) DEFAULT 'لاعب',
                             balance DOUBLE PRECISION DEFAULT 0.0,
+                            ad_balance DOUBLE PRECISION DEFAULT 0.0,
                             usd_balance DOUBLE PRECISION DEFAULT 0.0,
                             znx_balance DOUBLE PRECISION DEFAULT 0.0,
                             ref_by VARCHAR(128),
@@ -157,6 +160,46 @@ def init_db_pool():
                             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                         );
 
+                        -- ==================== جداول نظام المهام والحملات الإعلانية ====================
+                        CREATE TABLE IF NOT EXISTS campaigns (
+                            id VARCHAR(128) PRIMARY KEY,
+                            creator_id VARCHAR(128) NOT NULL,
+                            platform VARCHAR(64) NOT NULL,
+                            url TEXT NOT NULL,
+                            description TEXT NOT NULL,
+                            reward DOUBLE PRECISION NOT NULL DEFAULT 10.0 CHECK (reward > 0),
+                            users_needed INT NOT NULL DEFAULT 1 CHECK (users_needed >= 1),
+                            users_completed INT NOT NULL DEFAULT 0 CHECK (users_completed >= 0),
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE INDEX IF NOT EXISTS idx_campaigns_creator ON campaigns(creator_id);
+                        CREATE INDEX IF NOT EXISTS idx_campaigns_active ON campaigns(users_completed, users_needed);
+
+                        CREATE TABLE IF NOT EXISTS completed_tasks (
+                            id BIGSERIAL PRIMARY KEY,
+                            tg_id VARCHAR(128) NOT NULL,
+                            task_id VARCHAR(128) NOT NULL,
+                            platform VARCHAR(64) DEFAULT '',
+                            completion_scope VARCHAR(32) NOT NULL DEFAULT 'ONCE',
+                            completed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            CONSTRAINT uq_user_task_scope UNIQUE (tg_id, task_id, completion_scope)
+                        );
+
+                        CREATE INDEX IF NOT EXISTS idx_completed_tasks_user ON completed_tasks(tg_id);
+                        CREATE INDEX IF NOT EXISTS idx_completed_tasks_lookup ON completed_tasks(tg_id, task_id, completion_scope);
+
+                        CREATE TABLE IF NOT EXISTS task_sessions (
+                            tg_id VARCHAR(128) NOT NULL,
+                            task_id VARCHAR(128) NOT NULL,
+                            started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            PRIMARY KEY (tg_id, task_id)
+                        );
+
+                        CREATE INDEX IF NOT EXISTS idx_task_sessions_started ON task_sessions(started_at);
+
+                        -- ==================== ترقية أعمدة جدول المستخدمين تلقائياً ====================
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS ad_balance DOUBLE PRECISION DEFAULT 0.0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'لاعب';
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by VARCHAR(128);
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_ref_earnings DOUBLE PRECISION DEFAULT 0.0;
@@ -195,6 +238,8 @@ def init_db_pool():
 
                         CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by);
                         CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);
+                        CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
+                        CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
                     """)
                 _schema_initialized = True
                 print("⚡ [Supabase Setup] تم التحقق من الجداول والمخطط بنجاح!")
@@ -208,7 +253,7 @@ def init_db_pool():
 
 @contextmanager
 def get_db_connection():
-    """مستلم اتصالات ذكي يفحص صلاحية الاتصال ويستبدله فوراً إذا أغلقته Supabase"""
+    """مستلم اتصالات ذكي يفحص صلاحية الاتصال ويستبدله فوراً إذا أغلقته Supabase (وضع Autocommit للاستعلامات السريعة)"""
     pool_obj = init_db_pool()
     conn = pool_obj.getconn()
     broken = False
@@ -239,6 +284,64 @@ def get_db_connection():
     finally:
         if conn:
             try:
+                if not conn.closed and not broken:
+                    conn.autocommit = True
+                pool_obj.putconn(conn, close=broken or bool(conn.closed))
+            except Exception:
+                pass
+
+@contextmanager
+def get_db_transaction():
+    """
+    مدير معاملات ذرية مغلقة (Atomic Transaction) للعمليات المالية الحساسة.
+    يفعل وضع المعاملة (autocommit = False)، ويقوم بعمل commit عند النجاح أو rollback فوري عند أي خطأ،
+    ويدعم قفل الصفوف عبر SELECT ... FOR UPDATE لمنع الـ Race Conditions والغش.
+    """
+    pool_obj = init_db_pool()
+    conn = pool_obj.getconn()
+    broken = False
+
+    try:
+        if conn.closed:
+            broken = True
+        else:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+    except Exception:
+        broken = True
+
+    if broken:
+        try:
+            pool_obj.putconn(conn, close=True)
+        except Exception:
+            pass
+        conn = pool_obj.getconn()
+
+    try:
+        conn.autocommit = False
+        yield conn
+        conn.commit()
+    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+        broken = True
+        try:
+            if not conn.closed:
+                conn.rollback()
+        except Exception:
+            pass
+        raise e
+    except Exception as e:
+        try:
+            if not conn.closed:
+                conn.rollback()
+        except Exception:
+            pass
+        raise e
+    finally:
+        if conn:
+            try:
+                if not conn.closed and not broken:
+                    conn.autocommit = True
                 pool_obj.putconn(conn, close=broken or bool(conn.closed))
             except Exception:
                 pass
@@ -287,6 +390,7 @@ def get_user(telegram_id):
                         if isinstance(v, datetime):
                             d[k] = format_iso(v)
                     d['balance'] = float(d.get('balance') or 0.0)
+                    d['ad_balance'] = float(d.get('ad_balance') or 0.0)
                     d['usd_balance'] = float(d.get('usd_balance') or 0.0)
                     d['znx_balance'] = float(d.get('znx_balance') or 0.0)
                     return d
@@ -296,15 +400,15 @@ def get_user(telegram_id):
         return None
 
 def get_user_balances(telegram_id):
-    """دالة مخصصة وسريعة لجلب الأرصدة الثلاثة فقط من Supabase"""
+    """دالة مخصصة وسريعة لجلب الأرصدة الأربعة من Supabase"""
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
-        return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
+        return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0, 'ad_balance': 0.0}
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0)
+                    SELECT COALESCE(balance, 0.0), COALESCE(usd_balance, 0.0), COALESCE(znx_balance, 0.0), COALESCE(ad_balance, 0.0)
                     FROM users 
                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                     LIMIT 1
@@ -314,12 +418,13 @@ def get_user_balances(telegram_id):
                     return {
                         'zn_balance': float(row[0] or 0.0),
                         'usdt_balance': float(row[1] or 0.0),
-                        'znx_balance': float(row[2] or 0.0)
+                        'znx_balance': float(row[2] or 0.0),
+                        'ad_balance': float(row[3] or 0.0)
                     }
-                return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
+                return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0, 'ad_balance': 0.0}
     except Exception as e:
         print(f"❌ خطأ get_user_balances: {e}")
-        return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
+        return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0, 'ad_balance': 0.0}
 
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
     """إنشاء مستخدم جديد أو تحديث بياناته وربط الإحالة تلقائياً في جدولي users و user_friends"""
@@ -480,14 +585,16 @@ def update_user_last_active(user_id):
     except Exception:
         return False
 
-def atomic_update_balance(telegram_id, amount_change, is_usd=False, is_znx=False):
-    """تحديث ذري ولحظي للأرصدة في Supabase وإرجاع الرصيد الجديد الفعلي"""
+def atomic_update_balance(telegram_id, amount_change, is_usd=False, is_znx=False, is_ad=False):
+    """تحديث ذري ولحظي للأرصدة في Supabase وإرجاع الرصيد الجديد الفعلي مع حماية من القيم غير الصالحة"""
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
         return False, 0.0
-    col = 'znx_balance' if is_znx else ('usd_balance' if is_usd else 'balance')
+    col = 'ad_balance' if is_ad else ('znx_balance' if is_znx else ('usd_balance' if is_usd else 'balance'))
     try:
         delta = float(amount_change)
+        if not math.isfinite(delta):
+            return False, 0.0
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(f"""
