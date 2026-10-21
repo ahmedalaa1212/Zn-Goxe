@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 import time
@@ -36,10 +37,12 @@ except Exception:
 # ==========================================
 app = Flask(__name__)
 
+
 @app.route('/')
 @app.route('/health')
 def health_check():
     return jsonify({"status": "online", "bot": "Bot admin ZN Goxe"}), 200
+
 
 # ==========================================
 # 2. جلب متغيرات البيئة وإعداد البوت
@@ -71,15 +74,16 @@ _AUTH_CACHE = {}
 _AUTH_CACHE_LOCK = threading.Lock()
 _AUTH_CACHE_TTL = 120
 
+
 def is_user_authorized(user_id):
     """فحص أمني سريع مع كاش مؤقت خيطي لتفادي بطء الاستعلامات"""
     if not user_id:
         return False
     user_id_str = str(user_id).strip()
-    
+
     if user_id_str == str(ADMIN_ID):
         return True
-        
+
     now = time.time()
     with _AUTH_CACHE_LOCK:
         if user_id_str in _AUTH_CACHE:
@@ -97,8 +101,9 @@ def is_user_authorized(user_id):
         print(f"⚠️ Error checking moderator status: {e}")
     return False
 
+
 def safe_edit_message(chat_id, message_id, text, reply_markup=None):
-    """تحديث نص الرسالة بآمان وتجنب أخطاء HTML Parsing"""
+    """تحديث نص الرسالة بأمان وتجنب أخطاء HTML Parsing"""
     try:
         return bot.edit_message_text(
             chat_id=chat_id,
@@ -124,6 +129,7 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
             print(f"❌ Critical error editing message: {ex}")
             return False
 
+
 def make_copy_text_button(text, copy_value):
     """إنشاء زر نسخ مباشر للحافظة"""
     try:
@@ -132,16 +138,17 @@ def make_copy_text_button(text, copy_value):
     except Exception:
         return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
 
+
 # ==========================================
 # 3. معالجة الأزرار التفاعلية (استجابة فورية فائقة السرعة بدون تهنيج)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (
-    call.data.startswith('approve_tx_') or 
-    call.data.startswith('reject_tx_') or 
+    call.data.startswith('approve_tx_') or
+    call.data.startswith('reject_tx_') or
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    # 🔥 السطر الأول والخطوة الأهم: إجابة تلجرام فوراً لإلغاء دائرة التحميل في أجزاء من المليثانية!
+    # إجابة تلجرام فوراً لإلغاء دائرة التحميل في أجزاء من المليثانية
     try:
         bot.answer_callback_query(call.id)
     except Exception:
@@ -149,6 +156,7 @@ def handle_withdraw_decisions(call):
 
     # تحويل كافة العمليات الأخرى (فحص داتابيز + قفل + تنفيذ) إلى خيط خلفي مستقل فوراً
     _executor.submit(_process_callback_async, call)
+
 
 def _process_callback_async(call):
     """معالجة كافة الفحوصات والقرارات في الخلفية دون تعطيل واجهة تلجرام"""
@@ -162,10 +170,14 @@ def _process_callback_async(call):
     if cb_data.startswith("copy_addr_"):
         addr_part = cb_data.replace("copy_addr_", "").strip()
         if not addr_part or len(addr_part) < 20:
-            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', orig_text)
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', orig_text)
             addr_part = match.group(0) if match else "غير متوفر"
         try:
-            bot.send_message(chat_id, f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{addr_part}</code>", parse_mode="HTML")
+            bot.send_message(
+                chat_id,
+                f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{html.escape(addr_part)}</code>",
+                parse_mode="HTML"
+            )
         except Exception:
             pass
         return
@@ -190,6 +202,7 @@ def _process_callback_async(call):
     # 4. تنفيذ العملية وتحديث حالة الرسالة
     _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
 
+
 def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
     """دالة المعالجة الخلفية لتحديث السجلات واستدعاء backend"""
     global execute_admin_decision
@@ -213,8 +226,8 @@ def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action
             safe_edit_message(chat_id, message_id, final_text, reply_markup=None)
         else:
             error_notice = f"\n\n⚠️ <b>فشلت العملية:</b>\n{safe_msg}"
-            
-            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', clean_text)
+
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', clean_text)
             wallet_addr = match.group(0) if match else ""
 
             markup = InlineKeyboardMarkup()
@@ -224,7 +237,7 @@ def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action
             )
             if wallet_addr:
                 markup.row(make_copy_text_button("📋 نسخ عنوان المحفظة", wallet_addr))
-            
+
             safe_edit_message(chat_id, message_id, base_clean + error_notice, reply_markup=markup)
     except Exception as err:
         print(f"❌ خطأ أثناء تنفيذ الطلب في الخلفية: {err}")
@@ -232,13 +245,14 @@ def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action
         with _active_tx_lock:
             _active_transactions.discard(tx_id)
 
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     try:
         user_id = message.from_user.id
         first_name = message.from_user.first_name or "المستخدم"
         user_id_str = str(user_id).strip()
-        
+
         if not is_user_authorized(user_id):
             unauthorized_msg = (
                 f"⛔ <b>تنبيه أمني مشدد | Access Denied</b>\n"
@@ -252,7 +266,7 @@ def send_welcome(message):
             return
 
         role_label = "👑 <b>المدير العام للنظام (Owner)</b>" if user_id_str == str(ADMIN_ID) else "🛡️ <b>مشرف معتمد (Administrator)</b>"
-        
+
         welcome_text = (
             f"⚡ <b>مرحباً بك في لوحة القيادة العليا | ZN Goxe</b> 🔥\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -277,6 +291,7 @@ def send_welcome(message):
     except Exception as e:
         print(f"❌ Error replying to /start: {e}")
 
+
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     try:
@@ -284,25 +299,26 @@ def handle_all_messages(message):
 
         if not is_user_authorized(user_id):
             bot.reply_to(
-                message, 
+                message,
                 "⛔ <b>وصول مرفوض:</b> لا تملك صلاحية لاستخدام أوامر هذا البوت.",
                 parse_mode="HTML"
             )
             return
-        
+
         markup = InlineKeyboardMarkup()
         webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
         btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم ⚡", web_app=webapp)
         markup.add(btn)
 
         bot.reply_to(
-            message, 
+            message,
             "ℹ️ <b>يرجى الضغط على الزر أدناه للوصول المباشر إلى لوحة الإدارة:</b>",
             reply_markup=markup,
             parse_mode="HTML"
         )
     except Exception as e:
         print(f"❌ Error handling message: {e}")
+
 
 def force_delete_webhook():
     """حذف أي Webhook معلق فوراً عبر HTTP المباشر"""
@@ -312,6 +328,7 @@ def force_delete_webhook():
         print(f"🔄 Webhook cleanup response: {res.json()}")
     except Exception as e:
         print(f"⚠️ Error resetting webhook: {e}")
+
 
 def acquire_polling_lock():
     """قفل لضمان عدم تكرار عملية Polling في أكثر من Worker"""
@@ -323,6 +340,7 @@ def acquire_polling_lock():
         print("⚠️ [Bot Worker] عملية Polling تعمل بالفعل في Worker آخر.")
         return None
 
+
 def run_bot_worker():
     """تشغيل الاستماع لرسائل تلجرام مع تفادي التعارض"""
     lock = acquire_polling_lock()
@@ -332,13 +350,14 @@ def run_bot_worker():
     print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع الفائق...")
     force_delete_webhook()
     time.sleep(1)
-        
+
     while True:
         try:
             bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
         except Exception as e:
             print(f"❌ Error in Telegram Bot Polling: {e}")
             time.sleep(3)
+
 
 # ==========================================
 # 4. تشغيل البوت
@@ -353,6 +372,7 @@ def start_bot_once():
 
     bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
     bot_thread.start()
+
 
 start_bot_once()
 
