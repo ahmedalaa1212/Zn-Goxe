@@ -193,12 +193,13 @@ window.closeAutoClaimModal = function() {
         return false;
     }
 
+    // ✅ تم الإصلاح: عدم مسح حالة مشاهدة الترحيب أبداً
     function clearStaleLocalCache() {
         try {
             const userId = tele?.initDataUnsafe?.user?.id || getState().tg_id || getState().telegram_id;
             if (userId) {
                 localStorage.removeItem(`zn_farm_cache_${userId}`);
-                localStorage.removeItem(`zn_welcome_seen_${userId}`);
+                // تم إزالة السطر الذي يمسح `zn_welcome_seen_${userId}` لمنع تكرار ظهور النافذة
             }
             localStorage.removeItem('zn_farm_cache_global');
         } catch (e) {
@@ -316,6 +317,7 @@ window.closeAutoClaimModal = function() {
         return num.toFixed(4);
     }
 
+    // ✅ تم الإصلاح: تصحيح القسمة من 1000000 إلى 1000 لظهور الكيلو بشكل صحيح
     function formatStorageCapacity(maxCap) {
         let num = parseFloat(maxCap || 0);
         if (isNaN(num) || num <= 0) return "0";
@@ -326,7 +328,7 @@ window.closeAutoClaimModal = function() {
         }
         if (num >= 1000) {
             let formatted = (num / 1000).toFixed(1);
-            return (formatted.endsWith('.0') ? (num / 1000000).toFixed(0) : formatted) + "K";
+            return (formatted.endsWith('.0') ? (num / 1000).toFixed(0) : formatted) + "K";
         }
         return Number(num.toFixed(2)).toString();
     }
@@ -678,6 +680,7 @@ window.closeAutoClaimModal = function() {
         }
     }
 
+    // ✅ تم الإصلاح: حل مشكلة رسالة الترحيب نهائياً
     window.fetchPlayerDataFromServer = async function(force = false) {
         const now = NativeDateNow();
         if (isFetching) return; 
@@ -713,7 +716,11 @@ window.closeAutoClaimModal = function() {
                 }
 
                 if (resData.player) {
-                    const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
+                    const userId = resData.player.tg_id || tele?.initDataUnsafe?.user?.id;
+                    const localSeenKey = userId ? `zn_welcome_seen_${userId}` : 'zn_welcome_seen_global';
+                    const alreadySeenLocally = localStorage.getItem(localSeenKey) === 'true';
+
+                    const isNewUser = !alreadySeenLocally && (resData.player.is_new_user === true && resData.player.welcome_seen === false);
                     if (isNewUser) clearStaleLocalCache();
 
                     const isBotActive = (resData.bot_active !== undefined)
@@ -723,6 +730,8 @@ window.closeAutoClaimModal = function() {
                     const serverTimeMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
 
                     const newState = Object.assign({}, resData.player, {
+                        is_new_user: isNewUser,
+                        welcome_seen: !isNewUser,
                         bot_active: isBotActive,
                         base_unclaimed: parseFloat(resData.player.unclaimed || 0),
                         unclaimed: parseFloat(resData.player.unclaimed || 0),
@@ -734,9 +743,16 @@ window.closeAutoClaimModal = function() {
 
                     const welcomeModal = document.getElementById('welcome-modal');
                     if (welcomeModal) {
-                        welcomeModal.style.display = isNewUser ? 'flex' : 'none';
-                        welcomeModal.classList.toggle('show', isNewUser);
-                        welcomeModal.classList.toggle('active', isNewUser);
+                        if (isNewUser) {
+                            welcomeModal.style.display = 'flex';
+                            welcomeModal.classList.add('show', 'active');
+                            // تسجيل المشاهدة فوراً في الهاتف وإبلاغ السيرفر في الخلفية
+                            localStorage.setItem(localSeenKey, 'true');
+                            window.fetchAPI?.(`/api/farm/dismiss_welcome?t=${NativeDateNow()}`, 'POST', {}).catch(() => {});
+                        } else {
+                            welcomeModal.style.display = 'none';
+                            welcomeModal.classList.remove('show', 'active');
+                        }
                     }
                 }
 
@@ -864,7 +880,22 @@ window.closeAutoClaimModal = function() {
         }
 
         updateBoostButtonUI(pData);
-        renderDailyRewards(); 
+        renderDailyRewards();
+
+        // ✅ تم الإصلاح: تحديث شريط التخزين هنا ليكون متزامناً منذ اللحظة الأولى ويقضي على الرعشة
+        const maxC = parseFloat(pData.max_cap ?? 0.5);
+        const unclaim = Math.min(maxC, parseFloat(pData.unclaimed || 0));
+        const progressEl = document.getElementById('storage-progress');
+        const storageTextEl = document.getElementById('storage-text');
+        if (progressEl && storageTextEl) {
+            const pct = maxC > 0 ? Math.max(0, Math.min((unclaim / maxC) * 100, 100)) : 0;
+            progressEl.style.width = `${pct}%`;
+            storageTextEl.style.whiteSpace = 'nowrap';
+            storageTextEl.style.direction = 'ltr';
+            storageTextEl.style.display = 'inline-block';
+            storageTextEl.style.fontVariantNumeric = 'tabular-nums';
+            storageTextEl.innerText = `${formatStorageBalance(unclaim)} / ${formatStorageCapacity(maxC)}`;
+        }
     };
 
     function updateBoostButtonUI(pData) {
@@ -992,8 +1023,10 @@ window.closeAutoClaimModal = function() {
         let baseUnclaimed = parseFloat(pData.base_unclaimed !== undefined ? pData.base_unclaimed : (pData.unclaimed || 0));
         let unclaim = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
+        // ✅ تم الإصلاح: تحديث القيمة في الذاكرة دون إطلاق حدث userStateUpdated للقضاء على الرعشة
         if (unclaim >= maxC) unclaim = maxC;
-        updateState({ unclaimed: unclaim });
+        if (window.userState) window.userState.unclaimed = unclaim;
+        if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
 
         const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
         if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain) {
@@ -1098,9 +1131,15 @@ window.closeAutoClaimModal = function() {
 
         const nowMs = getAdjustedNowMs();
         setStoredBalance(Math.max(0, totalAvailableZn - costZn), Math.max(0, usdBal - costUsd));
+
+        // ✅ تم الإصلاح: حساب السعة المضاعفة لتحديث الواجهة فوراً
+        const isDouble = pData.is_double_storage_active === true;
+        const rawNextCap = nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : parseFloat(getState().max_cap || 0.5);
+        const effectiveNextCap = isDouble ? (rawNextCap * 2.0) : rawNextCap;
+
         updateState({
             storage_level: nextLvl,
-            max_cap: nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : getState().max_cap,
+            max_cap: effectiveNextCap,
             unclaimed: 0.0,
             base_unclaimed: 0.0,
             last_claim_time: new Date(nowMs).toISOString(),
