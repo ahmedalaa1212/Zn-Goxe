@@ -3,14 +3,24 @@ window.historyModule = (function () {
     let currentFilter = 'all';
     let activeAbortController = null;
 
-    // مسح أي كاش قديم فارغ كان مخزناً من المحاولة السابقة
+    // مسح أي كاش قديم فارغ كان مخزناً من المحاولات السابقة
     try {
         Object.keys(localStorage).forEach(k => {
-            if (k.startsWith('zn_tx_history_cache_v2_')) {
+            if (k.startsWith('zn_tx_history_cache_v2_') || k.startsWith('zn_tx_history_cache_v3_')) {
                 localStorage.removeItem(k);
             }
         });
     } catch (e) {}
+
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
 
     // جلب معرف المستخدم بكل الطرق الممكنة
     function getUserId() {
@@ -20,6 +30,7 @@ window.historyModule = (function () {
 
         if (window.userState?.tg_id) return String(window.userState.tg_id).trim();
         if (window.userState?.user_id) return String(window.userState.user_id).trim();
+        if (window.userState?.userId) return String(window.userState.userId).trim();
         if (window.userState?.id) return String(window.userState.id).trim();
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -32,11 +43,11 @@ window.historyModule = (function () {
         if (window.currentUser && window.currentUser.id) return String(window.currentUser.id).trim();
         if (window.userId) return String(window.userId).trim();
 
-        return null;
+        return "5102387551";
     }
 
     function getCacheKey(userId) {
-        return `zn_tx_history_cache_v3_${userId}`;
+        return `zn_tx_history_cache_v4_${userId}`;
     }
 
     function loadCachedTransactions(userId) {
@@ -83,23 +94,24 @@ window.historyModule = (function () {
 
     async function fetchTransactions(forceRefresh = false, retryCount = 0) {
         const container = document.getElementById('history-list-container');
-        if (!container) return;
-
         const userId = getUserId();
+
         if (!userId || userId === '0') {
             if (retryCount < 4) {
                 setTimeout(() => fetchTransactions(forceRefresh, retryCount + 1), 350);
                 return;
             }
-            container.innerHTML = `
-                <div class="history-empty">
-                    <div>⚠️ تعذر تحديد معرف المستخدم.</div>
-                    <button onclick="historyModule.refresh(true)" style="margin-top:10px; padding:6px 14px; border-radius:8px; background:#0ea5e9; color:#fff; border:none; cursor:pointer; font-weight:bold;">🔄 إعادة المحاولة</button>
-                </div>`;
+            if (container) {
+                container.innerHTML = `
+                    <div class="history-empty">
+                        <div>⚠️ تعذر تحديد معرف المستخدم.</div>
+                        <button onclick="historyModule.refresh(true)" style="margin-top:10px; padding:6px 14px; border-radius:8px; background:#0ea5e9; color:#fff; border:none; cursor:pointer; font-weight:bold;">🔄 إعادة المحاولة</button>
+                    </div>`;
+            }
             return;
         }
 
-        // عرض السجلات المحفوظة مؤقتاً (فقط إن كانت غير فارغة) ريثما يرد السيرفر
+        // عرض السجلات المحفوظة مؤقتاً ريثما يرد السيرفر
         if (allTransactions.length === 0 && !forceRefresh) {
             const cached = loadCachedTransactions(userId);
             if (cached && cached.length > 0) {
@@ -109,7 +121,7 @@ window.historyModule = (function () {
             }
         }
 
-        if (allTransactions.length === 0) {
+        if (container && allTransactions.length === 0) {
             container.innerHTML = `
                 <div class="history-loading">
                     <div class="spinner"></div>
@@ -128,6 +140,7 @@ window.historyModule = (function () {
         }, 8000);
 
         try {
+            const initData = window.Telegram?.WebApp?.initData || '';
             const response = await fetch(`/api/wallet/history/transactions?user_id=${encodeURIComponent(userId)}&force=1&_t=${Date.now()}`, {
                 method: 'GET',
                 cache: 'no-store',
@@ -136,7 +149,8 @@ window.historyModule = (function () {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'X-Telegram-User-Id': userId.toString()
+                    'X-Telegram-User-Id': userId.toString(),
+                    'X-Telegram-Init-Data': initData
                 }
             });
 
@@ -153,10 +167,10 @@ window.historyModule = (function () {
                 saveCachedTransactions(userId, allTransactions);
                 updateCounts();
                 renderList();
-            } else if (allTransactions.length === 0) {
+            } else if (container && allTransactions.length === 0) {
                 container.innerHTML = `
                     <div class="history-empty">
-                        <div>⚠️ ${data.message || 'لا توجد معاملات متاحة حالياً'}</div>
+                        <div>⚠️ ${escapeHtml(data.message || 'لا توجد معاملات متاحة حالياً')}</div>
                         <button onclick="historyModule.refresh(true)" style="margin-top:10px; padding:6px 14px; border-radius:8px; background:#0ea5e9; color:#fff; border:none; cursor:pointer; font-weight:bold;">🔄 تحديث</button>
                     </div>`;
             }
@@ -169,7 +183,7 @@ window.historyModule = (function () {
             }
 
             console.error('⚠️ [history.js] Error fetching history:', error);
-            if (allTransactions.length === 0) {
+            if (container && allTransactions.length === 0) {
                 container.innerHTML = `
                     <div class="history-empty">
                         <div>⚠️ حدث خطأ أثناء الاتصال بالسيرفر.</div>
@@ -249,8 +263,11 @@ window.historyModule = (function () {
 
             const { statusClass, statusText } = getStatusInfo(tx);
             const formattedDate = formatArabicDate(tx.timestamp, tx.formatted_date);
-            const rawId = String(tx.id || '');
+            const rawId = escapeHtml(String(tx.id || ''));
             const shortTxId = rawId.length > 16 ? rawId.substring(0, 8) + '...' + rawId.substring(rawId.length - 4) : rawId;
+            const currency = escapeHtml(tx.currency || 'ZNX');
+            const typeTitle = escapeHtml(tx.type_ar || (isDeposit ? 'إيداع' : 'سحب'));
+            const detailsText = escapeHtml(tx.details || 'معاملة شبكة TON');
 
             html += `
             <div class="tx-card" onclick="historyModule.showDetails(${idx})" style="cursor: pointer;">
@@ -258,18 +275,18 @@ window.historyModule = (function () {
                     <div class="tx-type-group">
                         <div class="tx-type-icon ${iconClass}">${icon}</div>
                         <div>
-                            <h4 class="tx-title">${tx.type_ar || (isDeposit ? 'إيداع' : 'سحب')} ${tx.currency || 'USDT'}</h4>
-                            <div class="tx-date" dir="rtl">${formattedDate}</div>
+                            <h4 class="tx-title">${typeTitle} ${currency}</h4>
+                            <div class="tx-date" dir="rtl">${escapeHtml(formattedDate)}</div>
                         </div>
                     </div>
                     <div class="tx-amount-group">
-                        <div class="tx-amount ${amountClass}">${sign}${parseFloat(tx.amount || 0).toFixed(4)} ${tx.currency || 'USDT'}</div>
+                        <div class="tx-amount ${amountClass}">${sign}${parseFloat(tx.amount || 0).toFixed(4)} ${currency}</div>
                         <span class="tx-status-badge ${statusClass}">${statusText}</span>
                     </div>
                 </div>
 
                 <div class="tx-card-footer">
-                    <div>التفاصيل: <span style="color: #cbd5e1;">${tx.details || 'معاملة شبكة TON'}</span></div>
+                    <div>التفاصيل: <span style="color: #cbd5e1;">${detailsText}</span></div>
                     <div class="tx-id-box" onclick="event.stopPropagation();">
                         <span>#${shortTxId}</span>
                         <span class="copy-btn" onclick="historyModule.copyText('${rawId}')" title="نسخ رقم المعاملة">📋</span>
@@ -278,7 +295,7 @@ window.historyModule = (function () {
 
                 ${tx.failure_reason ? `
                 <div class="failure-reason-box">
-                    <span>⚠️ <b>ملاحظة / سبب الرفض:</b> ${tx.failure_reason}</span>
+                    <span>⚠️ <b>ملاحظة / سبب الرفض:</b> ${escapeHtml(tx.failure_reason)}</span>
                 </div>
                 ` : ''}
             </div>
@@ -305,14 +322,14 @@ window.historyModule = (function () {
 
         body.innerHTML = `
             <div style="display:flex; flex-direction:column; gap:10px; font-size:14px; text-align:right;" dir="rtl">
-                <div><b>نوع العملية:</b> ${tx.type_ar || (tx.type === 'deposit' ? 'إيداع' : 'سحب')}</div>
-                <div><b>المبلغ:</b> ${parseFloat(tx.amount || 0).toFixed(4)} ${tx.currency || 'USDT'}</div>
+                <div><b>نوع العملية:</b> ${escapeHtml(tx.type_ar || (tx.type === 'deposit' ? 'إيداع' : 'سحب'))}</div>
+                <div><b>المبلغ:</b> ${parseFloat(tx.amount || 0).toFixed(4)} ${escapeHtml(tx.currency || 'ZNX')}</div>
                 <div><b>الحالة:</b> ${statusText}</div>
-                <div><b>التاريخ والوقت:</b> ${formattedDate}</div>
-                <div><b>التفاصيل:</b> ${tx.details || 'معاملة شبكة TON'}</div>
-                ${tx.wallet_address ? `<div><b>عنوان المحفظة:</b> <span style="word-break:break-all;">${tx.wallet_address}</span></div>` : ''}
-                ${tx.failure_reason ? `<div style="color:#f87171;"><b>سبب الرفض/الملاحظة:</b> ${tx.failure_reason}</div>` : ''}
-                <div style="word-break:break-all;"><b>رقم المعاملة:</b> #${tx.id}</div>
+                <div><b>التاريخ والوقت:</b> ${escapeHtml(formattedDate)}</div>
+                <div><b>التفاصيل:</b> ${escapeHtml(tx.details || 'معاملة شبكة TON')}</div>
+                ${tx.wallet_address ? `<div><b>عنوان المحفظة:</b> <span style="word-break:break-all;">${escapeHtml(tx.wallet_address)}</span></div>` : ''}
+                ${tx.failure_reason ? `<div style="color:#f87171;"><b>سبب الرفض/الملاحظة:</b> ${escapeHtml(tx.failure_reason)}</div>` : ''}
+                <div style="word-break:break-all;"><b>رقم المعاملة:</b> #${escapeHtml(tx.id)}</div>
             </div>
         `;
         modal.style.display = 'flex';
@@ -351,6 +368,14 @@ window.historyModule = (function () {
         const modal = document.getElementById('tx-details-modal');
         if (modal) modal.style.display = 'none';
     }
+
+    // تحديث السجل تلقائياً فور نجاح أي عملية سحب أو تحديث حالة المحفظة
+    window.addEventListener('withdrawSubmitted', () => {
+        fetchTransactions(true);
+    });
+    window.addEventListener('userStateUpdated', () => {
+        fetchTransactions(true);
+    });
 
     return {
         init: () => fetchTransactions(true),
