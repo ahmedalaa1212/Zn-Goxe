@@ -6,6 +6,7 @@ import time
 import uuid
 import hmac
 import hashlib
+import json
 import threading
 import requests
 from urllib.parse import parse_qsl
@@ -59,8 +60,8 @@ def _get_tx_lock(tx_id: str) -> threading.Lock:
 
 def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
     """
-    التحقق التشفيري من صحة جلسة Telegram WebApp (HMAC-SHA256)
-    لمنع أي هكر من تزوير user_id عبر Postman.
+    التحقق التشفيري الصارم من صحة جلسة Telegram WebApp (HMAC-SHA256)
+    مع الحماية من هجمات انتحال الـ user_id وإعادة الإرسال (Replay Attacks).
     """
     if not init_data:
         return not STRICT_TG_AUTH
@@ -72,6 +73,7 @@ def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
         raw_init = init_data.replace("Bearer ", "").strip()
         parsed_data = dict(parse_qsl(raw_init, keep_blank_values=True))
         received_hash = parsed_data.pop("hash", None)
+        
         if not received_hash:
             return not STRICT_TG_AUTH
 
@@ -88,8 +90,16 @@ def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
         if not hmac.compare_digest(calculated_hash, received_hash):
             return False
 
-        user_json = parsed_data.get("user", "")
-        if expected_user_id and f'"{expected_user_id}"' not in user_json and f":{expected_user_id}" not in user_json:
+        # حماية صارمة للـ user_id (فك تشفير الـ JSON بدل البحث النصي الضعيف)
+        user_json_str = parsed_data.get("user", "")
+        if user_json_str and expected_user_id:
+            user_data = json.loads(user_json_str)
+            if str(user_data.get("id")) != str(expected_user_id):
+                return False
+
+        # فحص صلاحية الجلسة لمنع הـ Replay Attacks (مثلاً صالحة لـ 24 ساعة فقط)
+        auth_date = int(parsed_data.get("auth_date", 0))
+        if time.time() - auth_date > 86400:  # 86400 ثانية = 24 ساعة
             return False
 
         return True
@@ -99,7 +109,7 @@ def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
 
 
 def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
-    """نشر إثبات السحب في قناة التوثيق الرسمية بدون صورة أو كارت رابط"""
+    """نشر إثبات السحب في قناة التوثيق الرسمية"""
     if not BOT_TOKEN or not PROOF_CHANNEL_ID:
         return
 
@@ -151,8 +161,8 @@ def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
 
 def execute_admin_decision(tx_id, action, admin_id=None):
     """
-    تنفيذ قرار المشرف (قبول / رفض) وتحديث Supabase PostgreSQL ذرياً عبر FOR UPDATE
-    مع حماية كاملة ضد الضغط المزدوج (Double Click & Race Condition Protection).
+    تنفيذ قرار المشرف (قبول / رفض) وتحديث Supabase PostgreSQL ذرياً عبر FOR UPDATE.
+    يتم تحديث جميع الجداول (processed_txs و transactions و withdraw_requests) فوراً لينعكس في السجل.
     """
     clean_tx_id = str(tx_id or "").strip()
     if not safe_get_db() or not get_db_connection or not clean_tx_id:
@@ -169,6 +179,7 @@ def execute_admin_decision(tx_id, action, admin_id=None):
     try:
         processed_by = str(admin_id) if admin_id else "admin"
         new_status = "completed" if action == "approve" else "rejected"
+        failure_msg = "تم رفض الطلب وإعادة الرصيد لحسابك" if action == "reject" else None
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -215,22 +226,35 @@ def execute_admin_decision(tx_id, action, admin_id=None):
                     UPDATE processed_txs
                     SET status = %s,
                         processed_by = %s,
+                        failure_reason = %s,
                         processed_at = CURRENT_TIMESTAMP,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE tx_id = %s OR id = %s
-                """, (new_status, processed_by, clean_tx_id, clean_tx_id))
+                """, (new_status, processed_by, failure_msg, clean_tx_id, clean_tx_id))
 
-                # 4. مزامنة حالة الطلب في جدول المعاملات العام transactions
+                # 4. تحديث حالة الطلب في جدول transactions (للسجل)
                 cur.execute("""
                     UPDATE transactions
                     SET status = %s,
                         processed_by = %s,
+                        failure_reason = %s,
                         processed_at = CURRENT_TIMESTAMP,
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE tx_id = %s OR id = %s
-                """, (new_status, processed_by, clean_tx_id, clean_tx_id))
+                    WHERE tx_id = %s
+                """, (new_status, processed_by, failure_msg, clean_tx_id))
 
-                # 5. توثيق قرار المشرف في جدول admin_logs
+                # 5. تحديث حالة الطلب في جدول withdraw_requests (للسجل)
+                cur.execute("""
+                    UPDATE withdraw_requests
+                    SET status = %s,
+                        processed_by = %s,
+                        failure_reason = %s,
+                        processed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE tx_id = %s
+                """, (new_status, processed_by, failure_msg, clean_tx_id))
+
+                # 6. توثيق قرار المشرف في جدول admin_logs
                 cur.execute("""
                     INSERT INTO admin_logs (action, tx_id, user_id, admin_id, status, amount, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
@@ -239,7 +263,12 @@ def execute_admin_decision(tx_id, action, admin_id=None):
             conn.commit()
 
         if action == "approve":
-            send_proof_to_channel(user_id, coins, wallet_address, clean_tx_id)
+            # إرسال إثبات السحب في الخلفية حتى لا يتأخر رد الأدمن
+            threading.Thread(
+                target=send_proof_to_channel, 
+                args=(user_id, coins, wallet_address, clean_tx_id), 
+                daemon=True
+            ).start()
             res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX ونشر إثبات السحب بنجاح."
         else:
             res_msg = "🔴 تم رفض الطلب وإعادة الرصيد بالكامل إلى حساب المستخدم بنجاح!"
@@ -336,7 +365,7 @@ def handle_withdraw():
     if not user_id or not wallet_address:
         return jsonify({"success": False, "message": "بيانات طلب السحب غير مكتملة."}), 400
 
-    # 1. التحقق من صحة الجلسة والأرقام المدخلة لمنع التلاعب
+    # 1. التحقق من صحة الجلسة والأرقام المدخلة لمنع التلاعب (HMAC Validation)
     if not verify_telegram_webapp_data(init_data, user_id):
         return jsonify({"success": False, "message": "جلسة غير مصرح بها، يرجى إعادة فتح التطبيق من تيليجرام."}), 403
 
@@ -385,6 +414,7 @@ def handle_withdraw():
             }), 429
 
         tx_id = uuid.uuid4().hex[:20]
+        details_txt = f"سحب إلى المحفظة: {wallet_address}"
 
         # 3. معاملة قاعدة بيانات ذرية مع قفل صف المستخدم (SELECT ... FOR UPDATE)
         with get_db_connection() as conn:
@@ -468,42 +498,60 @@ def handle_withdraw():
                 cur.execute("""
                     INSERT INTO processed_txs (
                         id, tx_id, user_id, coins, amount, fee_usd, net_coins,
-                        currency, tier_name, wallet_address, type, status,
+                        currency, tier_name, wallet_address, type, status, details,
                         created_at, updated_at
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s,
-                        'ZNX', %s, %s, 'withdraw', 'pending',
+                        'ZNX', %s, %s, 'withdraw', 'pending', %s,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     )
                 """, (
                     tx_id, tx_id, user_id, coins, coins, fixed_fee_usd, coins,
-                    tier_name, wallet_address
+                    tier_name, wallet_address, details_txt
                 ))
 
-                # 6. إدراج السجل الموازي في جدول المعاملات العام transactions
+                # 6. إدراج السجل الموازي في جدول transactions (بدون تمرير id لأنه SERIAL)
                 cur.execute("""
                     INSERT INTO transactions (
-                        id, tx_id, user_id, coins, amount, fee_usd, net_coins,
-                        currency, tier_name, wallet_address, type, status,
+                        tx_id, user_id, coins, amount, fee_usd, net_coins,
+                        currency, tier_name, wallet_address, type, status, details,
                         created_at, updated_at
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s,
-                        'ZNX', %s, %s, 'withdraw', 'pending',
+                        %s, %s, %s, %s, %s, %s,
+                        'ZNX', %s, %s, 'withdraw', 'pending', %s,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     )
-                    ON CONFLICT (id) DO NOTHING
                 """, (
-                    tx_id, tx_id, user_id, coins, coins, fixed_fee_usd, coins,
-                    tier_name, wallet_address
+                    tx_id, user_id, coins, coins, fixed_fee_usd, coins,
+                    tier_name, wallet_address, details_txt
+                ))
+
+                # 7. إدراج السجل الموازي في جدول withdraw_requests (بدون تمرير id لأنه SERIAL)
+                cur.execute("""
+                    INSERT INTO withdraw_requests (
+                        tx_id, user_id, coins, amount, fee_usd, net_amount,
+                        currency, tier_name, wallet_address, network, status, details,
+                        created_at, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s,
+                        'ZNX', %s, %s, 'TON', 'pending', %s,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                """, (
+                    tx_id, user_id, coins, coins, fixed_fee_usd, coins,
+                    tier_name, wallet_address, details_txt
                 ))
 
             conn.commit()
 
         _USER_LAST_REQUEST[user_id] = time.time()
 
-        notify_admin_withdraw(
-            user_id, coins, fixed_fee_usd, wallet_address, tx_id, tier_name
-        )
+        # إرسال إشعار للأدمن في الخلفية لعدم تعطيل استجابة المستخدم
+        threading.Thread(
+            target=notify_admin_withdraw,
+            args=(user_id, coins, fixed_fee_usd, wallet_address, tx_id, tier_name),
+            daemon=True
+        ).start()
 
         return jsonify({
             "success": True,
