@@ -1,9 +1,13 @@
 # admin_app.py
 import os
 import sys
+import re
+import html
 import time
+import socket
 import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
@@ -15,48 +19,207 @@ from flask_cors import CORS
 import database
 from core.security import get_authenticated_user
 
+try:
+    from wallet.withdraw.withdraw_api import execute_admin_decision
+except Exception:
+    execute_admin_decision = None
+
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-CORS(app, resources={r"/api/*": {"origins": "*", "allow_headers": ["Content-Type", "Authorization", "X-Init-Data", "X-Device-Id", "X-Device-Fingerprint"]}})
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "allow_headers": [
+            "Content-Type",
+            "Authorization",
+            "X-Init-Data",
+            "X-Telegram-Init-Data",
+            "X-Device-Id",
+            "X-Device-Fingerprint"
+        ]
+    }
+})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://admin-zn-production.up.railway.app').strip().rstrip('/')
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
 ADMIN_BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 
+# ذاكرة مؤقتة لصلاحيات المشرفين لتسريع الاستجابة ومنع الضغط على قاعدة البيانات
+_AUTH_CACHE = {}
+_AUTH_CACHE_LOCK = threading.Lock()
+_AUTH_CACHE_TTL = 120
+
+_active_tx_lock = threading.Lock()
+_active_transactions = set()
+_bot_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="admin_app_bot_worker")
+
+
 def is_admin_authorized(telegram_id):
-    """فحص موحد: الأدمن الرئيسي له السلطة المطلقة دائماً"""
+    """فحص موحد مع كاش آمن: الأدمن الرئيسي له السلطة المطلقة دائماً"""
     if not telegram_id:
         return False
-    
+
     user_id_str = str(telegram_id).strip()
     if user_id_str == str(ADMIN_ID):
         return True
-        
+
+    now = time.time()
+    with _AUTH_CACHE_LOCK:
+        if user_id_str in _AUTH_CACHE:
+            cached_val, cached_ts = _AUTH_CACHE[user_id_str]
+            if now - cached_ts < _AUTH_CACHE_TTL:
+                return cached_val
+
     try:
-        return database.is_admin_or_mod(user_id_str)
+        auth = bool(database.is_admin_or_mod(user_id_str))
+        with _AUTH_CACHE_LOCK:
+            _AUTH_CACHE[user_id_str] = (auth, now)
+        return auth
     except Exception as e:
         print(f"⚠️ Error checking admin status: {e}")
         return False
 
+
 # ==========================================
-# 🤖 تشغيل بوت الأدمن في الخلفية لوصل لوحة الإدارة فقط
+# 🤖 تشغيل بوت الأدمن في الخلفية (يدعم لوحة الإدارة + أزرار قبول ورفض السحب اليدوي)
 # ==========================================
 admin_bot = None
 if ADMIN_BOT_TOKEN:
     import telebot
+    from telebot import apihelper
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-    admin_bot = telebot.TeleBot(ADMIN_BOT_TOKEN)
+    apihelper.SESSION_TIME_TO_LIVE = 5 * 60
+    apihelper.CONNECT_TIMEOUT = 3.5
+    apihelper.READ_TIMEOUT = 10
+
+    admin_bot = telebot.TeleBot(ADMIN_BOT_TOKEN, threaded=True, num_threads=24)
+
+    def _safe_edit_bot_message(chat_id, message_id, text, reply_markup=None):
+        try:
+            return admin_bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            if "message is not modified" in str(e):
+                return True
+            try:
+                plain_text = re.sub(r'<[^>]*>', '', text)
+                return admin_bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=plain_text,
+                    reply_markup=reply_markup
+                )
+            except Exception:
+                return False
+
+    def _make_copy_button(text, copy_value):
+        try:
+            from telebot.types import CopyTextButton
+            return InlineKeyboardButton(text, copy_text=CopyTextButton(text=copy_value))
+        except Exception:
+            return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
+
+    @admin_bot.callback_query_handler(func=lambda call: call.data and (
+        call.data.startswith('approve_tx_') or
+        call.data.startswith('reject_tx_') or
+        call.data.startswith('copy_addr_')
+    ))
+    def handle_admin_withdraw_callbacks(call):
+        try:
+            admin_bot.answer_callback_query(call.id)
+        except Exception:
+            pass
+        _bot_executor.submit(_process_admin_callback_async, call)
+
+    def _process_admin_callback_async(call):
+        global execute_admin_decision
+        cb_data = call.data or ""
+        user_id = call.from_user.id
+        chat_id = call.message.chat.id
+        message_id = call.message.message_id
+        orig_text = call.message.text or call.message.caption or ""
+
+        if cb_data.startswith("copy_addr_"):
+            addr_part = cb_data.replace("copy_addr_", "").strip()
+            if not addr_part or len(addr_part) < 20:
+                match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', orig_text)
+                addr_part = match.group(0) if match else "غير متوفر"
+            try:
+                admin_bot.send_message(
+                    chat_id,
+                    f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{html.escape(addr_part)}</code>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+            return
+
+        if not is_admin_authorized(user_id):
+            try:
+                admin_bot.send_message(chat_id, "⛔ <b>عذراً:</b> ليس لديك صلاحية لاتخاذ هذا القرار!", parse_mode="HTML")
+            except Exception:
+                pass
+            return
+
+        action = "approve" if cb_data.startswith("approve_tx_") else "reject"
+        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
+
+        with _active_tx_lock:
+            if tx_id in _active_transactions:
+                return
+            _active_transactions.add(tx_id)
+
+        try:
+            clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
+            status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتوثيق الطلب...</b>"
+            _safe_edit_bot_message(chat_id, message_id, status_text, reply_markup=None)
+
+            if execute_admin_decision is None:
+                from wallet.withdraw.withdraw_api import execute_admin_decision as exec_fn
+                execute_admin_decision = exec_fn
+
+            success, result_msg = execute_admin_decision(tx_id, action, admin_id=user_id)
+            safe_msg = html.escape(str(result_msg))
+
+            if success:
+                status_icon = "🟢" if action == "approve" else "🔴"
+                final_text = f"{clean_text}\n\n<b>النتيجة ({status_icon}):</b>\n{safe_msg}"
+                _safe_edit_bot_message(chat_id, message_id, final_text, reply_markup=None)
+            else:
+                error_notice = f"\n\n⚠️ <b>فشلت العملية:</b>\n{safe_msg}"
+                match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', clean_text)
+                wallet_addr = match.group(0) if match else ""
+
+                markup = InlineKeyboardMarkup()
+                markup.row(
+                    InlineKeyboardButton("قبول 🟢", callback_data=f"approve_tx_{tx_id}"),
+                    InlineKeyboardButton("رفض 🔴", callback_data=f"reject_tx_{tx_id}")
+                )
+                if wallet_addr:
+                    markup.row(_make_copy_button("📋 نسخ عنوان المحفظة", wallet_addr))
+
+                _safe_edit_bot_message(chat_id, message_id, clean_text + error_notice, reply_markup=markup)
+        except Exception as err:
+            print(f"❌ خطأ أثناء معالجة قرار السحب في admin_app: {err}")
+        finally:
+            with _active_tx_lock:
+                _active_transactions.discard(tx_id)
 
     @admin_bot.message_handler(commands=['start'])
     def send_welcome(message):
         try:
             user_id = message.from_user.id
-            first_name = message.from_user.first_name or "المستخدم"
+            first_name = html.escape(message.from_user.first_name or "المستخدم")
             user_id_str = str(user_id).strip()
-            
+
             print(f"🔍 [Admin Bot Check] Received /start from User ID: {user_id_str}")
-            
+
             if not is_admin_authorized(user_id_str):
                 unauthorized_msg = (
                     f"⛔ <b>تنبيه أمني مشدد | Access Denied</b>\n"
@@ -70,7 +233,7 @@ if ADMIN_BOT_TOKEN:
                 return
 
             role_label = "👑 <b>المدير العام للنظام (Owner)</b>" if user_id_str == str(ADMIN_ID) else "🛡️ <b>مشرف معتمد (Administrator)</b>"
-            
+
             welcome_text = (
                 f"⚡ <b>مرحباً بك في لوحة القيادة العليا | ZN Goxe</b> 🔥\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -105,12 +268,12 @@ if ADMIN_BOT_TOKEN:
 
             if not is_admin_authorized(user_id_str):
                 admin_bot.reply_to(
-                    message, 
+                    message,
                     "⛔ <b>وصول مرفوض:</b> لا تملك صلاحية لاستخدام أوامر هذا البوت.",
                     parse_mode="HTML"
                 )
                 return
-            
+
             ADMIN_WEBAPP_URL = WEB_URL if WEB_URL.endswith('/admin') else f"{WEB_URL}/admin"
 
             markup = InlineKeyboardMarkup()
@@ -119,7 +282,7 @@ if ADMIN_BOT_TOKEN:
             markup.add(btn)
 
             admin_bot.reply_to(
-                message, 
+                message,
                 "ℹ️ <b>يرجى الضغط على الزر أدناه للوصول المباشر إلى لوحة الإدارة:</b>",
                 reply_markup=markup,
                 parse_mode="HTML"
@@ -135,7 +298,20 @@ if ADMIN_BOT_TOKEN:
         except Exception as e:
             print(f"⚠️ Error resetting webhook: {e}")
 
+    def acquire_polling_lock():
+        """قفل مشترك لمنع تعارض Polling إذا كان admin_bot.py يعمل في نفس الحاوية"""
+        try:
+            lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            lock_socket.bind(('127.0.0.1', 47823))
+            return lock_socket
+        except socket.error:
+            print("⚠️ [Admin App Bot] عملية Polling تعمل بالفعل في Worker آخر.")
+            return None
+
     def run_bot_worker():
+        lock = acquire_polling_lock()
+        if lock is None:
+            return
         print("🚀 [Admin Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع...")
         force_delete_webhook()
         time.sleep(1)
@@ -239,6 +415,7 @@ except Exception as e:
 def health_check():
     return jsonify({"status": "online", "bot": "Bot admin ZN Goxe"}), 200
 
+
 @app.route('/api/verify_admin', methods=['POST'])
 def verify_admin_access():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
@@ -248,8 +425,35 @@ def verify_admin_access():
     if is_admin_authorized(telegram_id):
         role = "المدير العام (Owner)" if str(telegram_id).strip() == str(ADMIN_ID) else "مشرف معتمد"
         return jsonify({"success": True, "message": "تم التحقق بنجاح", "role": role}), 200
-        
+
     return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة والمشرفين فقط!"}), 403
+
+
+@app.route('/api/admin/withdraw/decision', methods=['POST'])
+def admin_withdraw_decision_api():
+    """مسار إضافي مؤمن لاتخاذ قرار القبول/الرفض مباشرة من لوحة التحكم إن لزم الأمر"""
+    global execute_admin_decision
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
+
+    if not is_admin_authorized(telegram_id):
+        return jsonify({"success": False, "error": "غير مصرح لك باتخاذ قرارات السحب"}), 403
+
+    data = request.get_json(silent=True) or {}
+    tx_id = str(data.get("tx_id", "")).strip()
+    action = str(data.get("action", "")).strip().lower()
+
+    if not tx_id or action not in ("approve", "reject"):
+        return jsonify({"success": False, "error": "بيانات القرار غير مكتملة"}), 400
+
+    if execute_admin_decision is None:
+        from wallet.withdraw.withdraw_api import execute_admin_decision as exec_fn
+        execute_admin_decision = exec_fn
+
+    ok, msg = execute_admin_decision(tx_id, action, admin_id=telegram_id)
+    return jsonify({"success": ok, "message": msg}), (200 if ok else 400)
+
 
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
 def admin_dashboard_stats():
@@ -270,6 +474,7 @@ def admin_dashboard_stats():
         print(f"❌ Error fetching dashboard stats: {e}")
         return jsonify({"success": False, "error": "خطأ أثناء جلب إحصائيات اللوحة"}), 500
 
+
 @app.route('/api/moderators', methods=['GET', 'POST'])
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
 def admin_moderators_manager(mod_id=None):
@@ -289,7 +494,7 @@ def admin_moderators_manager(mod_id=None):
         if str(telegram_id).strip() != str(ADMIN_ID):
             return jsonify({"success": False, "error": "عذراً، إضافة المشرفين مخصصة للمالك الرئيسي فقط!"}), 403
 
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         m_id = data.get("id")
         m_name = data.get("name")
         perms = data.get("permissions", {})
@@ -300,6 +505,8 @@ def admin_moderators_manager(mod_id=None):
 
         ok = database.add_moderator(m_id, m_name, perms, added_by)
         if ok:
+            with _AUTH_CACHE_LOCK:
+                _AUTH_CACHE.pop(str(m_id).strip(), None)
             return jsonify({"success": True, "message": "تمت إضافة المشرف بنجاح!"}), 200
         return jsonify({"success": False, "error": "حدث خطأ أثناء إضافة المشرف"}), 500
 
@@ -313,8 +520,11 @@ def admin_moderators_manager(mod_id=None):
         deleted_by = request.args.get("deletedBy", "المدير العام")
         ok = database.delete_moderator(mod_id, deleted_by)
         if ok:
+            with _AUTH_CACHE_LOCK:
+                _AUTH_CACHE.pop(str(mod_id).strip(), None)
             return jsonify({"success": True, "message": "تم حذف المشرف بنجاح"}), 200
         return jsonify({"success": False, "error": "حدث خطأ أثناء حذف المشرف"}), 500
+
 
 @app.route('/api/admin-logs', methods=['GET'])
 def admin_logs_handler():
@@ -328,12 +538,14 @@ def admin_logs_handler():
     logs = database.get_admin_logs(limit=50)
     return jsonify({"success": True, "logs": logs}), 200
 
+
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
     try:
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
-    except Exception as e:
+    except Exception:
         return jsonify({"error": "Manifest file not found"}), 404
+
 
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
@@ -341,7 +553,7 @@ def get_user_info_main():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
-        
+
     try:
         device_id = request.headers.get('X-Device-Id') or request.args.get('device_id')
         fingerprint = request.headers.get('X-Device-Fingerprint') or request.args.get('fingerprint')
@@ -364,23 +576,27 @@ def get_user_info_main():
             ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
             database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
             user_data = database.get_user(telegram_id)
-            
+
         return jsonify({"success": True, "user": user_data}), 200
     except Exception as e:
         print(f"❌ Error in get_user_info_main: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
+
 @app.after_request
 def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
     return response
 
+
 @app.errorhandler(500)
 def handle_500_error(e):
     return jsonify({"status": "error", "success": False, "error": "حدث خطأ داخلي في السيرفر"}), 500
+
 
 @app.errorhandler(404)
 def handle_404_error(e):
@@ -388,30 +604,43 @@ def handle_404_error(e):
         return jsonify({"status": "error", "success": False, "error": "المسار غير موجود"}), 404
     return send_from_directory('.', 'admin.html')
 
+
 @app.route('/')
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
     return send_from_directory('.', 'admin.html')
 
+
 @app.route('/<path:path>')
 def serve_static(path):
     path_clean = path.strip('/').lower()
+    if '..' in path_clean or path_clean.startswith('.'):
+        return jsonify({"error": "Access Denied"}), 403
+
     if path_clean in ['', 'admin', 'admin.html', 'index', 'index.html']:
         return send_from_directory('.', 'admin.html')
-        
-    allowed_extensions = ('.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.otf')
+
+    allowed_extensions = (
+        '.html', '.css', '.js', '.json', '.png', '.jpg',
+        '.jpeg', '.gif', '.svg', '.webp', '.ico', '.woff',
+        '.woff2', '.ttf', '.otf'
+    )
     if not any(path_clean.endswith(ext) for ext in allowed_extensions):
         return jsonify({"error": "Access Denied"}), 403
-        
-    forbidden_files = ('firebase-adminsdk.json', 'config.json', 'credentials.json', 'package.json', 'package-lock.json', 'requirements.txt')
+
+    forbidden_files = (
+        'firebase-adminsdk.json', 'config.json', 'credentials.json',
+        'package.json', 'package-lock.json', 'requirements.txt', '.env'
+    )
     if any(f in path_clean for f in forbidden_files):
         return jsonify({"error": "Access Denied"}), 403
-        
+
     try:
         return send_from_directory('.', path)
     except Exception:
         return send_from_directory('.', 'admin.html')
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
