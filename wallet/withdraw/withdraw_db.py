@@ -17,11 +17,14 @@ try:
 except ImportError as e:
     print(f"⚠️ خطأ في استيراد database.py داخل withdraw_db: {e}")
     get_db_connection = None
+
     def _sanitize_id(val):
         if val is None:
             return None
         s = str(val).strip()
-        return s[:-2] if s.endswith('.0') else s
+        if s.endswith('.0'):
+            s = s[:-2]
+        return s if s and s.lower() not in ('none', 'null', 'undefined', 'nan') else None
 
 # قراءة عنوان عقد العملة الذكي من متغيرات بيئة Railway
 ZNX_CONTRACT_ADDRESS = os.getenv("ZNX_CONTRACT_ADDRESS", "EQCp7mIbe-eR-j6b7opnHBtCbl74gnyYAP2XZlSpHkERkwdJ")
@@ -60,6 +63,7 @@ def init_withdraw_tables():
         {"tier": 2, "name": "الشريحة الثانية", "min_pts": 500000, "max_pts": "inf", "min_withdraw_znx": 500.0, "fixed_fee_usd": 0.02}
     ], ensure_ascii=False)
 
+    conn = None
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -77,6 +81,7 @@ def init_withdraw_tables():
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS max_cap NUMERIC DEFAULT 0.0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_count INTEGER DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_count INTEGER DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
                 """)
 
                 # 2. جدول شرائح السحب العالمية znx_global_stats
@@ -116,6 +121,7 @@ def init_withdraw_tables():
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
                     CREATE INDEX IF NOT EXISTS idx_processed_txs_user_status ON processed_txs(user_id, status);
+                    CREATE INDEX IF NOT EXISTS idx_processed_txs_tx_id ON processed_txs(tx_id);
                 """)
 
                 # 4. جدول السجل العام للمعاملات transactions (متوافق مع history_db)
@@ -140,13 +146,19 @@ def init_withdraw_tables():
                     );
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tx_id TEXT;
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS coins NUMERIC DEFAULT 0.0;
+                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0.0;
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee_usd NUMERIC DEFAULT 0.0;
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_coins NUMERIC DEFAULT 0.0;
+                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'ZNX';
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tier_name TEXT DEFAULT '';
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS wallet_address TEXT DEFAULT '';
+                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'withdraw';
+                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_by TEXT;
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+                    CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_transactions_tx_id ON transactions(tx_id);
                 """)
 
                 # 5. جدول سجلات قرارات المشرفين admin_logs
@@ -170,6 +182,11 @@ def init_withdraw_tables():
             conn.commit()
         return True
     except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         print(f"⚠️ ملاحظة أثناء تهيئة جداول السحب تلقائياً: {e}")
         return False
 
@@ -178,6 +195,8 @@ class PostgresUserRef:
     """كلاس توافقي يحاكي user_ref في الكود القديم ليعمل مع Supabase PostgreSQL بسلاسة"""
     def __init__(self, user_id: str, data: dict):
         self.id = str(user_id)
+        self.pk_col = "user_id"
+        self.pk_val = str(user_id)
         self._data = data
 
     def update(self, payload: dict):
@@ -202,13 +221,25 @@ class PostgresUserRef:
         sql = f"""
             UPDATE users
             SET {", ".join(set_clauses)}
-            WHERE CAST(tg_id AS TEXT) = %s OR CAST(user_id AS TEXT) = %s OR CAST(telegram_id AS TEXT) = %s
+            WHERE CAST(tg_id AS TEXT) = %s
+               OR CAST(user_id AS TEXT) = %s
+               OR CAST(telegram_id AS TEXT) = %s
         """
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, tuple(values))
-            conn.commit()
-        return True
+        conn = None
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, tuple(values))
+                conn.commit()
+            return True
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            print(f"⚠️ خطأ تحديث المستخدم في PostgresUserRef: {e}")
+            return False
 
     def set(self, payload: dict, merge: bool = True):
         return self.update(payload)
@@ -394,6 +425,19 @@ def get_user_full_details(user_id):
 
         # 3. حساب عدد الإحالات (الأصدقاء)
         ref_count = int(data.get("referral_count", 0) or data.get("ref_count", 0) or 0)
+        if ref_count == 0 and get_db_connection:
+            try:
+                with get_db_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT COUNT(*) FROM users
+                            WHERE CAST(referred_by AS TEXT) = %s OR CAST(ref_by AS TEXT) = %s
+                        """, (clean_id, clean_id))
+                        cnt_row = cur.fetchone()
+                        if cnt_row and cnt_row[0]:
+                            ref_count = int(cnt_row[0])
+            except Exception:
+                pass
 
         return {
             "user_id": str(clean_id),
@@ -436,11 +480,13 @@ def save_user_wallet(user_id, currency, wallet_address):
         wallets = _parse_json_val(user_data.get("wallets"), {})
         wallets[str(currency or "ZNX").upper()] = clean_wallet
 
-        user_ref.update({
+        ok = user_ref.update({
             "wallets": wallets,
             "wallet_address": clean_wallet
         })
-        return True, "تم حفظ المحفظة بنجاح."
+        if ok:
+            return True, "تم حفظ المحفظة بنجاح."
+        return False, "تعذر تحديث المحفظة في قاعدة البيانات."
     except Exception as e:
         print(f"⚠️ خطأ حفظ المحفظة في Supabase: {e}")
         return False, f"خطأ أثناء الحفظ: {str(e)}"
