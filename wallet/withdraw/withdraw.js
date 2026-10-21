@@ -52,13 +52,14 @@
 
   function getUserId() {
     const urlParams = new URLSearchParams(window.location.search);
-    return (
+    const id = (
       window.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
       window.userState?.userId ||
       window.userState?.id ||
       urlParams.get('user_id') ||
-      "5102387551"
-    ).toString();
+      ""
+    );
+    return id ? id.toString() : "";
   }
 
   function validateWalletAddress(address) {
@@ -70,7 +71,7 @@
     if (!tonRegex.test(addr)) {
       return {
         valid: false,
-        message: "⚠️ عنوان المحفظة غير صحيح! يجب أن يكون عنوان TON صالحاً يبدأ بـ EQ أو UQ وطوله 48 حرفاً."
+        message: "⚠️ عنوان المحفظة غير صحيح! يجب أن يكون عنوان TON صالحاً يبدأ بـ EQ أو UQ."
       };
     }
     return { valid: true, message: "" };
@@ -253,6 +254,17 @@
     bindInputEvents();
     initTonConnect();
 
+    // ⚡ Instant Render: تحميل فوري من الكاش لسرعة استجابة الواجهة
+    if (window.userState) {
+      if (window.userState.znx_balance !== undefined) userBalance = parseFloat(window.userState.znx_balance) || 0;
+      if (window.userState.usd_balance !== undefined) usdBalance = parseFloat(window.userState.usd_balance) || 0;
+      userWallet = window.userState.wallet_address || (window.userState.wallets && window.userState.wallets.ZNX) || userWallet;
+      updateUIBalance();
+      updateWalletDisplay();
+    }
+
+    if (!currentUid) return;
+
     try {
       let response = await fetch(`/api/wallet/withdraw/config?user_id=${encodeURIComponent(currentUid)}`, {
         headers: { 'X-Telegram-Init-Data': getTelegramInitData() }
@@ -264,9 +276,9 @@
       }
       if (response.ok) {
         const data = await response.json();
-        userBalance = parseFloat(data.znx_balance ?? data.user_balance ?? 0) || 0;
-        usdBalance = parseFloat(data.usd_balance ?? 0) || 0;
-        userWallet = data.wallet_address || (data.wallets && data.wallets.ZNX) || "";
+        userBalance = parseFloat(data.znx_balance ?? data.user_balance ?? userBalance) || 0;
+        usdBalance = parseFloat(data.usd_balance ?? usdBalance) || 0;
+        userWallet = data.wallet_address || (data.wallets && data.wallets.ZNX) || userWallet;
 
         if (data.min_withdraw_znx !== undefined) minWithdraw = parseFloat(data.min_withdraw_znx);
         if (data.fixed_fee_usd !== undefined) fixedFeeUsd = parseFloat(data.fixed_fee_usd);
@@ -312,7 +324,13 @@
 
     if (type === 'max') {
       const safeBal = Math.max(0, parseFloat(userBalance) || 0);
-      coinsInput.value = safeBal > 0 ? formatCryptoSmartRaw(safeBal) : "";
+      if (safeBal > 0) {
+        // قص الأرقام العشرية بشكل آمن (Floor) لأربع خانات لتجنب رفض العملية بسبب كسور غير مرئية
+        const flooredBal = Math.floor(safeBal * 10000) / 10000;
+        coinsInput.value = flooredBal > 0 ? flooredBal.toString() : "";
+      } else {
+        coinsInput.value = "";
+      }
     }
     calculateWithdraw();
   }
@@ -427,6 +445,11 @@
     const userId = getUserId();
     const btn = document.getElementById("confirm-withdraw-btn");
 
+    if (!userId) {
+      alert("⚠️ تعذر تحديد بيانات حسابك، يرجى إعادة فتح التطبيق.");
+      return;
+    }
+
     if (!walletAddress) {
       alert("⚠️ يرجى ربط محفظة TON أولاً!");
       return;
@@ -489,6 +512,12 @@
         }
 
         window.dispatchEvent(new Event('userStateUpdated'));
+
+        // 🔥 التحديث الفوري للسجل بعد نجاح السحب
+        window.dispatchEvent(new Event('withdrawSubmitted'));
+        if (window.historyModule && typeof window.historyModule.refresh === 'function') {
+            window.historyModule.refresh(true);
+        }
 
         if (coinsInput) coinsInput.value = "";
         updateUIBalance();
