@@ -42,7 +42,8 @@ def add_cache_control_headers(response):
     response.headers['Expires'] = '0'
     return response
 
-VALID_UPGRADE_LEVELS = {str(i) for i in range(1, 10)}
+# ✅ تم الإصلاح: المستويات المتاحة هي 1 إلى 8 فقط
+VALID_UPGRADE_LEVELS = {str(i) for i in range(1, 9)}
 
 AD_KEYS = (
     "ad_watched", "ad_completed", "monetag_watched", "monetag_completed", 
@@ -85,6 +86,7 @@ def to_bool(val) -> bool:
     return False
 
 
+# ✅ تم الإصلاح: معالجة خطأ NameError (dt vs raw_val)
 def get_expiration_dt(raw_val):
     if not raw_val:
         return None
@@ -92,8 +94,8 @@ def get_expiration_dt(raw_val):
         if isinstance(raw_val, (int, float)):
             return datetime.fromtimestamp(raw_val, tz=timezone.utc)
         if isinstance(raw_val, datetime):
-            return raw_val.replace(tzinfo=timezone.utc) if raw_val.tzinfo is None else dt.astimezone(timezone.utc)
-        s = str(raw_val).replace('Z', '+00:00')
+            return raw_val.replace(tzinfo=timezone.utc) if raw_val.tzinfo is None else raw_val.astimezone(timezone.utc)
+        s = str(raw_val).strip().replace(' ', 'T').replace('Z', '+00:00')
         dt = datetime.fromisoformat(s)
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
     except Exception as e:
@@ -117,9 +119,11 @@ def format_iso_utc(dt: datetime = None) -> str:
     return s
 
 
+# ✅ تم الإصلاح: سد ثغرة تخطي الإعلان (إرسال {} كان يرجع True)
 def is_ad_watched(data: dict) -> bool:
-    if not data:
-        return True
+    # 🛡️ إغلاق ثغرة تخطي الإعلان عبر إرسال جسم طلب فارغ {}
+    if not data or not isinstance(data, dict):
+        return False
     return any(to_bool(data.get(key)) for key in AD_KEYS)
 
 
@@ -131,7 +135,12 @@ def calculate_user_effective_stats(user_data: dict, game_settings: dict, now: da
     else:
         now = now.astimezone(timezone.utc)
 
-    storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS.get("storage_capacities", {})
+    # ✅ تم الإصلاح: استخدام storage_config كما هو في farm_db
+    storage_configs = (
+        game_settings.get("storage_config")
+        or game_settings.get("storage_capacities")
+        or DEFAULT_GAME_SETTINGS.get("storage_config", {})
+    )
     storage_lvl = str(user_data.get("storage_level", 0))
     
     lvl_info = storage_configs.get(storage_lvl, {})
@@ -226,7 +235,12 @@ def get_player_data():
             for k, v in upgrade_configs.items()
         }
         
-        storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+        # ✅ تم الإصلاح: جلب إعدادات المخزن بدقة لتسليمها للواجهة الأمامية
+        storage_configs = (
+            game_settings.get("storage_config")
+            or game_settings.get("storage_capacities")
+            or DEFAULT_GAME_SETTINGS.get("storage_config", {})
+        )
         mining_cfg = game_settings.get("mining_config", {})
 
         monetag_id = (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "11322720").strip()
