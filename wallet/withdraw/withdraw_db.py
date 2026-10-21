@@ -99,13 +99,13 @@ def init_withdraw_tables():
                     ON CONFLICT (id) DO NOTHING;
                 """, (default_tiers_json,))
 
-                # 3. جدول معاملات السحب الرئيسي processed_txs
+                # 3. جدول معاملات السحب الرئيسي processed_txs (تم توحيده مع history)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS processed_txs (
                         id TEXT PRIMARY KEY,
                         tx_id TEXT UNIQUE NOT NULL,
                         user_id TEXT NOT NULL,
-                        coins NUMERIC NOT NULL CHECK (coins > 0),
+                        coins NUMERIC NOT NULL CHECK (coins >= 0),
                         amount NUMERIC NOT NULL,
                         fee_usd NUMERIC DEFAULT 0.02,
                         net_coins NUMERIC NOT NULL,
@@ -115,6 +115,8 @@ def init_withdraw_tables():
                         type TEXT DEFAULT 'withdraw',
                         status TEXT DEFAULT 'pending',
                         processed_by TEXT,
+                        details TEXT,
+                        failure_reason TEXT,
                         processing_started_at TIMESTAMPTZ,
                         processed_at TIMESTAMPTZ,
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -123,11 +125,44 @@ def init_withdraw_tables():
                     CREATE INDEX IF NOT EXISTS idx_processed_txs_user_status ON processed_txs(user_id, status);
                     CREATE INDEX IF NOT EXISTS idx_processed_txs_tx_id ON processed_txs(tx_id);
                 """)
+                cur.execute("""
+                    ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS details TEXT;
+                    ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+                """)
 
-                # 4. جدول السجل العام للمعاملات transactions (متوافق مع history_db)
+                # 4. تهيئة جدول withdraw_requests (مطلوب لـ history_db)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS withdraw_requests (
+                        id SERIAL PRIMARY KEY,
+                        tx_id TEXT,
+                        user_id VARCHAR(255) NOT NULL,
+                        coins NUMERIC(18, 4) DEFAULT 0.0,
+                        amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+                        fee NUMERIC(18, 4) DEFAULT 0.0,
+                        fee_usd NUMERIC(18, 4) DEFAULT 0.02,
+                        net_amount NUMERIC(18, 4) DEFAULT 0.0,
+                        currency VARCHAR(32) DEFAULT 'ZNX',
+                        tier_name TEXT DEFAULT '',
+                        wallet_address TEXT,
+                        network VARCHAR(32) DEFAULT 'TON',
+                        status VARCHAR(50) DEFAULT 'pending',
+                        tx_hash TEXT,
+                        processed_by TEXT,
+                        failure_reason TEXT,
+                        admin_note TEXT,
+                        details TEXT,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        processed_at TIMESTAMPTZ
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_withdraw_requests_user_id ON withdraw_requests(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_withdraw_requests_tx_id ON withdraw_requests(tx_id);
+                """)
+
+                # 5. جدول السجل العام للمعاملات transactions (تعديل الـ ID لـ SERIAL)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS transactions (
-                        id TEXT PRIMARY KEY,
+                        id SERIAL PRIMARY KEY,
                         tx_id TEXT,
                         user_id TEXT NOT NULL,
                         coins NUMERIC DEFAULT 0.0,
@@ -140,6 +175,8 @@ def init_withdraw_tables():
                         type TEXT DEFAULT 'withdraw',
                         status TEXT DEFAULT 'pending',
                         processed_by TEXT,
+                        details TEXT,
+                        failure_reason TEXT,
                         processed_at TIMESTAMPTZ,
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -155,13 +192,15 @@ def init_withdraw_tables():
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'withdraw';
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_by TEXT;
+                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS details TEXT;
+                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS failure_reason TEXT;
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
                     ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
                     CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
                     CREATE INDEX IF NOT EXISTS idx_transactions_tx_id ON transactions(tx_id);
                 """)
 
-                # 5. جدول سجلات قرارات المشرفين admin_logs
+                # 6. جدول سجلات قرارات المشرفين admin_logs
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS admin_logs (
                         id BIGSERIAL PRIMARY KEY,
@@ -218,12 +257,13 @@ class PostgresUserRef:
             return False
 
         values.extend([self.id, self.id, self.id])
+        # إزالة CAST AS TEXT من tg_id لتسريع فهارس قاعدة البيانات
         sql = f"""
             UPDATE users
             SET {", ".join(set_clauses)}
-            WHERE CAST(tg_id AS TEXT) = %s
-               OR CAST(user_id AS TEXT) = %s
-               OR CAST(telegram_id AS TEXT) = %s
+            WHERE tg_id::TEXT = %s
+               OR user_id::TEXT = %s
+               OR telegram_id::TEXT = %s
         """
         conn = None
         try:
@@ -371,11 +411,12 @@ def get_user_doc(user_id):
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # استخدام فحص نصي مباشر للاستفادة من الفهارس
                 cur.execute("""
                     SELECT * FROM users
-                    WHERE CAST(tg_id AS TEXT) = %s
-                       OR CAST(user_id AS TEXT) = %s
-                       OR CAST(telegram_id AS TEXT) = %s
+                    WHERE tg_id::TEXT = %s
+                       OR user_id::TEXT = %s
+                       OR telegram_id::TEXT = %s
                     LIMIT 1
                 """, (clean_id, clean_id, clean_id))
                 row = cur.fetchone()
@@ -389,12 +430,35 @@ def get_user_doc(user_id):
 
 
 def get_user_full_details(user_id):
-    """جلب كامل التفاصيل المطلوبة لإشعار السحب اليدوي للأدمن من Supabase"""
+    """جلب كامل التفاصيل المطلوبة لإشعار السحب اليدوي للأدمن من Supabase + دمج استعلام الإحالات لسرعة 2X"""
     try:
         clean_id = _sanitize_id(user_id)
-        _, data = get_user_doc(clean_id)
-        if not data:
+        if not clean_id or not get_db_connection:
             return None
+        
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # دمج استعلام المستخدم وعدد الإحالات في استعلام واحد متوازي
+                cur.execute("""
+                    WITH user_data AS (
+                        SELECT * FROM users 
+                        WHERE tg_id::TEXT = %s OR user_id::TEXT = %s OR telegram_id::TEXT = %s
+                        LIMIT 1
+                    ),
+                    referral_count_data AS (
+                        SELECT COUNT(*) AS count_refs FROM users 
+                        WHERE referred_by::TEXT = %s OR ref_by::TEXT = %s
+                    )
+                    SELECT user_data.*, referral_count_data.count_refs 
+                    FROM user_data 
+                    CROSS JOIN referral_count_data;
+                """, (clean_id, clean_id, clean_id, clean_id, clean_id))
+                
+                row = cur.fetchone()
+                if not row:
+                    return None
+                    
+                data = dict(row)
 
         real_znx_balance = extract_user_balance(data)
         usd_balance = extract_usd_balance(data)
@@ -423,21 +487,10 @@ def get_user_full_details(user_id):
         storage_level = int(data.get("storage_level", 1) or 1)
         max_cap = float(data.get("max_cap", 0.0) or 0.0)
 
-        # 3. حساب عدد الإحالات (الأصدقاء)
-        ref_count = int(data.get("referral_count", 0) or data.get("ref_count", 0) or 0)
-        if ref_count == 0 and get_db_connection:
-            try:
-                with get_db_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                            SELECT COUNT(*) FROM users
-                            WHERE CAST(referred_by AS TEXT) = %s OR CAST(ref_by AS TEXT) = %s
-                        """, (clean_id, clean_id))
-                        cnt_row = cur.fetchone()
-                        if cnt_row and cnt_row[0]:
-                            ref_count = int(cnt_row[0])
-            except Exception:
-                pass
+        # 3. حساب عدد الإحالات (الأصدقاء) من الاستعلام المدمج
+        db_ref_count = int(data.get("count_refs", 0))
+        field_ref_count = int(data.get("referral_count", 0) or data.get("ref_count", 0) or 0)
+        ref_count = max(db_ref_count, field_ref_count)
 
         return {
             "user_id": str(clean_id),
