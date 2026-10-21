@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import html
 import math
@@ -10,7 +11,10 @@ import requests
 from urllib.parse import parse_qsl
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
+from psycopg2.extras import RealDictCursor
 from .withdraw_db import (
+    get_db_connection,
+    _sanitize_id,
     safe_get_db,
     get_user_doc,
     get_user_full_details,
@@ -19,6 +23,7 @@ from .withdraw_db import (
     get_current_withdraw_tier,
     save_user_wallet,
     is_valid_ton_address,
+    _parse_json_val,
     ZNX_CONTRACT_ADDRESS
 )
 
@@ -64,7 +69,8 @@ def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
         return True
 
     try:
-        parsed_data = dict(parse_qsl(init_data, keep_blank_values=True))
+        raw_init = init_data.replace("Bearer ", "").strip()
+        parsed_data = dict(parse_qsl(raw_init, keep_blank_values=True))
         received_hash = parsed_data.pop("hash", None)
         if not received_hash:
             return not STRICT_TG_AUTH
@@ -145,12 +151,11 @@ def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
 
 def execute_admin_decision(tx_id, action, admin_id=None):
     """
-    تنفيذ قرار المشرف (قبول / رفض) وتحديث Supabase ذرياً
-    مع حماية كاملة ضد الضغط المزدوج (Double Click Protection).
+    تنفيذ قرار المشرف (قبول / رفض) وتحديث Supabase PostgreSQL ذرياً عبر FOR UPDATE
+    مع حماية كاملة ضد الضغط المزدوج (Double Click & Race Condition Protection).
     """
-    db = safe_get_db()
     clean_tx_id = str(tx_id or "").strip()
-    if not db or not clean_tx_id:
+    if not safe_get_db() or not get_db_connection or not clean_tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
 
     if action not in ("approve", "reject"):
@@ -160,136 +165,94 @@ def execute_admin_decision(tx_id, action, admin_id=None):
     if not tx_lock.acquire(blocking=False):
         return False, "هذه المعاملة قيد المعالجة حالياً من قِبل المشرف!"
 
+    conn = None
     try:
-        now_iso = datetime.now(timezone.utc).isoformat()
         processed_by = str(admin_id) if admin_id else "admin"
-
-        # 1. جلب المعاملة والتحقق من حالتها الحالية
-        res = db.table("processed_txs").select("*").eq("tx_id", clean_tx_id).limit(1).execute()
-        rows = res.data if res and hasattr(res, "data") else []
-
-        if not rows:
-            res_alt = db.table("processed_txs").select("*").eq("id", clean_tx_id).limit(1).execute()
-            rows = res_alt.data if res_alt and hasattr(res_alt, "data") else []
-
-        if not rows:
-            return False, "لم يتم العثور على طلب السحب في قاعدة البيانات!"
-
-        tx_data = rows[0]
-        pk_col = "tx_id" if "tx_id" in tx_data and tx_data["tx_id"] == clean_tx_id else "id"
-        current_status = tx_data.get("status", "pending")
-
-        if current_status == "completed":
-            return False, "هذه المعاملة تم قبولها مسبقاً!"
-        elif current_status == "rejected":
-            return False, "هذه المعاملة تم رفضها مسبقاً وإعادة الرصيد للمستخدم!"
-        elif current_status == "processing":
-            p_started = tx_data.get("processing_started_at")
-            is_stuck = True
-            if p_started:
-                try:
-                    dt = datetime.fromisoformat(str(p_started).replace("Z", "+00:00"))
-                    if (datetime.now(timezone.utc) - dt).total_seconds() < 15:
-                        is_stuck = False
-                except Exception:
-                    is_stuck = True
-            if not is_stuck:
-                return False, "هذه المعاملة قيد المعالجة حالياً من قِبل المشرف!"
-
-        # 2. قفل المعاملة ذرياً في قاعدة البيانات بشرط أن تكون حالتها لم تتغير
-        claim_res = (
-            db.table("processed_txs")
-            .update({
-                "status": "processing",
-                "processing_started_at": now_iso,
-                "updated_at": now_iso
-            })
-            .eq(pk_col, clean_tx_id)
-            .eq("status", current_status)
-            .execute()
-        )
-        if not claim_res.data:
-            return False, "تمت معالجة هذه المعاملة للتو من مشرف آخر!"
-
-        user_id = str(tx_data.get("user_id", "")).strip()
-        coins = float(tx_data.get("coins", 0.0) or 0.0)
-        fee_usd = float(tx_data.get("fee_usd", 0.02) or 0.02)
-        wallet_address = tx_data.get("wallet_address", "")
         new_status = "completed" if action == "approve" else "rejected"
 
-        update_payload = {
-            "status": new_status,
-            "processed_at": now_iso,
-            "updated_at": now_iso,
-            "processed_by": processed_by
-        }
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. قفل صف المعاملة في قاعدة البيانات ذرياً (FOR UPDATE) لمنع أي تداخل
+                cur.execute("""
+                    SELECT * FROM processed_txs
+                    WHERE tx_id = %s OR id = %s
+                    LIMIT 1
+                    FOR UPDATE
+                """, (clean_tx_id, clean_tx_id))
+                tx_data = cur.fetchone()
+
+                if not tx_data:
+                    conn.rollback()
+                    return False, "لم يتم العثور على طلب السحب في قاعدة البيانات!"
+
+                current_status = str(tx_data.get("status") or "pending").lower()
+                if current_status == "completed":
+                    conn.rollback()
+                    return False, "هذه المعاملة تم قبولها مسبقاً!"
+                elif current_status == "rejected":
+                    conn.rollback()
+                    return False, "هذه المعاملة تم رفضها مسبقاً وإعادة الرصيد للمستخدم!"
+
+                user_id = _sanitize_id(tx_data.get("user_id"))
+                coins = float(tx_data.get("coins", 0.0) or 0.0)
+                fee_usd = float(tx_data.get("fee_usd", 0.02) or 0.02)
+                wallet_address = str(tx_data.get("wallet_address") or "")
+
+                # 2. في حالة الرفض: إرجاع الرصيد للمستخدم داخل نفس الـ Transaction الذرية
+                if action == "reject" and user_id:
+                    cur.execute("""
+                        UPDATE users
+                        SET znx_balance = ROUND(CAST(GREATEST(0.0, COALESCE(znx_balance, 0.0)) + %s AS NUMERIC), 6),
+                            usd_balance = ROUND(CAST(GREATEST(0.0, COALESCE(usd_balance, 0.0)) + %s AS NUMERIC), 4),
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE CAST(tg_id AS TEXT) = %s
+                           OR CAST(user_id AS TEXT) = %s
+                           OR CAST(telegram_id AS TEXT) = %s
+                    """, (coins, fee_usd, user_id, user_id, user_id))
+
+                # 3. تحديث حالة الطلب في جدول processed_txs
+                cur.execute("""
+                    UPDATE processed_txs
+                    SET status = %s,
+                        processed_by = %s,
+                        processed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE tx_id = %s OR id = %s
+                """, (new_status, processed_by, clean_tx_id, clean_tx_id))
+
+                # 4. مزامنة حالة الطلب في جدول المعاملات العام transactions
+                cur.execute("""
+                    UPDATE transactions
+                    SET status = %s,
+                        processed_by = %s,
+                        processed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE tx_id = %s OR id = %s
+                """, (new_status, processed_by, clean_tx_id, clean_tx_id))
+
+                # 5. توثيق قرار المشرف في جدول admin_logs
+                cur.execute("""
+                    INSERT INTO admin_logs (action, tx_id, user_id, admin_id, status, amount, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                """, (f"withdraw_{action}", clean_tx_id, user_id, processed_by, new_status, coins))
+
+            conn.commit()
 
         if action == "approve":
-            db.table("processed_txs").update(update_payload).eq(pk_col, clean_tx_id).execute()
-            res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX ونشر إثبات السحب بنجاح."
             send_proof_to_channel(user_id, coins, wallet_address, clean_tx_id)
+            res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX ونشر إثبات السحب بنجاح."
         else:
-            # عند الرفض: إرجاع الرصيد للمستخدم بأمان تام مع قفل المستخدم
-            user_lock = _get_user_lock(user_id)
-            with user_lock:
-                refunded = False
-                # محاولة الاسترجاع عبر دالة RPC الذرية إن وجدت
-                try:
-                    rpc_res = db.rpc("rpc_refund_withdraw", {
-                        "p_user_id": user_id,
-                        "p_coins": coins,
-                        "p_fee_usd": fee_usd
-                    }).execute()
-                    if rpc_res and rpc_res.data is True:
-                        refunded = True
-                except Exception:
-                    refunded = False
-
-                # البديل الذري المباشر في حال عدم تفعيل RPC
-                if not refunded:
-                    user_ref, user_data = get_user_doc(user_id)
-                    if user_ref and user_data:
-                        cur_znx = extract_user_balance(user_data)
-                        cur_usd = extract_usd_balance(user_data)
-                        user_ref.update({
-                            "znx_balance": round(cur_znx + coins, 6),
-                            "usd_balance": round(cur_usd + fee_usd, 4),
-                            "updated_at": now_iso
-                        })
-
-            db.table("processed_txs").update(update_payload).eq(pk_col, clean_tx_id).execute()
             res_msg = "🔴 تم رفض الطلب وإعادة الرصيد بالكامل إلى حساب المستخدم بنجاح!"
-
-        # 3. مزامنة السجلات في جدول transactions وجدول admin_logs
-        try:
-            db.table("transactions").update(update_payload).eq("tx_id", clean_tx_id).execute()
-        except Exception:
-            try:
-                db.table("transactions").update(update_payload).eq("id", clean_tx_id).execute()
-            except Exception:
-                pass
-
-        try:
-            db.table("admin_logs").insert({
-                "action": f"withdraw_{action}",
-                "tx_id": clean_tx_id,
-                "user_id": user_id,
-                "admin_id": processed_by,
-                "status": new_status,
-                "amount": coins,
-                "created_at": now_iso
-            }).execute()
-        except Exception:
-            pass
 
         return True, res_msg
 
     except Exception as e:
-        print(f"⚠️ خطأ أثناء تنفيذ قرار السحب في Supabase: {e}")
-        try:
-            db.table("processed_txs").update({"status": "pending"}).eq("tx_id", clean_tx_id).execute()
-        except Exception:
-            pass
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        print(f"⚠️ خطأ أثناء تنفيذ قرار السحب في Supabase PostgreSQL: {e}")
         return False, f"حدث خطأ أثناء المعالجة: {str(e)}"
     finally:
         tx_lock.release()
@@ -297,7 +260,7 @@ def execute_admin_decision(tx_id, action, admin_id=None):
 
 @withdraw_bp.route("/config", methods=["GET"])
 def get_config():
-    user_id = str(request.args.get("user_id") or "").strip()
+    user_id = _sanitize_id(request.args.get("user_id"))
 
     user_balance = 0.0
     usd_balance = 0.0
@@ -308,7 +271,7 @@ def get_config():
         if user_data:
             user_balance = extract_user_balance(user_data)
             usd_balance = extract_usd_balance(user_data)
-            wallets = user_data.get("wallets")
+            wallets = _parse_json_val(user_data.get("wallets"), {})
             if isinstance(wallets, dict):
                 wallet_address = wallets.get("ZNX", "")
             if not wallet_address:
@@ -333,9 +296,13 @@ def get_config():
 @withdraw_bp.route("/save-wallet", methods=["POST"])
 def handle_save_wallet():
     data = request.get_json(silent=True) or {}
-    user_id = str(data.get("user_id", "")).strip()
+    user_id = _sanitize_id(data.get("user_id"))
     wallet_address = str(data.get("wallet_address", "")).strip()
-    init_data = request.headers.get("X-Telegram-Init-Data") or data.get("init_data", "")
+    init_data = (
+        request.headers.get("X-Telegram-Init-Data")
+        or request.headers.get("X-Init-Data")
+        or data.get("init_data", "")
+    )
 
     if not user_id or not wallet_address:
         return jsonify({"success": False, "message": "يرجى إدخال عنوان المحفظة بشكل صحيح."}), 400
@@ -358,9 +325,16 @@ def handle_save_wallet():
 @withdraw_bp.route("/request", methods=["POST"])
 def handle_withdraw():
     data = request.get_json(silent=True) or {}
-    user_id = str(data.get("user_id", "")).strip()
+    user_id = _sanitize_id(data.get("user_id"))
     wallet_address = str(data.get("wallet_address", "")).strip()
-    init_data = request.headers.get("X-Telegram-Init-Data") or data.get("init_data", "")
+    init_data = (
+        request.headers.get("X-Telegram-Init-Data")
+        or request.headers.get("X-Init-Data")
+        or data.get("init_data", "")
+    )
+
+    if not user_id or not wallet_address:
+        return jsonify({"success": False, "message": "بيانات طلب السحب غير مكتملة."}), 400
 
     # 1. التحقق من صحة الجلسة والأرقام المدخلة لمنع التلاعب
     if not verify_telegram_webapp_data(init_data, user_id):
@@ -374,17 +348,25 @@ def handle_withdraw():
     except (ValueError, TypeError):
         return jsonify({"success": False, "message": "مبلغ السحب غير صالح."}), 400
 
-    if not user_id or not wallet_address:
-        return jsonify({"success": False, "message": "بيانات طلب السحب غير مكتملة."}), 400
-
     if not is_valid_ton_address(wallet_address):
         return jsonify({"success": False, "message": "عنوان محفظة TON غير صالح!"}), 400
 
-    db = safe_get_db()
-    if not db:
+    if not safe_get_db() or not get_db_connection:
         return jsonify({"success": False, "message": "خطأ في الاتصال بقاعدة البيانات."}), 500
 
-    # 2. قفل المستخدم لمنع الهجمات المتزامنة (Race Condition Protection)
+    tier_info = get_current_withdraw_tier()
+    min_withdraw = float(tier_info.get("min_withdraw_znx", 1000.0))
+    fixed_fee_usd = float(tier_info.get("fixed_fee_usd", 0.02))
+    tier_name = str(tier_info.get("name", ""))
+
+    if coins < min_withdraw:
+        return jsonify({
+            "success": False,
+            "code": "BELOW_MINIMUM",
+            "message": f"الحد الأدنى للسحب بالشريحة الحالية هو {min_withdraw:g} ZNX."
+        }), 400
+
+    # 2. قفل المستخدم برمجياً لمنع الهجمات المتزامنة (Thread Lock)
     user_lock = _get_user_lock(user_id)
     if not user_lock.acquire(blocking=False):
         return jsonify({
@@ -392,6 +374,7 @@ def handle_withdraw():
             "message": "لديك عملية قيد التنفيذ حالياً، يرجى الانتظار لحظات."
         }), 429
 
+    conn = None
     try:
         now_ts = time.time()
         last_req = _USER_LAST_REQUEST.get(user_id, 0)
@@ -401,130 +384,125 @@ def handle_withdraw():
                 "message": "يرجى الانتظار بضع ثوانٍ قبل إرسال طلب سحب آخر."
             }), 429
 
-        user_ref, user_data = get_user_doc(user_id)
-        if not user_ref or not user_data:
-            return jsonify({"success": False, "message": "المستخدم غير موجود."}), 404
-
-        if user_data.get("is_banned", False):
-            return jsonify({"success": False, "message": "حسابك معطل ولا يمكنك إجراء عمليات سحب."}), 403
-
-        # التحقق من عدم وجود طلب سحب معلق (اختياري لزيادة الحماية ضد السبام)
-        try:
-            pending_check = (
-                db.table("processed_txs")
-                .select("tx_id")
-                .eq("user_id", user_id)
-                .eq("status", "pending")
-                .limit(1)
-                .execute()
-            )
-            if pending_check and pending_check.data:
-                return jsonify({
-                    "success": False,
-                    "message": "لديك طلب سحب قيد المراجعة بالفعل! يرجى انتظار مراجعة طلبك الحالي أولاً."
-                }), 400
-        except Exception:
-            pass
-
-        tier_info = get_current_withdraw_tier()
-        min_withdraw = float(tier_info.get("min_withdraw_znx", 1000.0))
-        fixed_fee_usd = float(tier_info.get("fixed_fee_usd", 0.02))
-
-        current_balance = extract_user_balance(user_data)
-        usd_balance = extract_usd_balance(user_data)
-
-        if coins < min_withdraw:
-            return jsonify({
-                "success": False,
-                "code": "BELOW_MINIMUM",
-                "message": f"الحد الأدنى للسحب بالشريحة الحالية هو {min_withdraw:g} ZNX."
-            }), 400
-
-        if coins > current_balance:
-            return jsonify({
-                "success": False,
-                "code": "INSUFFICIENT_ZNX",
-                "message": "رصيدك من عملة ZNX غير كافٍ لإتمام عملية السحب."
-            }), 400
-
-        if usd_balance < fixed_fee_usd:
-            return jsonify({
-                "success": False,
-                "code": "INSUFFICIENT_USD",
-                "fee_required": fixed_fee_usd,
-                "message": f"رسوم السحب لا تكفي! يجب إيداع مبلغ رسوم السحب ${fixed_fee_usd:.2f} USD لإتمام العملية."
-            }), 400
-
-        # 3. خصم الرصيد ذرياً (Atomic Balance Deduction)
-        new_znx_balance = round(current_balance - coins, 6)
-        new_usd_balance = round(usd_balance - fixed_fee_usd, 4)
-        if new_znx_balance < 0 or new_usd_balance < 0:
-            return jsonify({"success": False, "message": "الرصيد غير كافٍ."}), 400
-
-        now_iso = datetime.now(timezone.utc).isoformat()
         tx_id = uuid.uuid4().hex[:20]
 
-        # تحديث مشروط: لا ينجح التحديث إلا إذا كان الرصيد في قاعدة البيانات لا يزال مطابقاً ولم يتغير
-        deduct_res = (
-            db.table("users")
-            .update({
-                "znx_balance": new_znx_balance,
-                "usd_balance": new_usd_balance,
-                "updated_at": now_iso
-            })
-            .eq(user_ref.pk_col, user_ref.pk_val)
-            .gte("znx_balance", coins)
-            .gte("usd_balance", fixed_fee_usd)
-            .execute()
-        )
+        # 3. معاملة قاعدة بيانات ذرية مع قفل صف المستخدم (SELECT ... FOR UPDATE)
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # قفل صف المستخدم حتى تنتهي المعاملة بالكامل لمنع Double Spending
+                cur.execute("""
+                    SELECT * FROM users
+                    WHERE CAST(tg_id AS TEXT) = %s
+                       OR CAST(user_id AS TEXT) = %s
+                       OR CAST(telegram_id AS TEXT) = %s
+                    LIMIT 1
+                    FOR UPDATE
+                """, (user_id, user_id, user_id))
+                user_data = cur.fetchone()
 
-        if not deduct_res or not deduct_res.data:
-            return jsonify({
-                "success": False,
-                "message": "تغير رصيدك أثناء المعالجة، يرجى المحاولة مرة أخرى."
-            }), 409
+                if not user_data:
+                    conn.rollback()
+                    return jsonify({"success": False, "message": "المستخدم غير موجود."}), 404
+
+                if bool(user_data.get("is_banned", False)):
+                    conn.rollback()
+                    return jsonify({"success": False, "message": "حسابك معطل ولا يمكنك إجراء عمليات سحب."}), 403
+
+                # التحقق من عدم وجود طلب سحب معلق لنفس المستخدم لمنع إغراق الأدمن بالطلبات
+                cur.execute("""
+                    SELECT tx_id FROM processed_txs
+                    WHERE user_id = %s AND status IN ('pending', 'processing')
+                    LIMIT 1
+                """, (user_id,))
+                if cur.fetchone():
+                    conn.rollback()
+                    return jsonify({
+                        "success": False,
+                        "message": "لديك طلب سحب قيد المراجعة بالفعل! يرجى انتظار مراجعة طلبك الحالي أولاً."
+                    }), 400
+
+                current_balance = extract_user_balance(user_data)
+                usd_balance = extract_usd_balance(user_data)
+
+                if coins > current_balance:
+                    conn.rollback()
+                    return jsonify({
+                        "success": False,
+                        "code": "INSUFFICIENT_ZNX",
+                        "message": "رصيدك من عملة ZNX غير كافٍ لإتمام عملية السحب."
+                    }), 400
+
+                if usd_balance < fixed_fee_usd:
+                    conn.rollback()
+                    return jsonify({
+                        "success": False,
+                        "code": "INSUFFICIENT_USD",
+                        "fee_required": fixed_fee_usd,
+                        "message": f"رسوم السحب لا تكفي! يجب إيداع مبلغ رسوم السحب ${fixed_fee_usd:.2f} USD لإتمام العملية."
+                    }), 400
+
+                # 4. خصم الرصيد ذرياً بشرط توفر الرصيد الكافي في اللحظة نفسها
+                cur.execute("""
+                    UPDATE users
+                    SET znx_balance = ROUND(CAST(COALESCE(znx_balance, 0.0) - %s AS NUMERIC), 6),
+                        usd_balance = ROUND(CAST(COALESCE(usd_balance, 0.0) - %s AS NUMERIC), 4),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE (CAST(tg_id AS TEXT) = %s OR CAST(user_id AS TEXT) = %s OR CAST(telegram_id AS TEXT) = %s)
+                      AND COALESCE(znx_balance, 0.0) >= %s
+                      AND COALESCE(usd_balance, 0.0) >= %s
+                    RETURNING znx_balance, usd_balance
+                """, (coins, fixed_fee_usd, user_id, user_id, user_id, coins, fixed_fee_usd))
+                updated_row = cur.fetchone()
+
+                if not updated_row:
+                    conn.rollback()
+                    return jsonify({
+                        "success": False,
+                        "message": "تغير رصيدك أثناء المعالجة، يرجى المحاولة مرة أخرى."
+                    }), 409
+
+                new_znx_balance = float(updated_row.get("znx_balance", 0.0) or 0.0)
+                new_usd_balance = float(updated_row.get("usd_balance", 0.0) or 0.0)
+
+                # 5. إدراج سجل السحب في processed_txs
+                cur.execute("""
+                    INSERT INTO processed_txs (
+                        id, tx_id, user_id, coins, amount, fee_usd, net_coins,
+                        currency, tier_name, wallet_address, type, status,
+                        created_at, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s,
+                        'ZNX', %s, %s, 'withdraw', 'pending',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                """, (
+                    tx_id, tx_id, user_id, coins, coins, fixed_fee_usd, coins,
+                    tier_name, wallet_address
+                ))
+
+                # 6. إدراج السجل الموازي في جدول المعاملات العام transactions
+                cur.execute("""
+                    INSERT INTO transactions (
+                        id, tx_id, user_id, coins, amount, fee_usd, net_coins,
+                        currency, tier_name, wallet_address, type, status,
+                        created_at, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s,
+                        'ZNX', %s, %s, 'withdraw', 'pending',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                    ON CONFLICT (id) DO NOTHING
+                """, (
+                    tx_id, tx_id, user_id, coins, coins, fixed_fee_usd, coins,
+                    tier_name, wallet_address
+                ))
+
+            conn.commit()
 
         _USER_LAST_REQUEST[user_id] = time.time()
 
-        tx_record = {
-            "id": tx_id,
-            "tx_id": tx_id,
-            "user_id": user_id,
-            "coins": coins,
-            "amount": coins,
-            "fee_usd": fixed_fee_usd,
-            "net_coins": coins,
-            "currency": "ZNX",
-            "tier_name": tier_info.get("name", ""),
-            "wallet_address": wallet_address,
-            "type": "withdraw",
-            "status": "pending",
-            "created_at": now_iso,
-            "updated_at": now_iso
-        }
-
-        # 4. تسجيل العملية في الجداول مع استرجاع تلقائي (Rollback) لو فشل الحفظ
-        try:
-            db.table("processed_txs").insert(tx_record).execute()
-        except Exception as insert_err:
-            print(f"⚠️ فشل حفظ سجل السحب، جاري إعادة الرصيد تلقائياً: {insert_err}")
-            user_ref.update({
-                "znx_balance": current_balance,
-                "usd_balance": usd_balance,
-                "updated_at": now_iso
-            })
-            return jsonify({
-                "success": False,
-                "message": "تعذر تسجيل معاملة السحب، لم يتم خصم أي رصيد."
-            }), 500
-
-        try:
-            db.table("transactions").insert(tx_record).execute()
-        except Exception as tx_err:
-            print(f"⚠️ ملاحظة مزامنة جدول transactions: {tx_err}")
-
         notify_admin_withdraw(
-            user_id, coins, fixed_fee_usd, wallet_address, tx_id, tier_info.get("name", "")
+            user_id, coins, fixed_fee_usd, wallet_address, tx_id, tier_name
         )
 
         return jsonify({
@@ -536,7 +514,12 @@ def handle_withdraw():
         }), 200
 
     except Exception as e:
-        print(f"⚠️ خطأ معالجة السحب المالي: {e}")
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        print(f"⚠️ خطأ معالجة السحب المالي في Supabase: {e}")
         return jsonify({"success": False, "message": "تعذر إجراء السحب، يرجى إعادة المحاولة."}), 500
     finally:
         user_lock.release()
