@@ -308,6 +308,7 @@ function getSavedState() {
         boost_multiplier: 1, 
         boost_active: false, 
         boost_expires_at: null,
+        vip_storage_multiplier: 1, // تمت إضافتها لحفظ حالة باقة الـ VIP
         last_claim_time: null, 
         last_sync_time: Date.now()
     };
@@ -321,7 +322,7 @@ function getSavedState() {
     } catch { return base; }
 }
 
-let isFirebaseUpdating = false;
+let isServerSyncing = false; // تم تغييرها بدلاً من isFirebaseUpdating
 let saveDebounceTimer = null;
 
 function persistUserStateToLocalStorage(state) {
@@ -348,15 +349,16 @@ window.userState = new Proxy(getSavedState(), {
         if (!window.PlayerData) window.PlayerData = {};
         window.PlayerData[prop] = target[prop];
 
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at', 'wallet_address'].includes(prop)) {
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at', 'wallet_address', 'vip_storage_multiplier'].includes(prop)) {
             
-            if (!isFirebaseUpdating) {
+            if (!isServerSyncing) {
                 if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
                 saveDebounceTimer = setTimeout(() => {
                     persistUserStateToLocalStorage(target);
                 }, 400);
             }
 
+            // تم فصل التحديث العشوائي، الـ max_cap الحقيقي سيفرض نفسه
             if (typeof window.updateUI === 'function') window.updateUI();
             if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
             
@@ -369,6 +371,29 @@ window.userState = new Proxy(getSavedState(), {
 window.addEventListener('beforeunload', () => {
     persistUserStateToLocalStorage(window.userState);
 });
+
+// ==========================================
+// 1.5 الدالة الموحدة لحساب سعة المخزن الحقيقية (الجديدة)
+// ==========================================
+window.calculateTrueMaxCap = function(state) {
+    // جدول مستويات المخزن المحدث (المستوى 8 = 400)
+    const baseCaps = [100, 120, 150, 180, 220, 260, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000];
+    const level = parseInt(state.storage_level) || 0;
+    let cap = baseCaps[0];
+
+    if (level >= 0 && level < baseCaps.length) {
+        cap = baseCaps[level];
+    } else if (level >= baseCaps.length) {
+        cap = baseCaps[baseCaps.length - 1]; 
+    }
+
+    // إضافة سعة إضافية إن وجدت
+    cap += (parseFloat(state.extra_storage) || 0);
+
+    // ضرب السعة في مضاعف باقة VIP (إذا كان 2x تصبح 800)
+    const multiplier = parseFloat(state.vip_storage_multiplier) || 1;
+    return cap * multiplier;
+};
 
 // ==========================================
 // 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
@@ -449,7 +474,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         const targetObj = data.player || data.user || data.data || (data.balance !== undefined ? data : null);
         
         if (targetObj) {
-            isFirebaseUpdating = true;
+            isServerSyncing = true;
             try {
                 if (targetObj.telegram_id !== undefined && targetObj.telegram_id !== null) {
                     window.userState.tg_id = targetObj.telegram_id;
@@ -470,7 +495,11 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
                 if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate) || 0;
                 if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level) || 0;
                 if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage) || 0;
-                if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap) || 100;
+                if (targetObj.vip_storage_multiplier !== undefined) window.userState.vip_storage_multiplier = parseFloat(targetObj.vip_storage_multiplier) || 1;
+                
+                // 🔥 التعديل الأهم: منع السيرفر من فرض القيمة الخاطئة وحسابها محلياً فوراً
+                window.userState.max_cap = window.calculateTrueMaxCap(window.userState);
+                
                 if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak) || 1;
                 if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day) || 1;
                 if (targetObj.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
@@ -482,7 +511,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
                 if (targetObj.boost_expires_at !== undefined) window.userState.boost_expires_at = targetObj.boost_expires_at;
                 if (targetObj.wallet_address !== undefined) window.userState.wallet_address = targetObj.wallet_address;
             } finally {
-                isFirebaseUpdating = false;
+                isServerSyncing = false;
                 persistUserStateToLocalStorage(window.userState);
             }
         }
@@ -615,56 +644,9 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي المحصن Firestore
+// 5. تم حذف نظام الاستماع اللحظي القديم Firebase (Firestore)
+// والانتقال بالكامل لنظام Supabase عبر الـ API
 // ==========================================
-window._firebaseUnsubscribe = null;
-
-window.initFirebaseRealtimeSync = function(userId) {
-    if (!window.db || !userId) return;
-    
-    if (window._firebaseUnsubscribe) {
-        window._firebaseUnsubscribe();
-        window._firebaseUnsubscribe = null;
-    }
-
-    try {
-        window._firebaseUnsubscribe = window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
-            if (!doc.exists) return;
-            const d = doc.data() || {};
-            
-            try {
-                isFirebaseUpdating = true;
-                if (!window.PlayerData) window.PlayerData = {};
-                
-                Object.assign(window.PlayerData, d);
-
-                if (d.balance !== undefined && d.balance !== null) {
-                    const bal = parseFloat(d.balance);
-                    if (!isNaN(bal) && window.userState.balance !== bal) window.userState.balance = bal;
-                }
-                if (d.usd_balance !== undefined) {
-                    const u = parseFloat(d.usd_balance) || 0;
-                    if (window.userState.usd_balance !== u) window.userState.usd_balance = u;
-                }
-                
-                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at', 'wallet_address'].forEach(k => {
-                    if (d[k] !== undefined && window.userState[k] !== d[k]) {
-                        window.userState[k] = d[k];
-                    }
-                });
-                window.userState.last_sync_time = Date.now();
-            } finally {
-                isFirebaseUpdating = false;
-                persistUserStateToLocalStorage(window.userState);
-                if (typeof window.updateUI === 'function') window.updateUI();
-                if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
-                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
-            }
-        }, err => console.error("Firebase Sync Error:", err));
-    } catch (e) {
-        console.warn("Realtime sync omitted:", e);
-    }
-};
 
 // ==========================================
 // 6. دالة إدارة عداد التجميع
@@ -751,7 +733,6 @@ window.updateClaimButtonState = function() {
 // 7. العداد البصري التدريجي وتنسيق الأرقام
 // ==========================================
 
-// 🎨 اللمسة الفنية: توحيد الأرقام الكبيرة برقمين عشريين فقط واختصارات جذابة
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
     let num = parseFloat(val);
@@ -760,10 +741,9 @@ window.formatBalance = function(val) {
     if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(2) + 'K';
     
-    return num.toFixed(2); // دائماً رقمين عشريين
+    return num.toFixed(2); 
 };
 
-// 🎨 اللمسة الفنية: دالة الـ HTML للشفافية وتصغير الكسر والاختصار
 window.formatNumberHTML = function(val) {
     if (val === undefined || val === null || isNaN(val)) {
         return `0<span style="font-size:0.75em; opacity:0.85; font-weight:normal; margin-left: 2px;">.00</span>`;
@@ -785,7 +765,7 @@ window.formatNumberHTML = function(val) {
         suffix = 'K'; 
     }
     else {
-        formattedStr = num.toFixed(2); // رقمين عشريين كحد أقصى للرقم العادي
+        formattedStr = num.toFixed(2); 
     }
 
     const parts = formattedStr.split('.');
@@ -855,7 +835,10 @@ window.updateUI = function() {
     window.updateClaimButtonState();
     window.updateTonPriceUI();
 
-    const currentMaxCap = parseFloat(window.userState.max_cap ?? 100);
+    // 🔥 التعديل الأهم: قراءة السعة من الدالة الصحيحة دائماً
+    const currentMaxCap = window.calculateTrueMaxCap(window.userState);
+    window.userState.max_cap = currentMaxCap; // تثبيت القيمة بشكل صامت
+
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
         if (el.tagName === 'INPUT') {
             el.value = window.formatBalance(currentMaxCap);
@@ -885,7 +868,6 @@ window.updateUI = function() {
         if (el.tagName === 'INPUT') {
             el.value = rawUsd;
         } else {
-            // إضافة $ قبل التنسيق المصغر
             el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
         }
     });
@@ -1045,7 +1027,6 @@ window.loadZnxWalletData = async function() {
     }
 };
 
-// ربط المسميات القديمة والحديثة بـ ZNX Wallet
 window.loadLeaderboardData = window.loadZnxWalletData;
 window.onLeaderboardTabOpen = window.loadZnxWalletData;
 window.initLeaderboardView = window.loadZnxWalletData;
@@ -1062,7 +1043,6 @@ window.loadZnxWalletView = async function() {
     if (!container) return;
 
     try {
-        // 1. جلب وحقن HTML إذا لم يكن محملاً
         if (!container.innerHTML.trim() || container.children.length === 0) {
             const res = await fetch('./znx_wallet/znx_wallet.html?v=4.2');
             if (res.ok) {
@@ -1070,7 +1050,6 @@ window.loadZnxWalletView = async function() {
             }
         }
 
-        // 2. تحميل ملف js الخاص بالنموذج مع معالجة تأخير الـ DOM
         if (!document.getElementById('znx-wallet-script')) {
             const script = document.createElement('script');
             script.id = 'znx-wallet-script';
@@ -1367,10 +1346,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         await window.fetchAPI('/api/user/info');
     } catch (e) {}
-
-    if (window.userState?.tg_id) {
-        window.initFirebaseRealtimeSync(window.userState.tg_id);
-    }
 
     document.querySelectorAll('.nav-item, [data-view]').forEach(btn => {
         btn.addEventListener('click', (e) => {
