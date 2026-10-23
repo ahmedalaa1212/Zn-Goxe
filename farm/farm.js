@@ -90,16 +90,24 @@ window.closeAutoClaimModal = function() {
             7: { cost_zn: 40000, cost_usd: 6.00, rate: 14.0 },
             8: { cost_zn: 100000, cost_usd: 12.00, rate: 30.0 }
         },
+        // 🔥 تم الإصلاح: توحيد سعات المخزن لتتطابق مع الدالة المجمعة في game.js
         storageConfig: {
-            "0": { capacity: 0.5, cost_zn: 0, cost_usd: 0.0 },
-            "1": { capacity: 1.5, cost_zn: 50, cost_usd: 0.0 },
-            "2": { capacity: 4.0, cost_zn: 200, cost_usd: 0.20 },
-            "3": { capacity: 10.0, cost_zn: 800, cost_usd: 0.50 },
-            "4": { capacity: 25.0, cost_zn: 2500, cost_usd: 1.00 },
-            "5": { capacity: 60.0, cost_zn: 7000, cost_usd: 2.50 },
-            "6": { capacity: 150.0, cost_zn: 20000, cost_usd: 5.00 },
-            "7": { capacity: 400.0, cost_zn: 50000, cost_usd: 10.00 },
-            "8": { capacity: 1000.0, cost_zn: 120000, cost_usd: 20.00 }
+            "0": { capacity: 100.0, cost_zn: 0, cost_usd: 0.0 },
+            "1": { capacity: 120.0, cost_zn: 50, cost_usd: 0.0 },
+            "2": { capacity: 150.0, cost_zn: 200, cost_usd: 0.20 },
+            "3": { capacity: 180.0, cost_zn: 800, cost_usd: 0.50 },
+            "4": { capacity: 220.0, cost_zn: 2500, cost_usd: 1.00 },
+            "5": { capacity: 260.0, cost_zn: 7000, cost_usd: 2.50 },
+            "6": { capacity: 300.0, cost_zn: 20000, cost_usd: 5.00 },
+            "7": { capacity: 350.0, cost_zn: 50000, cost_usd: 10.00 },
+            "8": { capacity: 400.0, cost_zn: 120000, cost_usd: 20.00 },
+            "9": { capacity: 450.0, cost_zn: 250000, cost_usd: 35.00 },
+            "10": { capacity: 500.0, cost_zn: 500000, cost_usd: 60.00 },
+            "11": { capacity: 600.0, cost_zn: 1000000, cost_usd: 100.00 },
+            "12": { capacity: 700.0, cost_zn: 2500000, cost_usd: 200.00 },
+            "13": { capacity: 800.0, cost_zn: 5000000, cost_usd: 400.00 },
+            "14": { capacity: 900.0, cost_zn: 10000000, cost_usd: 750.00 },
+            "15": { capacity: 1000.0, cost_zn: 20000000, cost_usd: 1500.00 }
         },
         dailyRewards: [
             0.2, 0.4, 0.6, 0.8, 1.0,     
@@ -193,13 +201,11 @@ window.closeAutoClaimModal = function() {
         return false;
     }
 
-    // ✅ تم الإصلاح: عدم مسح حالة مشاهدة الترحيب أبداً
     function clearStaleLocalCache() {
         try {
             const userId = tele?.initDataUnsafe?.user?.id || getState().tg_id || getState().telegram_id;
             if (userId) {
                 localStorage.removeItem(`zn_farm_cache_${userId}`);
-                // تم إزالة السطر الذي يمسح `zn_welcome_seen_${userId}` لمنع تكرار ظهور النافذة
             }
             localStorage.removeItem('zn_farm_cache_global');
         } catch (e) {
@@ -317,7 +323,6 @@ window.closeAutoClaimModal = function() {
         return num.toFixed(4);
     }
 
-    // ✅ تم الإصلاح: تصحيح القسمة من 1000000 إلى 1000 لظهور الكيلو بشكل صحيح
     function formatStorageCapacity(maxCap) {
         let num = parseFloat(maxCap || 0);
         if (isNaN(num) || num <= 0) return "0";
@@ -423,9 +428,6 @@ window.closeAutoClaimModal = function() {
         if (overlay) overlay.style.display = show ? 'flex' : 'none';
     }
 
-    // ==========================================
-    // 1. دالة تشغيل إعلان Monetix
-    // ==========================================
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
 
@@ -443,7 +445,6 @@ window.closeAutoClaimModal = function() {
                 }
             };
 
-            // مهلة 12 ثانية في حال عدم رد سيرفر Monetix للتحويل السلس إلى Monetag
             const timeoutTimer = NativeSetTimeout(() => {
                 console.warn("Monetix Ad timeout.");
                 finish(false);
@@ -516,9 +517,6 @@ window.closeAutoClaimModal = function() {
         });
     }
 
-    // ==========================================
-    // 2. دالة تشغيل إعلان Monetag
-    // ==========================================
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
         const zoneId = GAME_CONFIG.monetagZoneId || "11322720";
@@ -583,7 +581,11 @@ window.closeAutoClaimModal = function() {
 
         let secondsPassed = Math.max(0, (nowMs - lastAccrualMs) / 1000);
 
-        let maxC = parseFloat(pData.max_cap ?? 0.5);
+        // 🔥 تم الإصلاح: الاعتماد المطلق على calculateTrueMaxCap لمنع القراءة الخاطئة
+        let maxC = typeof window.calculateTrueMaxCap === 'function' 
+            ? window.calculateTrueMaxCap(pData) 
+            : (parseFloat(pData.max_cap) || 100);
+
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
@@ -680,7 +682,6 @@ window.closeAutoClaimModal = function() {
         }
     }
 
-    // ✅ تم الإصلاح: حل مشكلة رسالة الترحيب نهائياً
     window.fetchPlayerDataFromServer = async function(force = false) {
         const now = NativeDateNow();
         if (isFetching) return; 
@@ -746,7 +747,6 @@ window.closeAutoClaimModal = function() {
                         if (isNewUser) {
                             welcomeModal.style.display = 'flex';
                             welcomeModal.classList.add('show', 'active');
-                            // تسجيل المشاهدة فوراً في الهاتف وإبلاغ السيرفر في الخلفية
                             localStorage.setItem(localSeenKey, 'true');
                             window.fetchAPI?.(`/api/farm/dismiss_welcome?t=${NativeDateNow()}`, 'POST', {}).catch(() => {});
                         } else {
@@ -809,7 +809,8 @@ window.closeAutoClaimModal = function() {
             upgradeStgBtn.onclick = window.handleStorageUpgrade;
             const nextLvl = stgLvl + 1;
             const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
-            if (stgLvl >= 8 || !nextCfg) {
+            // تم تعديل الحد الأقصى ليستوعب المستويات الجديدة
+            if (stgLvl >= 15 || !nextCfg) {
                 upgradeStgBtn.innerText = "المخزن في المستوى الأقصى (MAX) 🏆";
                 upgradeStgBtn.disabled = true;
                 upgradeStgBtn.className = "storage-upgrade-btn btn-disabled";
@@ -882,8 +883,11 @@ window.closeAutoClaimModal = function() {
         updateBoostButtonUI(pData);
         renderDailyRewards();
 
-        // ✅ تم الإصلاح: تحديث شريط التخزين هنا ليكون متزامناً منذ اللحظة الأولى ويقضي على الرعشة
-        const maxC = parseFloat(pData.max_cap ?? 0.5);
+        // 🔥 تم الإصلاح: الاعتماد المطلق على calculateTrueMaxCap لمنع القراءة الخاطئة
+        const maxC = typeof window.calculateTrueMaxCap === 'function' 
+            ? window.calculateTrueMaxCap(pData) 
+            : (parseFloat(pData.max_cap) || 100);
+
         const unclaim = Math.min(maxC, parseFloat(pData.unclaimed || 0));
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
@@ -905,7 +909,6 @@ window.closeAutoClaimModal = function() {
         boostBtn.onclick = window.handleDailyBoost;
         const lastBoostTimeStr = pData.last_boost_time;
 
-        // قفل الزر تماماً طالما الإعلان يحمل أو جاري التفعيل
         if (isBoosting) {
             boostBtn.className = "boost-btn btn-disabled";
             boostBtn.disabled = true;
@@ -1009,7 +1012,11 @@ window.closeAutoClaimModal = function() {
         }
         lastCheckedDate = todayStr;
 
-        let maxC = parseFloat(pData.max_cap ?? 0.5);
+        // 🔥 تم الإصلاح: الاعتماد المطلق على calculateTrueMaxCap لمنع القراءة الخاطئة
+        let maxC = typeof window.calculateTrueMaxCap === 'function' 
+            ? window.calculateTrueMaxCap(pData) 
+            : (parseFloat(pData.max_cap) || 100);
+
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
@@ -1023,12 +1030,13 @@ window.closeAutoClaimModal = function() {
         let baseUnclaimed = parseFloat(pData.base_unclaimed !== undefined ? pData.base_unclaimed : (pData.unclaimed || 0));
         let unclaim = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
-        // ✅ تم الإصلاح: تحديث القيمة في الذاكرة دون إطلاق حدث userStateUpdated للقضاء على الرعشة
         if (unclaim >= maxC) unclaim = maxC;
         if (window.userState) window.userState.unclaimed = unclaim;
         if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
 
         const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
+        
+        // بوت التجميع التلقائي سيحسب نسبة الـ 80% هنا بناءً على السعة الحقيقية الآن (مثلاً 640 بدلاً من 4.8)
         if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain) {
             if (NativeDateNow() - lastAutoClaimAttempt > 10000) {
                 lastAutoClaimAttempt = NativeDateNow();
@@ -1111,7 +1119,7 @@ window.closeAutoClaimModal = function() {
         const nextLvl = stgLvl + 1;
         const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
 
-        if (stgLvl >= 8 || !nextCfg) return;
+        if (stgLvl >= 15 || !nextCfg) return;
 
         const costZn = typeof nextCfg === 'object' ? (nextCfg.cost_zn ?? nextCfg.cost ?? 0) : 0;
         const costUsd = typeof nextCfg === 'object' ? (nextCfg.cost_usd ?? 0) : 0;
@@ -1132,10 +1140,15 @@ window.closeAutoClaimModal = function() {
         const nowMs = getAdjustedNowMs();
         setStoredBalance(Math.max(0, totalAvailableZn - costZn), Math.max(0, usdBal - costUsd));
 
-        // ✅ تم الإصلاح: حساب السعة المضاعفة لتحديث الواجهة فوراً
-        const isDouble = pData.is_double_storage_active === true;
-        const rawNextCap = nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : parseFloat(getState().max_cap || 0.5);
-        const effectiveNextCap = isDouble ? (rawNextCap * 2.0) : rawNextCap;
+        // 🔥 تم الإصلاح: الاعتماد على الدالة العالمية الموحدة لمعرفة سعة المخزن بعد الترقية
+        let effectiveNextCap;
+        if (typeof window.calculateTrueMaxCap === 'function') {
+            effectiveNextCap = window.calculateTrueMaxCap(Object.assign({}, pData, { storage_level: nextLvl }));
+        } else {
+            const isDouble = pData.vip_storage_multiplier === 2 || pData.is_double_storage_active === true;
+            const rawNextCap = nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : 100;
+            effectiveNextCap = isDouble ? (rawNextCap * 2.0) : rawNextCap;
+        }
 
         updateState({
             storage_level: nextLvl,
@@ -1257,9 +1270,6 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // ==========================================
-    // دالة المكافأة اليومية: Monetag أساسي (وإذا لم يظهر يحول إلى Monetix)
-    // ==========================================
     window.handleDailyClaim = async function(dayNum) {
         if (isDebouncedClick() || isClaimingDaily) return;
 
@@ -1267,10 +1277,8 @@ window.closeAutoClaimModal = function() {
         renderDailyRewards();
 
         try {
-            // 1. تشغيل Monetag كإعلان أساسي في التسجيل اليومي
             let adSuccess = await showMonetagAd();
 
-            // 2. إذا لم يظهر نهائياً، يحول احتياطياً إلى Monetix
             if (!adSuccess) {
                 console.log("Monetag لم يظهر، جاري التحويل إلى Monetix...");
                 adSuccess = await showMonetixAd();
@@ -1314,21 +1322,15 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // ==========================================
-    // دالة زر تسريع التعدين (+0.1/h): Monetix أساسي -> ثم Monetag كبديل
-    // ==========================================
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
-        // قفل الزر فوراً لحظة الضغط لمنع التكرار
         isBoosting = true;
         updateBoostButtonUI(getState());
         
         try {
-            // 1. تشغيل Monetix أولاً كإعلان أساسي
             let adSuccess = await showMonetixAd();
 
-            // 2. إذا لم يظهر إعلان Monetix نهائياً، يتم تشغيل إعلان Monetag فوراً
             if (!adSuccess) {
                 console.log("Monetix غير متاح حالياً، جاري عرض إعلان Monetag البديل...");
                 adSuccess = await showMonetagAd();
