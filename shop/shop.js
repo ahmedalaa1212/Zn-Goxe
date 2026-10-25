@@ -13,6 +13,7 @@
     let lastConfigFetchTime = 0;
     const CONFIG_CACHE_TTL = 0; 
     let vipTimerInterval = null;
+    let pendingVerifyTimer = null;
 
     // متغيرات حفظ حالة الـ UI لمنع الرمشة (Smart Diffing)
     let _lastPackagesHTML = '';
@@ -95,6 +96,7 @@
     function formatUSD(num) {
         let val = floatVal(num);
         if (Number.isInteger(val)) return val.toString();
+        if (val > 0 && val < 0.01) return parseFloat(val.toFixed(4)).toString();
         return parseFloat(val.toFixed(2)).toString();
     }
 
@@ -295,7 +297,6 @@
 
         try {
             const initData = window.Telegram?.WebApp?.initData || "";
-            // إرسال POST لتمرير initData والحصول على التحديث اللحظي لبيانات اللاعب (user_state)
             const fetchOptions = initData ? {
                 method: 'POST',
                 cache: 'no-store',
@@ -319,7 +320,6 @@
             
             const data = await res.json();
             if (data && data.success) {
-                // مزامنة أحدث أرصدة وترقيات من Supabase للواجهة الأمامية
                 if (data.user_state && Object.keys(data.user_state).length > 0) {
                     syncFriendsAndGlobalState(data.user_state);
                 }
@@ -426,7 +426,6 @@
             }
 
             const activeClass = isActive ? 'active-vip' : '';
-            // النص الداخلي يتم تحديثه ديناميكياً بواسطة startVipLiveTimer لمنع الرمشة أثناء المزامنة
             const activeBadgeHtml = isActive ? `<div class="vip-active-badge" style="background: rgba(255, 204, 0, 0.2); color: #ffcc00; font-size: 11px; padding: 4px 8px; border-radius: 8px; font-weight: bold; margin-bottom: 6px; border: 1px solid #ffcc00;">نشطة</div>` : '';
             const btnLabel = isActive ? 'تجديد الاشتراك ⚡' : 'شراء تلقائي ⚡';
 
@@ -448,12 +447,57 @@
             index++;
         }
 
-        // تطبيق التحديث بالـ Diff لمنع إعادة الرسم
         if (_lastPackagesHTML !== html) {
             container.innerHTML = html;
             _lastPackagesHTML = html;
         }
-        startVipLiveTimer(); // تنشيط النص الفعلي للوقت المتبقي فوراً
+        startVipLiveTimer();
+    }
+
+    function pollPendingTonVerification(packageId, bocStr, payloadMemo, initData) {
+        if (pendingVerifyTimer) clearInterval(pendingVerifyTimer);
+        let attempts = 0;
+        const maxAttempts = 16; // فحص لمدة ~80 ثانية في الخلفية
+
+        pendingVerifyTimer = setInterval(async () => {
+            attempts++;
+            if (attempts > maxAttempts) {
+                clearInterval(pendingVerifyTimer);
+                pendingVerifyTimer = null;
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/shop/verify_and_apply_package?_t=${Date.now()}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `twa ${initData}`
+                    },
+                    body: JSON.stringify({
+                        package_id: packageId,
+                        boc: bocStr,
+                        payload_memo: payloadMemo,
+                        initData: initData
+                    })
+                });
+                const data = await res.json();
+                if (data && data.success) {
+                    clearInterval(pendingVerifyTimer);
+                    pendingVerifyTimer = null;
+                    triggerHaptic('notification', 'success');
+                    alert("🎉 تم تأكيد الدفع من شبكة TON وتفعيل الباقة بنجاح!");
+
+                    const stateRes = data.result || data.data || data;
+                    syncFriendsAndGlobalState(stateRes);
+                    window.updateShopUI();
+                    window.dispatchEvent(new CustomEvent('userStateUpdated'));
+                } else if (data && !data.pending) {
+                    clearInterval(pendingVerifyTimer);
+                    pendingVerifyTimer = null;
+                }
+            } catch (e) {}
+        }, 5000);
     }
 
     window.buyPackageWithTon = async function(packageId) {
@@ -525,13 +569,41 @@
                 }]
             };
 
-            const result = await withTimeout(
-                tcInstance.sendTransaction(transaction),
-                120000,
-                "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
-            );
-            
-            let safeBoc = (result && result.boc) ? result.boc : ("TX_" + Date.now() + "_" + Math.floor(Math.random() * 100000));
+            let result = null;
+            try {
+                result = await withTimeout(
+                    tcInstance.sendTransaction(transaction),
+                    120000,
+                    "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
+                );
+            } catch (txErr) {
+                const errStr = String(txErr?.message || txErr || "");
+                // إذا اعترضت محفظة قديمة على حقل الـ payload، نعيد المحاولة بدونه مع بقاء الحماية
+                if (prepData.payload && !errStr.includes("UserRejects") && !errStr.includes("declined") && !errStr.includes("انتهت") && !errStr.includes("طويلاً")) {
+                    const fallbackTx = {
+                        validUntil: Math.floor(Date.now() / 1000) + 600,
+                        messages: [{
+                            address: prepData.recipient_address,
+                            amount: cleanNanoTon
+                        }]
+                    };
+                    result = await withTimeout(
+                        tcInstance.sendTransaction(fallbackTx),
+                        120000,
+                        "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
+                    );
+                } else {
+                    throw txErr;
+                }
+            }
+
+            // الحل الأمني الصارم: إيقاف العملية فوراً إذا لم ترجع المحفظة BOC حقيقي
+            if (!result || !result.boc || typeof result.boc !== 'string' || result.boc.trim().length < 32) {
+                isBuying = false;
+                triggerHaptic('notification', 'error');
+                alert("❌ لم يتم استلام تأكيد المعاملة من المحفظة. إذا تم خصم الرصيد، يرجى الانتظار.");
+                return;
+            }
 
             const verifyRes = await withTimeout(fetch(`/api/shop/verify_and_apply_package?_t=${Date.now()}`, {
                 method: 'POST',
@@ -541,10 +613,11 @@
                 },
                 body: JSON.stringify({
                     package_id: packageId,
-                    boc: safeBoc,
+                    boc: result.boc,
+                    payload_memo: prepData.payload_memo || "",
                     initData: initData
                 })
-            }), 25000, "تأخر تأكيد العملية من الشبكة والسيرفر.");
+            }), 30000, "جاري تأكيد العملية من الشبكة...");
 
             const verifyData = await verifyRes.json();
             if (verifyData.success && (verifyData.result || verifyData.data || verifyData.balance !== undefined)) {
@@ -556,6 +629,10 @@
 
                 window.updateShopUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated'));
+            } else if (verifyData.pending) {
+                triggerHaptic('notification', 'warning');
+                alert(verifyData.message || "⏳ جاري تأكيد المعاملة من شبكة TON، سيتم تفعيل الباقة تلقائياً خلال ثوانٍ.");
+                pollPendingTonVerification(packageId, result.boc, prepData.payload_memo || "", initData);
             } else {
                 triggerHaptic('notification', 'error');
                 alert("⚠️ " + (verifyData.error || verifyData.message || "لم نتمكن من التحقق من الدفع."));
@@ -751,7 +828,6 @@
             `;
         }
         
-        // تطبيق التحديث بالـ Diff لترقيات التعدين
         const newMiningHtml = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب الباقات...</div>';
         if (_lastMiningHTML !== newMiningHtml) {
             miningSec.innerHTML = newMiningHtml;
@@ -813,7 +889,6 @@
             `;
         }
         
-        // تطبيق التحديث بالـ Diff لترقيات المخزن
         const newStorageHtml = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب مستويات التخزين...</div>';
         if (_lastStorageHTML !== newStorageHtml) {
             storageSec.innerHTML = newStorageHtml;
