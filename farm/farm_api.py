@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import traceback
 from datetime import datetime, timezone
@@ -18,6 +19,8 @@ from farm.farm_db import (
     dismiss_welcome_db,
     get_mining_leaderboard_db,
     parse_daily_rewards,
+    calculate_user_max_cap,
+    get_game_settings,
     DEFAULT_GAME_SETTINGS
 )
 
@@ -42,7 +45,7 @@ def add_cache_control_headers(response):
     response.headers['Expires'] = '0'
     return response
 
-# ✅ تم الإصلاح: المستويات المتاحة هي 1 إلى 8 فقط
+# المستويات المتاحة للترقية هي 1 إلى 8 فقط
 VALID_UPGRADE_LEVELS = {str(i) for i in range(1, 9)}
 
 AD_KEYS = (
@@ -51,26 +54,51 @@ AD_KEYS = (
 )
 
 # ==========================================
-# 🛡️ نظام حماية المعدل المتقدم (Anti-Spam / Rate Limiting)
+# 🛡️ نظام الحماية المتقدم ضد السبام والطلبات المتزامنة (Anti-Spam & Anti-Race Condition)
 # ==========================================
 _rate_limit_lock = Lock()
 _user_last_request = {}
+_active_user_mutations = set()
 
-def is_rate_limited(user_id: str, endpoint: str, min_interval: float = 1.0) -> bool:
-    key = f"{user_id}:{endpoint}"
+
+def is_rate_limited(user_id: str, endpoint: str, min_interval: float = 1.0, is_mutation: bool = False) -> bool:
     now_ts = time.time()
+    key = f"{user_id}:{endpoint}"
+    mutation_key = f"{user_id}:__mutation__"
+
     with _rate_limit_lock:
+        # منع تنفيذ عمليتين ماليتين (مثل claim + upgrade) في نفس اللحظة لنفس المستخدم
+        if is_mutation:
+            last_mut_ts = _user_last_request.get(mutation_key, 0)
+            if now_ts - last_mut_ts < 1.2:
+                return True
+            _user_last_request[mutation_key] = now_ts
+
         last_ts = _user_last_request.get(key, 0)
         if now_ts - last_ts < min_interval:
             return True
         _user_last_request[key] = now_ts
-        
+
         if len(_user_last_request) > 10000:
             expired_keys = [k for k, v in _user_last_request.items() if now_ts - v > 300]
             for k in expired_keys:
                 del _user_last_request[k]
-                
+
         return False
+
+
+def acquire_user_mutation_lock(user_id: str) -> bool:
+    """قفل ذري لمنع تداخل الطلبات المتزامنة (Race Conditions) لنفس المستخدم"""
+    with _rate_limit_lock:
+        if user_id in _active_user_mutations:
+            return False
+        _active_user_mutations.add(user_id)
+        return True
+
+
+def release_user_mutation_lock(user_id: str):
+    with _rate_limit_lock:
+        _active_user_mutations.discard(user_id)
 
 
 # ==========================================
@@ -86,16 +114,38 @@ def to_bool(val) -> bool:
     return False
 
 
-# ✅ تم الإصلاح: معالجة خطأ NameError (dt vs raw_val)
+def parse_vip_status(raw_vip) -> dict:
+    """فك تشفير بيانات باقة VIP بأمان سواء كانت dict أو نص JSON"""
+    if not raw_vip:
+        return {}
+    if isinstance(raw_vip, dict):
+        return raw_vip
+    if isinstance(raw_vip, str):
+        try:
+            parsed = json.loads(raw_vip)
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    return {}
+
+
 def get_expiration_dt(raw_val):
     if not raw_val:
         return None
     try:
         if isinstance(raw_val, (int, float)):
-            return datetime.fromtimestamp(raw_val, tz=timezone.utc)
+            ts = raw_val / 1000.0 if raw_val > 10000000000 else raw_val
+            if ts < 0 or ts > 4102444800:
+                return None
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
         if isinstance(raw_val, datetime):
             return raw_val.replace(tzinfo=timezone.utc) if raw_val.tzinfo is None else raw_val.astimezone(timezone.utc)
-        s = str(raw_val).strip().replace(' ', 'T').replace('Z', '+00:00')
+        s = str(raw_val).strip().replace(' ', 'T')
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
         dt = datetime.fromisoformat(s)
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
     except Exception as e:
@@ -119,15 +169,15 @@ def format_iso_utc(dt: datetime = None) -> str:
     return s
 
 
-# ✅ تم الإصلاح: سد ثغرة تخطي الإعلان (إرسال {} كان يرجع True)
 def is_ad_watched(data: dict) -> bool:
-    # 🛡️ إغلاق ثغرة تخطي الإعلان عبر إرسال جسم طلب فارغ {}
+    """إغلاق ثغرة تخطي الإعلان عبر التحقق الصارم من مفاتيح المشاهدة"""
     if not data or not isinstance(data, dict):
         return False
     return any(to_bool(data.get(key)) for key in AD_KEYS)
 
 
 def calculate_user_effective_stats(user_data: dict, game_settings: dict, now: datetime) -> dict:
+    """حساب موحد ودقيق لسعة المخزن وحالة الباقات (ضعف السعة ×2 وبوت التجميع)"""
     if now is None:
         now = datetime.now(timezone.utc)
     elif now.tzinfo is None:
@@ -135,46 +185,45 @@ def calculate_user_effective_stats(user_data: dict, game_settings: dict, now: da
     else:
         now = now.astimezone(timezone.utc)
 
-    # ✅ تم الإصلاح: استخدام storage_config كما هو في farm_db
-    storage_configs = (
-        game_settings.get("storage_config")
-        or game_settings.get("storage_capacities")
-        or DEFAULT_GAME_SETTINGS.get("storage_config", {})
+    if not game_settings:
+        game_settings = get_game_settings()
+
+    vip_status = parse_vip_status(user_data.get("vip_status"))
+    user_data["vip_status"] = vip_status
+
+    expires_at_raw = (
+        vip_status.get("expires_at")
+        or vip_status.get("vip_expires_at")
+        or vip_status.get("bot_expires_at")
+        or user_data.get("bot_expires_at")
+        or user_data.get("vip_expires_at")
+        or user_data.get("expires_at")
     )
-    storage_lvl = str(user_data.get("storage_level", 0))
-    
-    lvl_info = storage_configs.get(storage_lvl, {})
-    base_cap = float(lvl_info.get("capacity", lvl_info.get("cap", 0.5)) if isinstance(lvl_info, dict) else (lvl_info or 0.5))
-    extra_storage = float(user_data.get("extra_storage", 0.0))
-    raw_cap = base_cap + extra_storage
-
-    vip_status = user_data.get("vip_status", {})
-    is_double_storage_active = False
-    is_auto_bot_active = False
-
-    expires_at_raw = None
-    if isinstance(vip_status, dict):
-        expires_at_raw = vip_status.get("expires_at") or vip_status.get("vip_expires_at") or vip_status.get("bot_expires_at")
-    if not expires_at_raw:
-        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at")
 
     exp_dt = get_expiration_dt(expires_at_raw)
     is_expired = (exp_dt is not None and exp_dt <= now)
 
-    if not is_expired:
-        if isinstance(vip_status, dict):
-            if to_bool(vip_status.get("double_storage", False)):
-                is_double_storage_active = True
-            if to_bool(vip_status.get("auto_bot", False)):
-                is_auto_bot_active = True
+    is_double_storage_active = False
+    is_auto_bot_active = False
 
-        if to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False)))):
+    if not is_expired:
+        if to_bool(vip_status.get("double_storage", False)) or to_bool(user_data.get("is_double_storage_active", False)):
+            is_double_storage_active = True
+
+        if (
+            to_bool(vip_status.get("auto_bot", False))
+            or to_bool(user_data.get("bot_active", False))
+            or to_bool(user_data.get("has_bot", False))
+            or to_bool(user_data.get("is_auto_bot_active", False))
+        ):
             is_auto_bot_active = True
 
-    effective_max_cap = raw_cap * 2.0 if is_double_storage_active else raw_cap
-    
-    user_data["max_cap"] = round(effective_max_cap, 4)
+    # الاعتماد على الدالة الموحدة في farm_db لحساب السعة الفعلية
+    effective_max_cap = calculate_user_max_cap(user_data, game_settings, now)
+
+    user_data["max_cap"] = round(float(effective_max_cap), 4)
     user_data["is_double_storage_active"] = is_double_storage_active
+    user_data["vip_storage_multiplier"] = 2 if is_double_storage_active else 1
     user_data["is_auto_bot_active"] = is_auto_bot_active
     user_data["bot_active"] = is_auto_bot_active
 
@@ -189,7 +238,7 @@ def calculate_user_effective_stats(user_data: dict, game_settings: dict, now: da
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية مع ربط الإحالة إن وجدت"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية مع تنفيذ تجميع الأوفلاين وربط الإحالة"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -197,11 +246,10 @@ def get_player_data():
     
     user_id_str = str(telegram_id)
 
-    if is_rate_limited(user_id_str, "player_data", min_interval=0.5):
+    if is_rate_limited(user_id_str, "player_data", min_interval=0.4):
         return jsonify({"success": False, "error": "يرجى الانتظار بين الطلبات"}), 429
 
     try:
-        # التقاط كود الدعوة start_param في حال فتح المستخدم اللعبة مباشرة عبر الرابط
         body = request.get_json(silent=True) or {}
         start_param = body.get("start_param") or request.args.get("start_param")
         if start_param and str(start_param).startswith("ref_"):
@@ -233,14 +281,30 @@ def get_player_data():
                 "rate": float(v.get("rate_bonus", v.get("rate", 0)))
             }
             for k, v in upgrade_configs.items()
+            if str(k).isdigit()
         }
         
-        # ✅ تم الإصلاح: جلب إعدادات المخزن بدقة لتسليمها للواجهة الأمامية
-        storage_configs = (
+        raw_storage_configs = (
             game_settings.get("storage_config")
             or game_settings.get("storage_capacities")
             or DEFAULT_GAME_SETTINGS.get("storage_config", {})
         )
+        storage_configs = {}
+        for k, v in raw_storage_configs.items():
+            if isinstance(v, dict):
+                storage_configs[str(k)] = {
+                    "capacity": float(v.get("capacity", v.get("cap", 0.5))),
+                    "cost_zn": float(v.get("cost_zn", v.get("cost", v.get("price", 0.0)))),
+                    "cost_usd": float(v.get("cost_usd", v.get("usd_cost", 0.0)))
+                }
+            else:
+                default_lvl = DEFAULT_GAME_SETTINGS["storage_config"].get(str(k), {})
+                storage_configs[str(k)] = {
+                    "capacity": float(v or default_lvl.get("capacity", 0.5)),
+                    "cost_zn": float(default_lvl.get("cost_zn", 0.0)),
+                    "cost_usd": float(default_lvl.get("cost_usd", 0.0))
+                }
+
         mining_cfg = game_settings.get("mining_config", {})
 
         monetag_id = (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "11322720").strip()
@@ -253,7 +317,10 @@ def get_player_data():
             "cooldown_seconds": int(mining_cfg.get("claim_cooldown_seconds", 15)),
             "auto_claimed": auto_claimed,
             "auto_claimed_amount": round(auto_claimed_amount, 8),
+            "bot_active": bool(user_data.get("bot_active", False)),
             "is_auto_bot_active": bool(user_data.get("is_auto_bot_active", False)),
+            "is_double_storage_active": bool(user_data.get("is_double_storage_active", False)),
+            "max_cap": float(user_data.get("max_cap", 0.5)),
             "monetag_zone_id": monetag_id,
             "monetix_block_id": monetix_id,
             "game_config": {
@@ -295,7 +362,8 @@ def cron_auto_claim():
                 cur.execute("""
                     SELECT tg_id FROM users
                     WHERE COALESCE(bot_active, FALSE) = TRUE
-                       OR COALESCE((vip_status->>'auto_bot')::boolean, FALSE) = TRUE;
+                       OR (vip_status IS NOT NULL AND vip_status::text LIKE '%"auto_bot": true%')
+                       OR (vip_status IS NOT NULL AND vip_status::text LIKE '%"auto_bot":true%');
                 """)
                 user_ids = [str(r[0]) for r in (cur.fetchall() or []) if r and r[0]]
         
@@ -352,15 +420,18 @@ def dismiss_welcome():
 @farm_bp.route('/farm/claim', methods=['POST'])
 @farm_bp.route('/api/farm/claim', methods=['POST'])
 def claim_mined_tokens():
-    """تجميع المحصول المعدن يدوياً"""
+    """تجميع المحصول المعدن بأمان تام"""
     success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
 
-    if is_rate_limited(user_id_str, "claim", min_interval=2.0):
+    if is_rate_limited(user_id_str, "claim", min_interval=2.0, is_mutation=True):
         return jsonify({"success": False, "error": "تم استلام طلب التجميع بالفعل، يرجى الانتظار لحين اكتمال المعالجة"}), 429
+
+    if not acquire_user_mutation_lock(user_id_str):
+        return jsonify({"success": False, "error": "جاري تنفيذ عملية أخرى لحسابك، يرجى الانتظار"}), 429
 
     try:
         result = claim_mined_tokens_db(user_id_str)
@@ -369,6 +440,8 @@ def claim_mined_tokens():
         print(f"Error claim: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء التجميع"}), 500
+    finally:
+        release_user_mutation_lock(user_id_str)
 
 
 @farm_bp.route('/upgrade', methods=['POST'])
@@ -382,15 +455,18 @@ def buy_upgrade():
         
     user_id_str = str(telegram_id)
 
-    if is_rate_limited(user_id_str, "upgrade", min_interval=1.5):
+    if is_rate_limited(user_id_str, "upgrade", min_interval=1.5, is_mutation=True):
         return jsonify({"success": False, "error": "جاري معالجة طلب الترقية، يرجى الانتظار"}), 429
 
     data = request.get_json(silent=True) or {}
     raw_level = data.get("level")
-    level = str(raw_level) if raw_level is not None else ""
+    level = str(raw_level).strip() if raw_level is not None else ""
     
     if not level or level not in VALID_UPGRADE_LEVELS:
         return jsonify({"success": False, "error": "مستوى غير صحيح"}), 400
+
+    if not acquire_user_mutation_lock(user_id_str):
+        return jsonify({"success": False, "error": "جاري تنفيذ عملية أخرى لحسابك، يرجى الانتظار"}), 429
         
     try:
         result = buy_upgrade_db(user_id_str, level)
@@ -401,20 +477,26 @@ def buy_upgrade():
         print(f"Error upgrade: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء عملية الشراء"}), 500
+    finally:
+        release_user_mutation_lock(user_id_str)
 
 
 @farm_bp.route('/upgrade_storage', methods=['POST'])
 @farm_bp.route('/farm/upgrade_storage', methods=['POST'])
 @farm_bp.route('/api/farm/upgrade_storage', methods=['POST'])
 def buy_storage_upgrade():
+    """ترقية مستوى المخزن وإرجاع السعة الجديدة فوراً للواجهة"""
     success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
 
-    if is_rate_limited(user_id_str, "upgrade_storage", min_interval=1.5):
+    if is_rate_limited(user_id_str, "upgrade_storage", min_interval=1.5, is_mutation=True):
         return jsonify({"success": False, "error": "جاري معالجة طلب ترقية المخزن، يرجى الانتظار"}), 429
+
+    if not acquire_user_mutation_lock(user_id_str):
+        return jsonify({"success": False, "error": "جاري تنفيذ عملية أخرى لحسابك، يرجى الانتظار"}), 429
 
     try:
         result = buy_storage_db(user_id_str)
@@ -423,6 +505,8 @@ def buy_storage_upgrade():
         print(f"Error upgrade storage: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء ترقية المخزن"}), 500
+    finally:
+        release_user_mutation_lock(user_id_str)
 
 
 @farm_bp.route('/daily_claim', methods=['POST'])
@@ -435,7 +519,7 @@ def claim_daily():
         
     user_id_str = str(telegram_id)
 
-    if is_rate_limited(user_id_str, "daily_claim", min_interval=2.0):
+    if is_rate_limited(user_id_str, "daily_claim", min_interval=2.0, is_mutation=True):
         return jsonify({"success": False, "error": "يرجى الانتظار قبل استلام المكافأة اليومية مجدداً"}), 429
 
     data = request.get_json(silent=True) or {}
@@ -446,6 +530,9 @@ def claim_daily():
             "error": "يجب مشاهدة الإعلان بالكامل أولاً لاستلام المكافأة اليومية"
         }), 400
 
+    if not acquire_user_mutation_lock(user_id_str):
+        return jsonify({"success": False, "error": "جاري تنفيذ عملية أخرى لحسابك، يرجى الانتظار"}), 429
+
     try:
         result = claim_daily_reward_db(user_id_str)
         return jsonify(result), (200 if result.get("success") else 400)
@@ -453,6 +540,8 @@ def claim_daily():
         print(f"Error daily claim: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء استلام المكافأة اليومية"}), 500
+    finally:
+        release_user_mutation_lock(user_id_str)
 
 
 @farm_bp.route('/daily_boost', methods=['POST'])
@@ -465,7 +554,7 @@ def claim_daily_boost():
         
     user_id_str = str(telegram_id)
 
-    if is_rate_limited(user_id_str, "daily_boost", min_interval=3.0):
+    if is_rate_limited(user_id_str, "daily_boost", min_interval=3.0, is_mutation=True):
         return jsonify({"success": False, "error": "تم استلام طلب تفعيل التعزيز بالكامل، يرجى عدم تكرار الطلب"}), 429
 
     data = request.get_json(silent=True) or {}
@@ -476,6 +565,9 @@ def claim_daily_boost():
             "error": "يجب مشاهدة الإعلان بالكامل أولاً لتفعيل معزز سرعة التعدين"
         }), 400
 
+    if not acquire_user_mutation_lock(user_id_str):
+        return jsonify({"success": False, "error": "جاري تنفيذ عملية أخرى لحسابك، يرجى الانتظار"}), 429
+
     try:
         result = claim_daily_boost_db(user_id_str)
         return jsonify(result), (200 if result.get("success") else 400)
@@ -483,6 +575,8 @@ def claim_daily_boost():
         print(f"Error daily boost: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء تفعيل التعزيز"}), 500
+    finally:
+        release_user_mutation_lock(user_id_str)
 
 
 @farm_bp.route('/leaderboard', methods=['GET', 'POST'])
@@ -554,8 +648,11 @@ def claim_friends_reward():
         
     user_id_str = str(telegram_id)
 
-    if is_rate_limited(user_id_str, "claim_friends_reward", min_interval=2.0):
+    if is_rate_limited(user_id_str, "claim_friends_reward", min_interval=2.0, is_mutation=True):
         return jsonify({"success": False, "error": "يرجى الانتظار قبل استلام مكافآت الإحالة مجدداً"}), 429
+
+    if not acquire_user_mutation_lock(user_id_str):
+        return jsonify({"success": False, "error": "جاري تنفيذ عملية أخرى لحسابك، يرجى الانتظار"}), 429
 
     try:
         result = claim_ref_earnings_db(user_id_str)
@@ -564,3 +661,5 @@ def claim_friends_reward():
         print(f"Error claim friends reward: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء تجميع مكافأة الأصدقاء"}), 500
+    finally:
+        release_user_mutation_lock(user_id_str)
