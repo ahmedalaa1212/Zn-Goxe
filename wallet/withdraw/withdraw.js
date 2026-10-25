@@ -9,11 +9,18 @@
   let isSubmitting = false;
   let isSavingWallet = false;
 
+  // قص الأرقام العشرية للأسفل لأربع خانات بدقة تمنع أخطاء Floating Point في الجافاسكريبت
+  function floorTo4Decimals(val) {
+    const num = parseFloat(val);
+    if (isNaN(num) || !isFinite(num) || num <= 0) return 0;
+    return Math.floor((num + 1e-9) * 10000) / 10000;
+  }
+
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
     const cleanStr = val.toString().replace(/,/g, '').trim();
     const num = parseFloat(cleanStr);
-    return (isNaN(num) || !isFinite(num) || num < 0) ? 0 : num;
+    return (isNaN(num) || !isFinite(num) || num < 0) ? 0 : floorTo4Decimals(num);
   }
 
   function formatCryptoSmartRaw(val) {
@@ -22,11 +29,11 @@
     if (num <= 0) return "0";
 
     if (num >= 100) {
-      return Math.floor(num).toString();
+      return Math.floor(num + 1e-9).toString();
     } else if (num >= 50) {
-      return parseFloat(num.toFixed(2)).toString();
+      return parseFloat(floorTo4Decimals(num).toFixed(2)).toString();
     } else {
-      return parseFloat(num.toFixed(4)).toString();
+      return parseFloat(floorTo4Decimals(num).toFixed(4)).toString();
     }
   }
 
@@ -94,13 +101,18 @@
     }
 
     if (typeof TON_CONNECT_UI === 'undefined') {
-      await new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = "https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js";
-        script.onload = resolve;
-        script.onerror = resolve;
-        document.head.appendChild(script);
-      });
+      const existingScript = document.querySelector('script[src*="tonconnect-ui.min.js"]');
+      if (!existingScript) {
+        await new Promise((resolve) => {
+          const script = document.createElement('script');
+          script.src = "https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js";
+          script.onload = resolve;
+          script.onerror = resolve;
+          document.head.appendChild(script);
+        });
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
     }
 
     if (typeof TON_CONNECT_UI !== 'undefined') {
@@ -130,9 +142,10 @@
               }
             } catch (e) {}
 
-            userWallet = addr;
-            updateWalletDisplay();
-            await saveWalletToServer(addr);
+            const result = await saveWalletToServer(addr);
+            if (!result.ok && result.message) {
+              alert(result.message);
+            }
           }
         });
       } catch (e) {
@@ -190,14 +203,14 @@
   }
 
   async function saveWalletToServer(val) {
-    if (isSavingWallet) return false;
+    if (isSavingWallet) return { ok: false, message: "جاري حفظ المحفظة حالياً..." };
     const userId = getUserId();
     const check = validateWalletAddress(val);
-    if (!check.valid) return false;
+    if (!check.valid) return { ok: false, message: check.message };
 
     isSavingWallet = true;
     try {
-      let res = await fetch('/api/wallet/withdraw/save-wallet', {
+      const res = await fetch('/api/wallet/withdraw/save-wallet', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -211,18 +224,24 @@
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success) {
         userWallet = val.trim();
+        if (window.userState) {
+          window.userState.wallet_address = userWallet;
+        }
         updateWalletDisplay();
-        return true;
+        return { ok: true, message: data.message || "تم حفظ المحفظة بنجاح!" };
       }
+      return { ok: false, message: data?.message || "تعذر حفظ المحفظة في الخادم." };
     } catch (e) {
       console.error("خطأ حفظ المحفظة بالخادم:", e);
+      return { ok: false, message: "حدث خطأ في الاتصال أثناء حفظ المحفظة." };
     } finally {
       isSavingWallet = false;
     }
-    return false;
   }
 
   function syncBalanceFromGlobal() {
+    if (isSubmitting) return;
+
     let currentZnx = null;
     let currentUsd = null;
 
@@ -237,47 +256,38 @@
     }
 
     if (currentZnx !== null && !isNaN(currentZnx) && currentZnx !== userBalance) {
-      userBalance = currentZnx;
+      userBalance = Math.max(0, currentZnx);
       updateUIBalance();
       calculateWithdraw();
     }
 
     if (currentUsd !== null && !isNaN(currentUsd) && currentUsd !== usdBalance) {
-      usdBalance = currentUsd;
+      usdBalance = Math.max(0, currentUsd);
       updateUIBalance();
       calculateWithdraw();
     }
   }
 
-  async function initWithdrawPage(userId) {
+  // جلب الرصيد الحقيقي من السيرفر مباشرة لضمان عدم عرض أرقام قديمة
+  async function refreshBalanceFromServer(userId) {
     const currentUid = userId || getUserId();
-    bindInputEvents();
-    initTonConnect();
-
-    // ⚡ Instant Render: تحميل فوري من الكاش لسرعة استجابة الواجهة
-    if (window.userState) {
-      if (window.userState.znx_balance !== undefined) userBalance = parseFloat(window.userState.znx_balance) || 0;
-      if (window.userState.usd_balance !== undefined) usdBalance = parseFloat(window.userState.usd_balance) || 0;
-      userWallet = window.userState.wallet_address || (window.userState.wallets && window.userState.wallets.ZNX) || userWallet;
-      updateUIBalance();
-      updateWalletDisplay();
-    }
-
     if (!currentUid) return;
 
     try {
-      let response = await fetch(`/api/wallet/withdraw/config?user_id=${encodeURIComponent(currentUid)}`, {
-        headers: { 'X-Telegram-Init-Data': getTelegramInitData() }
+      let response = await fetch(`/api/wallet/withdraw/config?user_id=${encodeURIComponent(currentUid)}&_t=${Date.now()}`, {
+        headers: { 'X-Telegram-Init-Data': getTelegramInitData() },
+        cache: 'no-store'
       });
       if (!response.ok) {
-        response = await fetch(`/api/withdraw/config?user_id=${encodeURIComponent(currentUid)}`, {
-          headers: { 'X-Telegram-Init-Data': getTelegramInitData() }
+        response = await fetch(`/api/withdraw/config?user_id=${encodeURIComponent(currentUid)}&_t=${Date.now()}`, {
+          headers: { 'X-Telegram-Init-Data': getTelegramInitData() },
+          cache: 'no-store'
         });
       }
       if (response.ok) {
         const data = await response.json();
-        userBalance = parseFloat(data.znx_balance ?? data.user_balance ?? userBalance) || 0;
-        usdBalance = parseFloat(data.usd_balance ?? usdBalance) || 0;
+        userBalance = Math.max(0, parseFloat(data.znx_balance ?? data.user_balance ?? userBalance) || 0);
+        usdBalance = Math.max(0, parseFloat(data.usd_balance ?? usdBalance) || 0);
         userWallet = data.wallet_address || (data.wallets && data.wallets.ZNX) || userWallet;
 
         if (data.min_withdraw_znx !== undefined) minWithdraw = parseFloat(data.min_withdraw_znx);
@@ -288,13 +298,33 @@
           window.userState.znx_balance = userBalance;
           window.userState.usd_balance = usdBalance;
         }
+        if (window.PlayerData) {
+          window.PlayerData.znx_balance = userBalance;
+          window.PlayerData.usd_balance = usdBalance;
+        }
 
         updateUIBalance();
         updateWalletDisplay();
       }
     } catch (err) {
-      console.error("خطأ جلب بيانات السحب:", err);
+      console.error("خطأ جلب بيانات السحب من السيرفر:", err);
     }
+  }
+
+  async function initWithdrawPage(userId) {
+    const currentUid = userId || getUserId();
+    bindInputEvents();
+    initTonConnect();
+
+    if (window.userState) {
+      if (window.userState.znx_balance !== undefined) userBalance = Math.max(0, parseFloat(window.userState.znx_balance) || 0);
+      if (window.userState.usd_balance !== undefined) usdBalance = Math.max(0, parseFloat(window.userState.usd_balance) || 0);
+      userWallet = window.userState.wallet_address || (window.userState.wallets && window.userState.wallets.ZNX) || userWallet;
+      updateUIBalance();
+      updateWalletDisplay();
+    }
+
+    await refreshBalanceFromServer(currentUid);
 
     window.removeEventListener('userStateUpdated', syncBalanceFromGlobal);
     window.addEventListener('userStateUpdated', syncBalanceFromGlobal);
@@ -323,14 +353,8 @@
     if (!coinsInput) return;
 
     if (type === 'max') {
-      const safeBal = Math.max(0, parseFloat(userBalance) || 0);
-      if (safeBal > 0) {
-        // قص الأرقام العشرية بشكل آمن (Floor) لأربع خانات لتجنب رفض العملية بسبب كسور غير مرئية
-        const flooredBal = Math.floor(safeBal * 10000) / 10000;
-        coinsInput.value = flooredBal > 0 ? flooredBal.toString() : "";
-      } else {
-        coinsInput.value = "";
-      }
+      const flooredBal = floorTo4Decimals(userBalance);
+      coinsInput.value = flooredBal > 0 ? flooredBal.toString() : "";
     }
     calculateWithdraw();
   }
@@ -396,11 +420,11 @@
       return;
     }
 
-    const saved = await saveWalletToServer(val);
-    if (saved) {
+    const result = await saveWalletToServer(val);
+    if (result.ok) {
       closeWalletModal();
     } else {
-      alert("حدث خطأ أثناء حفظ المحفظة.");
+      alert(result.message || "حدث خطأ أثناء حفظ المحفظة.");
     }
   }
 
@@ -408,11 +432,12 @@
     const coinsInput = document.getElementById("coins-input");
     const walletInput = document.getElementById("wallet-address-input");
     const coinsVal = parseInputValue(coinsInput?.value);
+    const maxAvail = floorTo4Decimals(userBalance);
     const walletAddress = walletInput?.value?.trim() || userWallet;
     const btn = document.getElementById("confirm-withdraw-btn");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (coinsVal <= 0 || coinsVal > userBalance + 0.0001) {
+    if (coinsVal <= 0 || coinsVal > maxAvail) {
       resetCalculations();
       if (btn) btn.disabled = true;
       return;
@@ -422,7 +447,7 @@
 
     if (btn) {
       const addrCheck = validateWalletAddress(walletAddress);
-      const isEnoughCoins = coinsVal >= minWithdraw && coinsVal <= userBalance + 0.0001;
+      const isEnoughCoins = coinsVal >= minWithdraw && coinsVal <= maxAvail;
       btn.disabled = !(isEnoughCoins && addrCheck.valid) || isSubmitting;
     }
   }
@@ -440,7 +465,8 @@
 
     const coinsInput = document.getElementById("coins-input");
     const walletInput = document.getElementById("wallet-address-input");
-    const coins = parseInputValue(coinsInput?.value);
+    const coins = floorTo4Decimals(parseInputValue(coinsInput?.value));
+    const maxAvail = floorTo4Decimals(userBalance);
     const walletAddress = walletInput?.value?.trim() || userWallet;
     const userId = getUserId();
     const btn = document.getElementById("confirm-withdraw-btn");
@@ -466,7 +492,7 @@
       return;
     }
 
-    if (coins > userBalance + 0.0001) {
+    if (coins > maxAvail) {
       alert("رصيدك الحالي من ZNX غير كافٍ لإتمام العملية!");
       return;
     }
@@ -483,7 +509,7 @@
     }
 
     try {
-      let res = await fetch('/api/wallet/withdraw/request', {
+      const res = await fetch('/api/wallet/withdraw/request', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -499,8 +525,8 @@
 
       if (res.ok && data && data.success) {
         alert(data.message || "تم تقديم طلب السحب بنجاح!");
-        userBalance = data.new_balance !== undefined ? parseFloat(data.new_balance) : Math.max(0, userBalance - coins);
-        usdBalance = data.new_usd_balance !== undefined ? parseFloat(data.new_usd_balance) : Math.max(0, usdBalance - fixedFeeUsd);
+        userBalance = data.new_balance !== undefined ? Math.max(0, parseFloat(data.new_balance)) : Math.max(0, userBalance - coins);
+        usdBalance = data.new_usd_balance !== undefined ? Math.max(0, parseFloat(data.new_usd_balance)) : Math.max(0, usdBalance - fixedFeeUsd);
 
         if (window.userState) {
           window.userState.znx_balance = userBalance;
@@ -512,23 +538,24 @@
         }
 
         window.dispatchEvent(new Event('userStateUpdated'));
-
-        // 🔥 التحديث الفوري للسجل بعد نجاح السحب
         window.dispatchEvent(new Event('withdrawSubmitted'));
         if (window.historyModule && typeof window.historyModule.refresh === 'function') {
-            window.historyModule.refresh(true);
+          window.historyModule.refresh(true);
         }
 
         if (coinsInput) coinsInput.value = "";
         updateUIBalance();
         resetCalculations();
       } else if (data && data.code === "INSUFFICIENT_USD") {
+        await refreshBalanceFromServer(userId);
         openFeeNoticeModal(data.fee_required || fixedFeeUsd);
       } else {
+        await refreshBalanceFromServer(userId);
         alert(data?.message || "حدث خطأ أثناء تقديم الطلب.");
       }
     } catch (err) {
       console.error("خطأ أثناء إرسال طلب السحب:", err);
+      await refreshBalanceFromServer(userId);
       alert("حدث خطأ أثناء الاتصال بالخادم.");
     } finally {
       isSubmitting = false;
