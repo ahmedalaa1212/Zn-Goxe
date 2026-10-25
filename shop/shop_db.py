@@ -5,9 +5,10 @@
 # =================================================================
 
 import copy
-from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from database import format_iso, get_db_connection
 from psycopg2.extras import Json, RealDictCursor
 
@@ -145,6 +146,25 @@ DEFAULT_STORAGE_CONFIG = {
 }
 
 
+def _normalize_tx_identifier(tx_hash=None, boc=None):
+    """
+    توليد معرف معاملة آمن وموحد لا يتخطى 64 حرفاً أبداً
+    لمنع خطأ PostgreSQL: value too long for type character varying(256)
+    """
+    if tx_hash:
+        clean_tx = str(tx_hash).strip()
+        if len(clean_tx) > 128:
+            return hashlib.sha256(clean_tx.encode("utf-8")).hexdigest()
+        return clean_tx
+
+    if boc:
+        clean_boc = str(boc).strip()
+        if clean_boc:
+            return hashlib.sha256(clean_boc.encode("utf-8")).hexdigest()
+
+    return ""
+
+
 def _parse_json_field(field_val, default=None):
     """تحليل حقول JSONB بأمان تام مع معالجة التشفير المزدوج (Double-Encoded JSON)"""
     if default is None:
@@ -165,6 +185,131 @@ def _parse_json_field(field_val, default=None):
         return copy.deepcopy(field_val)
 
     return copy.deepcopy(default)
+
+
+def ensure_pending_payments_table():
+    """إنشاء جدول المعاملات المعلقة (Pending) تلقائياً في حال عدم وجوده لضمان عمل النظام الخلفي بأمان"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_ton_payments (
+                        id SERIAL PRIMARY KEY,
+                        tg_id VARCHAR(64) NOT NULL,
+                        package_id VARCHAR(32) NOT NULL,
+                        usdt_price NUMERIC(12, 4) DEFAULT 0,
+                        expected_nano_ton BIGINT NOT NULL,
+                        payload_memo VARCHAR(128) UNIQUE NOT NULL,
+                        boc_hash VARCHAR(128),
+                        tx_hash VARCHAR(128),
+                        status VARCHAR(24) DEFAULT 'pending',
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+    except Exception as e:
+        logger.error(f"⚠️ Error ensuring pending_ton_payments table: {e}")
+
+
+def create_pending_ton_payment(tg_id, package_id, usdt_price, expected_nano_ton, payload_memo):
+    """حفظ طلب الدفع في قاعدة البيانات بحالة Pending قبل فتح المحفظة لمنع التلاعب بالأسعار أو الميمو"""
+    try:
+        ensure_pending_payments_table()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO pending_ton_payments (tg_id, package_id, usdt_price, expected_nano_ton, payload_memo, status)
+                    VALUES (%s, %s, %s, %s, %s, 'pending')
+                    ON CONFLICT (payload_memo) DO NOTHING;
+                    """,
+                    (
+                        str(tg_id),
+                        str(package_id),
+                        float(usdt_price),
+                        int(expected_nano_ton),
+                        str(payload_memo).strip(),
+                    ),
+                )
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ Failed to create pending payment: {e}")
+        return False
+
+
+def attach_boc_to_pending_payment(tg_id, package_id, boc, payload_memo=None):
+    """ربط هاش الـ BOC بالمعاملة المعلقة عند إرسال المستخدم للمعاملة من المحفظة"""
+    try:
+        ensure_pending_payments_table()
+        boc_hash = _normalize_tx_identifier(boc=boc)
+        if not boc_hash:
+            return None
+
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if payload_memo:
+                    cur.execute(
+                        """
+                        UPDATE pending_ton_payments
+                        SET boc_hash = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE payload_memo = %s AND tg_id = %s
+                        RETURNING *;
+                        """,
+                        (boc_hash, str(payload_memo).strip(), str(tg_id)),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        UPDATE pending_ton_payments
+                        SET boc_hash = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = (
+                            SELECT id FROM pending_ton_payments
+                            WHERE tg_id = %s AND package_id = %s AND status = 'pending'
+                            ORDER BY created_at DESC LIMIT 1
+                        )
+                        RETURNING *;
+                        """,
+                        (boc_hash, str(tg_id), str(package_id)),
+                    )
+                row = cur.fetchone()
+                return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"⚠️ Failed to attach BOC to pending payment: {e}")
+        return None
+
+
+def get_pending_ton_payments(tg_id=None, limit=25):
+    """جلب المعاملات المعلقة لفحصها في الخلفية أو عند طلب المستخدم"""
+    try:
+        ensure_pending_payments_table()
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if tg_id:
+                    cur.execute(
+                        """
+                        SELECT * FROM pending_ton_payments
+                        WHERE tg_id = %s AND status = 'pending'
+                        AND created_at >= NOW() - INTERVAL '24 hours'
+                        ORDER BY created_at DESC LIMIT %s;
+                        """,
+                        (str(tg_id), limit),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT * FROM pending_ton_payments
+                        WHERE status = 'pending'
+                        AND created_at >= NOW() - INTERVAL '24 hours'
+                        ORDER BY created_at ASC LIMIT %s;
+                        """,
+                        (limit,),
+                    )
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"⚠️ Error fetching pending payments: {e}")
+        return []
 
 
 def get_shop_catalog(tg_id=None):
@@ -408,10 +553,10 @@ def log_purchase_transaction(
     tx_hash=None,
     details=None,
 ):
-    """تسجيل المعاملة المالية في جدول purchase_history و processed_txs لمنع التكرار"""
+    """تسجيل المعاملة المالية في جدول purchase_history و processed_txs لمنع التكرار وبحجم هاش آمن"""
     try:
         str_uid = str(tg_id)
-        tx_h = str(tx_hash).strip() if tx_hash else None
+        safe_tx_h = _normalize_tx_identifier(tx_hash=tx_hash) or None
         details_obj = details if isinstance(details, dict) else {}
 
         with get_db_connection() as conn:
@@ -427,12 +572,12 @@ def log_purchase_transaction(
                         str(item_id),
                         float(cost_zn),
                         float(cost_usd),
-                        tx_h,
+                        safe_tx_h,
                         Json(details_obj),
                     ),
                 )
 
-                if tx_h:
+                if safe_tx_h:
                     cur.execute(
                         """
                         INSERT INTO processed_txs (tx_hash, tg_id, type, cost_zn, cost_usd, details)
@@ -440,7 +585,7 @@ def log_purchase_transaction(
                         ON CONFLICT (tx_hash) DO NOTHING;
                         """,
                         (
-                            tx_h,
+                            safe_tx_h,
                             str_uid,
                             str(tx_type),
                             float(cost_zn),
@@ -750,11 +895,18 @@ def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
         return False, "نوع الترقية غير معروف", {}
 
 
-def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
-    """تفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase مع تحديث is_vip"""
+def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_memo=None):
+    """تفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase مع منع التكرار والغش"""
     try:
         if not tg_id or not package_id:
             return False, "بيانات غير صالحة", {}
+
+        # الحل الجذري والأمني: إعطاء الأولوية لـ tx_hash، وتشفير الـ boc إلى 64 حرفاً لمنع خطأ character varying(256)
+        tx_identifier = _normalize_tx_identifier(tx_hash=tx_hash, boc=boc)
+        boc_hash = _normalize_tx_identifier(boc=boc) if boc else ""
+
+        if not tx_identifier:
+            return False, "معرف المعاملة مفقود أو غير صالح", {}
 
         catalog = get_shop_catalog()
         pkgs = catalog.get("packages", {})
@@ -785,24 +937,50 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
             pkg_info.get("usdt", pkg_info.get("cost_usd", pkg_info.get("price", 0.0)))
         )
 
-        tx_identifier = str(boc or tx_hash or "").strip()
         str_uid = str(tg_id)
+        ensure_pending_payments_table()
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                if tx_identifier:
-                    cur.execute(
-                        "SELECT 1 FROM processed_txs WHERE tx_hash = %s",
-                        (tx_identifier,),
-                    )
-                    if cur.fetchone():
-                        return False, "تمت معالجة هذه العملية سابقاً!", {}
+                # 1. فحص صارم لمنع الصرف المزدوج (Double Spending) سواء عبر tx_hash أو boc_hash
+                check_hashes = [h for h in {tx_identifier, boc_hash} if h]
+                cur.execute(
+                    "SELECT 1 FROM processed_txs WHERE tx_hash = ANY(%s)",
+                    (check_hashes,),
+                )
+                if cur.fetchone():
+                    return False, "تمت معالجة هذه العملية سابقاً!", {}
 
+                # 2. حجز المعاملة فوراً في processed_txs لمنع ثغرة Race Condition بين الحسابات المتعددة
+                cur.execute(
+                    """
+                    INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd)
+                    VALUES (%s, %s, %s, 'vip_package', %s)
+                    ON CONFLICT (tx_hash) DO NOTHING
+                    RETURNING tx_hash;
+                    """,
+                    (tx_identifier, str_uid, pkg_key, pkg_price_usd),
+                )
+                if not cur.fetchone():
+                    return False, "تمت معالجة هذه العملية سابقاً!", {}
+
+                # إذا كان هناك boc_hash مختلف عن tx_identifier نحجزه أيضاً لمنع إعادة استخدامه
+                if boc_hash and boc_hash != tx_identifier:
+                    cur.execute(
+                        """
+                        INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd)
+                        VALUES (%s, %s, %s, 'vip_package_boc', %s)
+                        ON CONFLICT (tx_hash) DO NOTHING;
+                        """,
+                        (boc_hash, str_uid, pkg_key, pkg_price_usd),
+                    )
+
+                # 3. قفل صف المستخدم للتحديث الآمن
                 cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
                 user_data = cur.fetchone()
 
                 if not user_data:
-                    return False, "المستخدم غير موجود", {}
+                    raise ValueError("المستخدم غير موجود")
 
                 user_data = dict(user_data)
 
@@ -892,7 +1070,7 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                     "updated_at": format_iso(now_dt),
                 }
 
-                # التحديث في قاعدة البيانات مع تعديل is_vip و vip_active
+                # 4. التحديث في قاعدة البيانات مع تعديل is_vip و vip_active
                 cur.execute(
                     """
                     UPDATE users SET
@@ -923,14 +1101,24 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                     ),
                 )
 
-                if tx_identifier:
+                # 5. تحديث حالة المعاملة في جدول المعاملات المعلقة إلى completed
+                if payload_memo:
                     cur.execute(
                         """
-                        INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd)
-                        VALUES (%s, %s, %s, 'vip_package', %s)
-                        ON CONFLICT (tx_hash) DO NOTHING;
+                        UPDATE pending_ton_payments
+                        SET status = 'completed', tx_hash = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE payload_memo = %s;
                         """,
-                        (tx_identifier, str_uid, pkg_key, pkg_price_usd),
+                        (tx_identifier, str(payload_memo).strip()),
+                    )
+                elif boc_hash:
+                    cur.execute(
+                        """
+                        UPDATE pending_ton_payments
+                        SET status = 'completed', tx_hash = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE boc_hash = %s AND tg_id = %s;
+                        """,
+                        (tx_identifier, boc_hash, str_uid),
                     )
 
                 updated_fields = {
@@ -946,7 +1134,13 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
                 }
 
         log_purchase_transaction(
-            tg_id, "vip_package", pkg_key, 0.0, pkg_price_usd, tx_identifier
+            tg_id,
+            "vip_package",
+            pkg_key,
+            0.0,
+            pkg_price_usd,
+            tx_identifier,
+            details={"payload_memo": payload_memo, "boc_hash": boc_hash},
         )
         return True, "تم تفعيل الباقة بنجاح!", updated_fields
 
@@ -988,4 +1182,3 @@ def get_user_purchase_history(tg_id, limit=20):
     except Exception as e:
         logger.error(f"❌ Error fetching user purchase history: {e}")
         return []
-
