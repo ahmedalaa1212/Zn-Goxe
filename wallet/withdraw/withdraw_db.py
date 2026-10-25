@@ -54,7 +54,7 @@ get_db = safe_get_db
 
 
 def init_withdraw_tables():
-    """إنشاء وتجهيز كافة جداول وأعمدة نظام السحب في Supabase تلقائياً عند التشغيل"""
+    """إنشاء وتجهيز كافة جداول وأعمدة نظام السحب في Supabase تلقائياً مع نظام الإصلاح الذاتي"""
     if not get_db_connection:
         return False
 
@@ -63,11 +63,10 @@ def init_withdraw_tables():
         {"tier": 2, "name": "الشريحة الثانية", "min_pts": 500000, "max_pts": "inf", "min_withdraw_znx": 500.0, "fixed_fee_usd": 0.02}
     ], ensure_ascii=False)
 
-    conn = None
+    # 1. تهيئة جدول users
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # 1. التأكد من كافة الأعمدة المطلوبة في جدول users
                 cur.execute("""
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS znx_balance NUMERIC DEFAULT 0.0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS usd_balance NUMERIC DEFAULT 0.0;
@@ -83,8 +82,13 @@ def init_withdraw_tables():
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_count INTEGER DEFAULT 0;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
                 """)
+            conn.commit()
+    except Exception as e: print(f"⚠️ خطأ تهيئة users: {e}")
 
-                # 2. جدول شرائح السحب العالمية znx_global_stats
+    # 2. تهيئة شرائح السحب
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS znx_global_stats (
                         id TEXT PRIMARY KEY DEFAULT 'summary',
@@ -98,20 +102,25 @@ def init_withdraw_tables():
                     VALUES ('summary', 0.0, %s::jsonb)
                     ON CONFLICT (id) DO NOTHING;
                 """, (default_tiers_json,))
+            conn.commit()
+    except Exception as e: print(f"⚠️ خطأ تهيئة znx_global_stats: {e}")
 
-                # 3. جدول معاملات السحب الرئيسي processed_txs (تم توحيده مع history)
+    # 3. تهيئة جدول processed_txs (نظام الترقية الذاتي للأعمدة)
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS processed_txs (
                         id TEXT PRIMARY KEY,
                         tx_id TEXT UNIQUE NOT NULL,
                         user_id TEXT NOT NULL,
-                        coins NUMERIC NOT NULL CHECK (coins >= 0),
-                        amount NUMERIC NOT NULL,
+                        coins NUMERIC DEFAULT 0.0,
+                        amount NUMERIC DEFAULT 0.0,
                         fee_usd NUMERIC DEFAULT 0.02,
-                        net_coins NUMERIC NOT NULL,
+                        net_coins NUMERIC DEFAULT 0.0,
                         currency TEXT DEFAULT 'ZNX',
                         tier_name TEXT DEFAULT '',
-                        wallet_address TEXT NOT NULL,
+                        wallet_address TEXT DEFAULT '',
                         type TEXT DEFAULT 'withdraw',
                         status TEXT DEFAULT 'pending',
                         processed_by TEXT,
@@ -122,22 +131,27 @@ def init_withdraw_tables():
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
-                    CREATE INDEX IF NOT EXISTS idx_processed_txs_user_status ON processed_txs(user_id, status);
-                    CREATE INDEX IF NOT EXISTS idx_processed_txs_tx_id ON processed_txs(tx_id);
                 """)
-                cur.execute("""
-                    ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS details TEXT;
-                    ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS failure_reason TEXT;
-                """)
+                cols = ["fee_usd NUMERIC DEFAULT 0.02", "net_coins NUMERIC DEFAULT 0.0", "tier_name TEXT DEFAULT ''", 
+                        "details TEXT", "failure_reason TEXT", "processed_at TIMESTAMPTZ"]
+                for col in cols:
+                    cur.execute(f"ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS {col};")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_processed_txs_user_status ON processed_txs(user_id, status);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_processed_txs_tx_id ON processed_txs(tx_id);")
+            conn.commit()
+    except Exception as e: print(f"⚠️ خطأ تهيئة processed_txs: {e}")
 
-                # 4. تهيئة جدول withdraw_requests (مطلوب لـ history_db)
+    # 4. تهيئة جدول withdraw_requests
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS withdraw_requests (
                         id SERIAL PRIMARY KEY,
                         tx_id TEXT,
                         user_id VARCHAR(255) NOT NULL,
                         coins NUMERIC(18, 4) DEFAULT 0.0,
-                        amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+                        amount NUMERIC(18, 4) DEFAULT 0.0,
                         fee NUMERIC(18, 4) DEFAULT 0.0,
                         fee_usd NUMERIC(18, 4) DEFAULT 0.02,
                         net_amount NUMERIC(18, 4) DEFAULT 0.0,
@@ -155,11 +169,18 @@ def init_withdraw_tables():
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         processed_at TIMESTAMPTZ
                     );
-                    CREATE INDEX IF NOT EXISTS idx_withdraw_requests_user_id ON withdraw_requests(user_id);
-                    CREATE INDEX IF NOT EXISTS idx_withdraw_requests_tx_id ON withdraw_requests(tx_id);
                 """)
+                cols = ["fee_usd NUMERIC DEFAULT 0.02", "net_amount NUMERIC DEFAULT 0.0", "tier_name TEXT DEFAULT ''",
+                        "details TEXT", "failure_reason TEXT"]
+                for col in cols:
+                    cur.execute(f"ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS {col};")
+            conn.commit()
+    except Exception as e: print(f"⚠️ خطأ تهيئة withdraw_requests: {e}")
 
-                # 5. جدول السجل العام للمعاملات transactions (تعديل الـ ID لـ SERIAL)
+    # 5. تهيئة جدول transactions (SERIAL ID لحل مشكلة الإدراج)
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS transactions (
                         id SERIAL PRIMARY KEY,
@@ -181,26 +202,21 @@ def init_withdraw_tables():
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tx_id TEXT;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS coins NUMERIC DEFAULT 0.0;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0.0;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee_usd NUMERIC DEFAULT 0.0;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_coins NUMERIC DEFAULT 0.0;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'ZNX';
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tier_name TEXT DEFAULT '';
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS wallet_address TEXT DEFAULT '';
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'withdraw';
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_by TEXT;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS details TEXT;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS failure_reason TEXT;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
-                    ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
-                    CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
-                    CREATE INDEX IF NOT EXISTS idx_transactions_tx_id ON transactions(tx_id);
                 """)
+                cols = ["tx_id TEXT", "coins NUMERIC DEFAULT 0.0", "amount NUMERIC DEFAULT 0.0", 
+                        "fee_usd NUMERIC DEFAULT 0.0", "net_coins NUMERIC DEFAULT 0.0", "currency TEXT DEFAULT 'ZNX'",
+                        "tier_name TEXT DEFAULT ''", "wallet_address TEXT DEFAULT ''", "type TEXT DEFAULT 'withdraw'",
+                        "status TEXT DEFAULT 'pending'", "details TEXT", "failure_reason TEXT"]
+                for col in cols:
+                    try: cur.execute(f"ALTER TABLE transactions ADD COLUMN IF NOT EXISTS {col};")
+                    except: pass
+            conn.commit()
+    except Exception as e: print(f"⚠️ خطأ تهيئة transactions: {e}")
 
-                # 6. جدول سجلات قرارات المشرفين admin_logs
+    # 6. تهيئة admin_logs
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS admin_logs (
                         id BIGSERIAL PRIMARY KEY,
@@ -212,26 +228,14 @@ def init_withdraw_tables():
                         amount NUMERIC DEFAULT 0.0,
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
-                    ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS tx_id TEXT;
-                    ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS user_id TEXT;
-                    ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS admin_id TEXT;
-                    ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS status TEXT;
-                    ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0.0;
                 """)
             conn.commit()
-        return True
-    except Exception as e:
-        if conn:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-        print(f"⚠️ ملاحظة أثناء تهيئة جداول السحب تلقائياً: {e}")
-        return False
+    except Exception as e: print(f"⚠️ خطأ تهيئة admin_logs: {e}")
+
+    return True
 
 
 class PostgresUserRef:
-    """كلاس توافقي يحاكي user_ref في الكود القديم ليعمل مع Supabase PostgreSQL بسلاسة"""
     def __init__(self, user_id: str, data: dict):
         self.id = str(user_id)
         self.pk_col = "user_id"
@@ -257,7 +261,6 @@ class PostgresUserRef:
             return False
 
         values.extend([self.id, self.id, self.id])
-        # إزالة CAST AS TEXT من tg_id لتسريع فهارس قاعدة البيانات
         sql = f"""
             UPDATE users
             SET {", ".join(set_clauses)}
@@ -274,10 +277,8 @@ class PostgresUserRef:
             return True
         except Exception as e:
             if conn:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+                try: conn.rollback()
+                except: pass
             print(f"⚠️ خطأ تحديث المستخدم في PostgresUserRef: {e}")
             return False
 
@@ -298,61 +299,41 @@ def format_crypto_display(amount):
 
 
 def extract_user_balance(data):
-    """جلب رصيد ZNX للمستخدم بشكل دقيق واعتماد حقل znx_balance فقط"""
-    if not isinstance(data, dict):
-        return 0.0
-
+    if not isinstance(data, dict): return 0.0
     if "znx_balance" in data and data["znx_balance"] is not None:
         try:
             val = float(data["znx_balance"])
-            if val >= 0:
-                return val
-        except (ValueError, TypeError):
-            pass
-
+            if val >= 0: return val
+        except (ValueError, TypeError): pass
     return 0.0
 
 
 def extract_usd_balance(data):
-    """جلب رصيد الدولار للمستخدم"""
-    if not isinstance(data, dict):
-        return 0.0
+    if not isinstance(data, dict): return 0.0
     try:
         val = float(data.get("usd_balance", 0.0) or 0.0)
         return val if val >= 0 else 0.0
-    except (ValueError, TypeError):
-        return 0.0
+    except (ValueError, TypeError): return 0.0
 
 
 def _parse_json_val(raw_val, default_val):
-    if raw_val is None:
-        return default_val
-    if isinstance(raw_val, type(default_val)):
-        return raw_val
+    if raw_val is None: return default_val
+    if isinstance(raw_val, type(default_val)): return raw_val
     if isinstance(raw_val, str):
         try:
             parsed = json.loads(raw_val)
-            if isinstance(parsed, type(default_val)):
-                return parsed
-        except Exception:
-            pass
+            if isinstance(parsed, type(default_val)): return parsed
+        except Exception: pass
     return default_val
 
 
 def get_current_withdraw_tier():
-    """جلب بيانات الشريحة الحالية لسحب العملات من Supabase مع Caching فائق السرعة"""
     now = time.time()
     if _TIER_CACHE["data"] and (now - _TIER_CACHE["timestamp"] < CACHE_TTL_SECONDS):
         return _TIER_CACHE["data"]
 
-    default_tier = {
-        "tier": 1,
-        "name": "الشريحة الأولى",
-        "min_withdraw_znx": 1000.0,
-        "fixed_fee_usd": 0.02
-    }
-    if not get_db_connection:
-        return default_tier
+    default_tier = {"tier": 1, "name": "الشريحة الأولى", "min_withdraw_znx": 1000.0, "fixed_fee_usd": 0.02}
+    if not get_db_connection: return default_tier
 
     try:
         with get_db_connection() as conn:
@@ -370,8 +351,7 @@ def get_current_withdraw_tier():
 
                 res_tier = default_tier
                 for item in tiers:
-                    if not isinstance(item, dict):
-                        continue
+                    if not isinstance(item, dict): continue
                     min_v = float(item.get("min_pts", 0.0) or 0.0)
                     raw_max = item.get("max_pts")
                     max_v = float("inf") if str(raw_max).lower() in ("inf", "infinity", "none", "null") else float(raw_max)
@@ -396,49 +376,36 @@ def get_current_withdraw_tier():
                 _TIER_CACHE["data"] = res_tier
                 _TIER_CACHE["timestamp"] = now
                 return res_tier
-    except Exception as e:
-        print(f"⚠️ خطأ جلب شريحة السحب: {e}")
-
+    except Exception as e: print(f"⚠️ خطأ جلب شريحة السحب: {e}")
     return default_tier
 
 
 def get_user_doc(user_id):
-    """البحث عن سجل المستخدم في Supabase برقم الـ ID أو tg_id بسرعة وحماية"""
     clean_id = _sanitize_id(user_id)
-    if not clean_id or not get_db_connection:
-        return None, None
-
+    if not clean_id or not get_db_connection: return None, None
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # استخدام فحص نصي مباشر للاستفادة من الفهارس
                 cur.execute("""
                     SELECT * FROM users
-                    WHERE tg_id::TEXT = %s
-                       OR user_id::TEXT = %s
-                       OR telegram_id::TEXT = %s
+                    WHERE tg_id::TEXT = %s OR user_id::TEXT = %s OR telegram_id::TEXT = %s
                     LIMIT 1
                 """, (clean_id, clean_id, clean_id))
                 row = cur.fetchone()
                 if row:
                     data = dict(row)
                     return PostgresUserRef(clean_id, data), data
-    except Exception as e:
-        print(f"⚠️ خطأ جلب بيانات المستخدم في get_user_doc: {e}")
-
+    except Exception as e: print(f"⚠️ خطأ جلب بيانات المستخدم: {e}")
     return None, None
 
 
 def get_user_full_details(user_id):
-    """جلب كامل التفاصيل المطلوبة لإشعار السحب اليدوي للأدمن من Supabase + دمج استعلام الإحالات لسرعة 2X"""
     try:
         clean_id = _sanitize_id(user_id)
-        if not clean_id or not get_db_connection:
-            return None
+        if not clean_id or not get_db_connection: return None
         
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # دمج استعلام المستخدم وعدد الإحالات في استعلام واحد متوازي
                 cur.execute("""
                     WITH user_data AS (
                         SELECT * FROM users 
@@ -450,47 +417,26 @@ def get_user_full_details(user_id):
                         WHERE referred_by::TEXT = %s OR ref_by::TEXT = %s
                     )
                     SELECT user_data.*, referral_count_data.count_refs 
-                    FROM user_data 
-                    CROSS JOIN referral_count_data;
+                    FROM user_data CROSS JOIN referral_count_data;
                 """, (clean_id, clean_id, clean_id, clean_id, clean_id))
-                
                 row = cur.fetchone()
-                if not row:
-                    return None
-                    
+                if not row: return None
                 data = dict(row)
 
         real_znx_balance = extract_user_balance(data)
         usd_balance = extract_usd_balance(data)
         zn_balance = float(data.get("balance", 0.0) or 0.0)
-
         wallets = _parse_json_val(data.get("wallets"), {})
         wallet_addr = data.get("wallet_address") or wallets.get("ZNX", "") or ""
 
-        # 1. استخراج تاريخ التسجيل بوضوح
         joined_str = "غير محدد"
         joined_raw = data.get("created_at") or data.get("joined_at") or data.get("registration_date")
         if joined_raw:
             try:
-                if hasattr(joined_raw, "strftime"):
-                    joined_str = joined_raw.strftime("%Y-%m-%d %H:%M:%S")
-                elif isinstance(joined_raw, (int, float)):
-                    joined_str = datetime.fromtimestamp(joined_raw, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                elif isinstance(joined_raw, str):
-                    joined_str = joined_raw.replace("T", " ").split(".")[0].replace("Z", "")[:19]
-            except Exception:
-                pass
-
-        # 2. سرعة التعدين والترقيات والمخازن
-        hourly_rate = float(data.get("hourly_rate", 0.0) or 0.0)
-        upgrades_count = int(data.get("upgrades_count", 0) or 0)
-        storage_level = int(data.get("storage_level", 1) or 1)
-        max_cap = float(data.get("max_cap", 0.0) or 0.0)
-
-        # 3. حساب عدد الإحالات (الأصدقاء) من الاستعلام المدمج
-        db_ref_count = int(data.get("count_refs", 0))
-        field_ref_count = int(data.get("referral_count", 0) or data.get("ref_count", 0) or 0)
-        ref_count = max(db_ref_count, field_ref_count)
+                if hasattr(joined_raw, "strftime"): joined_str = joined_raw.strftime("%Y-%m-%d %H:%M:%S")
+                elif isinstance(joined_raw, (int, float)): joined_str = datetime.fromtimestamp(joined_raw, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                elif isinstance(joined_raw, str): joined_str = joined_raw.replace("T", " ").split(".")[0].replace("Z", "")[:19]
+            except: pass
 
         return {
             "user_id": str(clean_id),
@@ -500,11 +446,11 @@ def get_user_full_details(user_id):
             "zn_balance": zn_balance,
             "usd_balance": usd_balance,
             "joined_at": joined_str,
-            "hourly_rate": hourly_rate,
-            "upgrades_count": upgrades_count,
-            "storage_level": storage_level,
-            "max_cap": max_cap,
-            "ref_count": ref_count,
+            "hourly_rate": float(data.get("hourly_rate", 0.0) or 0.0),
+            "upgrades_count": int(data.get("upgrades_count", 0) or 0),
+            "storage_level": int(data.get("storage_level", 1) or 1),
+            "max_cap": float(data.get("max_cap", 0.0) or 0.0),
+            "ref_count": max(int(data.get("count_refs", 0)), int(data.get("referral_count", 0) or data.get("ref_count", 0) or 0)),
             "is_banned": bool(data.get("is_banned", False)),
             "wallets": wallets,
             "wallet_address": wallet_addr
@@ -515,7 +461,7 @@ def get_user_full_details(user_id):
 
 
 def save_user_wallet(user_id, currency, wallet_address):
-    """حفظ عنوان المحفظة للمستخدم في Supabase بأمان"""
+    """حفظ عنوان المحفظة مع نظام Anti-Cheat لمنع تعدد الحسابات لنفس المحفظة"""
     clean_id = _sanitize_id(user_id)
     clean_wallet = str(wallet_address or "").strip()
 
@@ -525,7 +471,21 @@ def save_user_wallet(user_id, currency, wallet_address):
     if not is_valid_ton_address(clean_wallet):
         return False, "عنوان محفظة TON غير صالح."
 
+    conn = None
     try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # فحص الأمان: التأكد من أن المحفظة غير مستخدمة بواسطة حساب آخر
+                cur.execute("""
+                    SELECT id FROM users 
+                    WHERE wallet_address = %s 
+                      AND (tg_id::TEXT != %s AND user_id::TEXT != %s AND telegram_id::TEXT != %s)
+                    LIMIT 1
+                """, (clean_wallet, clean_id, clean_id, clean_id))
+                
+                if cur.fetchone():
+                    return False, "⚠️ هذه المحفظة مربوطة مسبقاً بحساب آخر في النظام! يرجى استخدام محفظة TON مختلفة."
+
         user_ref, user_data = get_user_doc(clean_id)
         if not user_ref or not user_data:
             return False, "المستخدم غير موجود في قاعدة البيانات."
@@ -541,8 +501,8 @@ def save_user_wallet(user_id, currency, wallet_address):
             return True, "تم حفظ المحفظة بنجاح."
         return False, "تعذر تحديث المحفظة في قاعدة البيانات."
     except Exception as e:
-        print(f"⚠️ خطأ حفظ المحفظة في Supabase: {e}")
-        return False, f"خطأ أثناء الحفظ: {str(e)}"
+        print(f"⚠️ خطأ حفظ المحفظة: {e}")
+        return False, "حدث خطأ أثناء الاتصال بالخادم لحفظ المحفظة."
 
 
 # تهيئة الجداول تلقائياً عند استيراد الملف
