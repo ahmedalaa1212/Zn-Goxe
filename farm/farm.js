@@ -1,5 +1,5 @@
 /**
- * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Retroactive Jumps)
+ * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual, True Cap & VIP Sync)
  * Cleaned, Optimized & Modularized Version
  * Boost Waterfall: Monetix (Primary) -> Monetag (Fallback)
  * Daily Claim: Monetag (Primary) -> Monetix (Fallback)
@@ -72,7 +72,7 @@ window.closeAutoClaimModal = function() {
         try { sessionStorage.setItem('zn_start_param', START_PARAM); } catch (e) {}
     }
 
-    // إعدادات اللعبة والإعلانات (Monetix + Monetag فقط)
+    // إعدادات اللعبة الموحدة والمطابقة للسيرفر (farm_db.py)
     const GAME_CONFIG = {
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
@@ -81,41 +81,31 @@ window.closeAutoClaimModal = function() {
         boostDurationMs: 2 * 60 * 60 * 1000, 
         boostCooldownMs: 3 * 60 * 60 * 1000, 
         upgradeCosts: {
-            1: { cost_zn: 0, cost_usd: 0.0, rate: 0.1 },
-            2: { cost_zn: 100, cost_usd: 0.0, rate: 0.2 },
-            3: { cost_zn: 400, cost_usd: 0.25, rate: 0.5 },
-            4: { cost_zn: 1500, cost_usd: 0.60, rate: 1.2 },
-            5: { cost_zn: 5000, cost_usd: 1.25, rate: 2.8 },
-            6: { cost_zn: 15000, cost_usd: 3.00, rate: 6.0 },
-            7: { cost_zn: 40000, cost_usd: 6.00, rate: 14.0 },
-            8: { cost_zn: 100000, cost_usd: 12.00, rate: 30.0 }
+            1: { cost_zn: 100.0, cost_usd: 0.0, rate: 0.20 },
+            2: { cost_zn: 400.0, cost_usd: 0.25, rate: 0.50 },
+            3: { cost_zn: 1500.0, cost_usd: 0.60, rate: 1.20 },
+            4: { cost_zn: 5000.0, cost_usd: 1.25, rate: 2.80 },
+            5: { cost_zn: 15000.0, cost_usd: 3.00, rate: 6.00 },
+            6: { cost_zn: 40000.0, cost_usd: 6.00, rate: 14.00 },
+            7: { cost_zn: 100000.0, cost_usd: 12.00, rate: 30.00 },
+            8: { cost_zn: 250000.0, cost_usd: 25.00, rate: 70.00 }
         },
-        // 🔥 تم الإصلاح: توحيد سعات المخزن لتتطابق مع الدالة المجمعة في game.js
+        // جدول سعات المخزن الحقيقي المطابق لـ farm_db.py (المستويات 0 إلى 8)
         storageConfig: {
-            "0": { capacity: 100.0, cost_zn: 0, cost_usd: 0.0 },
-            "1": { capacity: 120.0, cost_zn: 50, cost_usd: 0.0 },
-            "2": { capacity: 150.0, cost_zn: 200, cost_usd: 0.20 },
-            "3": { capacity: 180.0, cost_zn: 800, cost_usd: 0.50 },
-            "4": { capacity: 220.0, cost_zn: 2500, cost_usd: 1.00 },
-            "5": { capacity: 260.0, cost_zn: 7000, cost_usd: 2.50 },
-            "6": { capacity: 300.0, cost_zn: 20000, cost_usd: 5.00 },
-            "7": { capacity: 350.0, cost_zn: 50000, cost_usd: 10.00 },
-            "8": { capacity: 400.0, cost_zn: 120000, cost_usd: 20.00 },
-            "9": { capacity: 450.0, cost_zn: 250000, cost_usd: 35.00 },
-            "10": { capacity: 500.0, cost_zn: 500000, cost_usd: 60.00 },
-            "11": { capacity: 600.0, cost_zn: 1000000, cost_usd: 100.00 },
-            "12": { capacity: 700.0, cost_zn: 2500000, cost_usd: 200.00 },
-            "13": { capacity: 800.0, cost_zn: 5000000, cost_usd: 400.00 },
-            "14": { capacity: 900.0, cost_zn: 10000000, cost_usd: 750.00 },
-            "15": { capacity: 1000.0, cost_zn: 20000000, cost_usd: 1500.00 }
+            "0": { capacity: 0.5, cost_zn: 0.0, cost_usd: 0.0 },
+            "1": { capacity: 1.5, cost_zn: 50.0, cost_usd: 0.0 },
+            "2": { capacity: 4.0, cost_zn: 200.0, cost_usd: 0.20 },
+            "3": { capacity: 10.0, cost_zn: 800.0, cost_usd: 0.50 },
+            "4": { capacity: 25.0, cost_zn: 2500.0, cost_usd: 1.00 },
+            "5": { capacity: 60.0, cost_zn: 7000.0, cost_usd: 2.50 },
+            "6": { capacity: 150.0, cost_zn: 20000.0, cost_usd: 5.00 },
+            "7": { capacity: 400.0, cost_zn: 50000.0, cost_usd: 10.00 },
+            "8": { capacity: 1000.0, cost_zn: 120000.0, cost_usd: 20.00 }
         },
         dailyRewards: [
-            0.2, 0.4, 0.6, 0.8, 1.0,     
-            1.2, 1.5, 1.8, 2.0, 2.5,     
-            3.0, 3.5, 4.0, 4.5, 5.0,     
-            6.0, 7.0, 8.0, 9.0, 10.0,    
-            12.0, 14.0, 16.0, 18.0, 20.0,  
-            22.0, 25.0, 30.0, 35.0, 40.0   
+            0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.20, 1.50, 2.00,
+            2.50, 3.00, 3.50, 4.00, 5.00, 6.00, 7.00, 8.00, 10.0, 12.0,
+            14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 32.0, 35.0, 38.0, 40.0
         ]
     };
 
@@ -133,6 +123,108 @@ window.closeAutoClaimModal = function() {
     let lastCheckedDate = "";
     let lastAutoClaimAttempt = 0;
     let lastClickTime = 0;
+
+    function toBool(val) {
+        if (typeof val === 'boolean') return val;
+        if (typeof val === 'string') return ['true', '1', 'yes', 'ok', 'success'].includes(val.trim().toLowerCase());
+        if (typeof val === 'number') return val !== 0;
+        return false;
+    }
+
+    function parseVipStatus(pData) {
+        if (!pData) return {};
+        let vip = pData.vip_status;
+        if (typeof vip === 'string') {
+            try { vip = JSON.parse(vip); } catch (e) { vip = {}; }
+        }
+        return (vip && typeof vip === 'object') ? vip : {};
+    }
+
+    function getAdjustedNowMs() {
+        return NativeDateNow() + (window.serverTimeOffset || 0);
+    }
+
+    function parseServerDateMs(dateStr) {
+        if (!dateStr) return getAdjustedNowMs();
+        if (typeof dateStr === 'number') {
+            // إذا كان بالثواني نحوله إلى ملي ثانية
+            return dateStr < 10000000000 ? dateStr * 1000 : dateStr;
+        }
+        let s = String(dateStr).trim().replace(' ', 'T');
+        
+        const tIndex = s.indexOf('T');
+        if (tIndex !== -1) {
+            const timePart = s.substring(tIndex + 1);
+            if (!timePart.includes('Z') && !timePart.includes('+') && !timePart.includes('-')) s += 'Z';
+        } else if (!s.includes('Z') && !s.includes('+') && !s.includes('-')) {
+            s += 'Z';
+        }
+
+        const ms = new Date(s).getTime();
+        return isNaN(ms) ? getAdjustedNowMs() : ms;
+    }
+
+    function isVipPackageExpired(pData) {
+        if (!pData) return true;
+        const vip = parseVipStatus(pData);
+        const rawExp = vip.expires_at || vip.vip_expires_at || vip.bot_expires_at || pData.bot_expires_at || pData.vip_expires_at || pData.expires_at;
+        if (!rawExp) return false; // إذا لم يكن هناك تاريخ انتهاء محدد
+        const expMs = parseServerDateMs(rawExp);
+        return expMs <= getAdjustedNowMs();
+    }
+
+    function isDoubleStorageActive(pData) {
+        if (!pData || isVipPackageExpired(pData)) return false;
+        const vip = parseVipStatus(pData);
+        if (toBool(vip.double_storage)) return true;
+        if (toBool(pData.is_double_storage_active)) return true;
+        if (Number(pData.vip_storage_multiplier) === 2) return true;
+        return false;
+    }
+
+    function isBotCurrentlyActive(pData) {
+        if (!pData || isVipPackageExpired(pData)) return false;
+        const vip = parseVipStatus(pData);
+        if (toBool(vip.auto_bot)) return true;
+        if (toBool(pData.bot_active) || toBool(pData.is_auto_bot_active) || toBool(pData.has_bot)) return true;
+        return false;
+    }
+
+    function getMaxStorageLevel() {
+        const keys = Object.keys(GAME_CONFIG.storageConfig || {}).map(k => parseInt(k, 10)).filter(n => !isNaN(n));
+        return keys.length > 0 ? Math.max(...keys) : 8;
+    }
+
+    // 🛡️ الدالة المحمية والموحدة لحساب السعة الحقيقية للمخزن (تمنع القفز إلى رقم 6 نهائياً)
+    function calculateEffectiveMaxCap(pData) {
+        const state = pData || getState();
+        if (!state) return 0.5;
+
+        const maxAllowedLvl = getMaxStorageLevel();
+        let stgLvl = parseInt(state.storage_level ?? 0, 10);
+        if (isNaN(stgLvl) || stgLvl < 0) stgLvl = 0;
+        if (stgLvl > maxAllowedLvl) stgLvl = maxAllowedLvl;
+
+        const cfg = (GAME_CONFIG.storageConfig && GAME_CONFIG.storageConfig[String(stgLvl)]) || null;
+        let baseCap = 0.5;
+
+        if (cfg !== null && cfg !== undefined) {
+            baseCap = typeof cfg === 'object' ? parseFloat(cfg.capacity ?? cfg.cap ?? 0.5) : parseFloat(cfg);
+        } else if (state.max_cap !== undefined && parseFloat(state.max_cap) > 0) {
+            baseCap = parseFloat(state.max_cap);
+            return baseCap;
+        }
+
+        if (isNaN(baseCap) || baseCap <= 0) baseCap = 0.5;
+        const extraStorage = Math.max(0, parseFloat(state.extra_storage || 0));
+        const rawCap = baseCap + extraStorage;
+
+        const finalCap = isDoubleStorageActive(state) ? (rawCap * 2.0) : rawCap;
+        return Math.round(finalCap * 10000) / 10000;
+    }
+
+    // تصدير الدالة عالمياً لإصلاح أي استدعاء من ملفات أخرى (مثل المتجر أو game.js)
+    window.calculateTrueMaxCap = calculateEffectiveMaxCap;
 
     function updateState(patch) {
         if (!patch || typeof patch !== 'object') return;
@@ -154,23 +246,6 @@ window.closeAutoClaimModal = function() {
         return false;
     }
 
-    function parseServerDateMs(dateStr) {
-        if (!dateStr) return getAdjustedNowMs();
-        if (typeof dateStr === 'number') return dateStr;
-        let s = String(dateStr).trim().replace(' ', 'T');
-        
-        const tIndex = s.indexOf('T');
-        if (tIndex !== -1) {
-            const timePart = s.substring(tIndex + 1);
-            if (!timePart.includes('Z') && !timePart.includes('+') && !timePart.includes('-')) s += 'Z';
-        } else if (!s.includes('Z') && !s.includes('+') && !s.includes('-')) {
-            s += 'Z';
-        }
-
-        const ms = new Date(s).getTime();
-        return isNaN(ms) ? getAdjustedNowMs() : ms;
-    }
-
     function getCacheKey() {
         const userId = tele?.initDataUnsafe?.user?.id || getState().tg_id || getState().telegram_id;
         return userId ? `zn_farm_cache_${userId}` : 'zn_farm_cache_global';
@@ -190,6 +265,7 @@ window.closeAutoClaimModal = function() {
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (parsed && typeof parsed === 'object') {
+                    parsed.max_cap = calculateEffectiveMaxCap(parsed);
                     window.userState = parsed;
                     window.PlayerData = parsed;
                     return true;
@@ -243,10 +319,6 @@ window.closeAutoClaimModal = function() {
         }
     }
 
-    function getAdjustedNowMs() {
-        return NativeDateNow() + (window.serverTimeOffset || 0);
-    }
-
     function syncServerTime(serverTimeStr) {
         if (!serverTimeStr) return;
         try {
@@ -295,6 +367,7 @@ window.closeAutoClaimModal = function() {
         if (isNaN(num) || num === 0) return "0.00";
         if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
         if (num >= 1000) return (num / 1000).toFixed(2) + "K";
+        if (num < 1 && num > 0) return num.toFixed(4);
         return num.toFixed(2);
     }
 
@@ -349,7 +422,7 @@ window.closeAutoClaimModal = function() {
     function setStoredBalance(newBalance, newUsdBalance) {
         const patch = {};
 
-        if (newBalance !== undefined && newBalance !== null) {
+        if (newBalance !== undefined && newBalance !== null && !isNaN(parseFloat(newBalance))) {
             const val = parseFloat(newBalance);
             patch.balance = val;
             patch.zn_balance = val;
@@ -359,7 +432,7 @@ window.closeAutoClaimModal = function() {
             if (balEl) balEl.innerHTML = `${formatSmartBalanceHTML(val)} ZN`;
         }
 
-        if (newUsdBalance !== undefined && newUsdBalance !== null) {
+        if (newUsdBalance !== undefined && newUsdBalance !== null && !isNaN(parseFloat(newUsdBalance))) {
             const usdVal = parseFloat(newUsdBalance);
             patch.usd_balance = usdVal;
             patch.usdt_balance = usdVal;
@@ -580,11 +653,7 @@ window.closeAutoClaimModal = function() {
             : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : nowMs);
 
         let secondsPassed = Math.max(0, (nowMs - lastAccrualMs) / 1000);
-
-        // 🔥 تم الإصلاح: الاعتماد المطلق على calculateTrueMaxCap لمنع القراءة الخاطئة
-        let maxC = typeof window.calculateTrueMaxCap === 'function' 
-            ? window.calculateTrueMaxCap(pData) 
-            : (parseFloat(pData.max_cap) || 100);
+        let maxC = calculateEffectiveMaxCap(pData);
 
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
         let boostRate = getActiveBoostRate(pData);
@@ -596,6 +665,7 @@ window.closeAutoClaimModal = function() {
         if (accumulated >= maxC) accumulated = maxC;
 
         updateState({
+            max_cap: maxC,
             base_unclaimed: accumulated,
             unclaimed: accumulated,
             last_accrual_time: nowMs
@@ -607,20 +677,23 @@ window.closeAutoClaimModal = function() {
     function updateBotAndAutoClaimUI(resData) {
         if (!resData) return;
 
-        const isBotActive = (resData.bot_active !== undefined) 
-            ? resData.bot_active 
-            : (resData.player?.bot_active !== undefined 
-                ? resData.player.bot_active 
-                : (resData.player?.is_auto_bot_active === true));
+        const pData = getState();
+        const isBotActive = isBotCurrentlyActive(pData) || toBool(resData.bot_active) || toBool(resData.is_auto_bot_active);
+        const isDoubleCap = isDoubleStorageActive(pData);
 
-        updateState({ bot_active: isBotActive });
+        updateState({
+            bot_active: isBotActive,
+            is_auto_bot_active: isBotActive,
+            is_double_storage_active: isDoubleCap,
+            max_cap: calculateEffectiveMaxCap(pData)
+        });
 
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
         if (botBadge) {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         }
 
-        const autoCollected = parseFloat(resData.auto_claimed_amount || resData.auto_collected || 0);
+        const autoCollected = parseFloat(resData.auto_claimed_amount ?? resData.auto_collected ?? resData.player?.auto_claimed_amount ?? 0);
         if (autoCollected > 0) {
             const autoModal = document.getElementById('auto-claim-modal');
             const autoAmountText = document.getElementById('auto-claimed-amount') || document.getElementById('modal-auto-amount');
@@ -645,13 +718,16 @@ window.closeAutoClaimModal = function() {
                 const nowMs = getAdjustedNowMs();
                 const claimTime = resData.last_claim_time || new Date(nowMs).toISOString();
 
-                updateState({
+                const patch = {
                     last_claim_time: claimTime,
                     unclaimed: 0.0,
                     base_unclaimed: 0.0,
                     last_accrual_time: parseServerDateMs(claimTime)
-                });
+                };
+                if (resData.max_cap !== undefined) patch.max_cap = parseFloat(resData.max_cap);
+                if (resData.hourly_rate !== undefined) patch.hourly_rate = parseFloat(resData.hourly_rate);
 
+                updateState(patch);
                 window.updateFarmUI();
 
                 if (isAuto) {
@@ -710,8 +786,8 @@ window.closeAutoClaimModal = function() {
                         GAME_CONFIG.monetixBlockId = cfg.monetix_block_id || cfg.monetix_zone_id;
                     }
                     if (cfg.daily_rewards && Array.isArray(cfg.daily_rewards)) GAME_CONFIG.dailyRewards = cfg.daily_rewards;
-                    if (cfg.upgrade_costs) GAME_CONFIG.upgradeCosts = cfg.upgrade_costs;
-                    if (cfg.storage_config) GAME_CONFIG.storageConfig = cfg.storage_config;
+                    if (cfg.upgrade_costs && typeof cfg.upgrade_costs === 'object') GAME_CONFIG.upgradeCosts = cfg.upgrade_costs;
+                    if (cfg.storage_config && typeof cfg.storage_config === 'object') GAME_CONFIG.storageConfig = cfg.storage_config;
                     if (cfg.max_upgrades_per_level) GAME_CONFIG.maxUpgradesPerLevel = cfg.max_upgrades_per_level;
                     if (cfg.daily_boost_reward) GAME_CONFIG.dailyBoostReward = cfg.daily_boost_reward;
                 }
@@ -724,18 +800,27 @@ window.closeAutoClaimModal = function() {
                     const isNewUser = !alreadySeenLocally && (resData.player.is_new_user === true && resData.player.welcome_seen === false);
                     if (isNewUser) clearStaleLocalCache();
 
-                    const isBotActive = (resData.bot_active !== undefined)
-                        ? resData.bot_active
-                        : (resData.player.bot_active !== undefined ? resData.player.bot_active : (resData.player.is_auto_bot_active === true));
-
                     const serverTimeMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
+                    const parsedVip = parseVipStatus(resData.player);
 
-                    const newState = Object.assign({}, resData.player, {
+                    const mergedPlayer = Object.assign({}, resData.player, {
+                        vip_status: parsedVip
+                    });
+
+                    const isBotActive = isBotCurrentlyActive(mergedPlayer) || toBool(resData.bot_active) || toBool(resData.is_auto_bot_active);
+                    const isDoubleCap = isDoubleStorageActive(mergedPlayer);
+                    const trueMaxCap = calculateEffectiveMaxCap(mergedPlayer);
+                    const currentUnclaimed = Math.min(trueMaxCap, Math.max(0, parseFloat(resData.player.unclaimed || 0)));
+
+                    const newState = Object.assign({}, mergedPlayer, {
                         is_new_user: isNewUser,
                         welcome_seen: !isNewUser,
                         bot_active: isBotActive,
-                        base_unclaimed: parseFloat(resData.player.unclaimed || 0),
-                        unclaimed: parseFloat(resData.player.unclaimed || 0),
+                        is_auto_bot_active: isBotActive,
+                        is_double_storage_active: isDoubleCap,
+                        max_cap: trueMaxCap,
+                        base_unclaimed: currentUnclaimed,
+                        unclaimed: currentUnclaimed,
                         last_accrual_time: serverTimeMs
                     });
 
@@ -796,11 +881,12 @@ window.closeAutoClaimModal = function() {
             rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span>⚡${boostIndicator}`;
         }
 
-        const stgLvl = parseInt(pData.storage_level ?? 0, 10);
+        const maxAllowedStgLvl = getMaxStorageLevel();
+        const stgLvl = Math.min(maxAllowedStgLvl, Math.max(0, parseInt(pData.storage_level ?? 0, 10) || 0));
         const stgLvlEl = document.getElementById('storage-level-num');
         if (stgLvlEl) stgLvlEl.innerText = stgLvl + 1;
 
-        const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
+        const isBotActive = isBotCurrentlyActive(pData);
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
         if (botBadge) botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
 
@@ -809,8 +895,8 @@ window.closeAutoClaimModal = function() {
             upgradeStgBtn.onclick = window.handleStorageUpgrade;
             const nextLvl = stgLvl + 1;
             const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
-            // تم تعديل الحد الأقصى ليستوعب المستويات الجديدة
-            if (stgLvl >= 15 || !nextCfg) {
+
+            if (stgLvl >= maxAllowedStgLvl || !nextCfg) {
                 upgradeStgBtn.innerText = "المخزن في المستوى الأقصى (MAX) 🏆";
                 upgradeStgBtn.disabled = true;
                 upgradeStgBtn.className = "storage-upgrade-btn btn-disabled";
@@ -820,7 +906,7 @@ window.closeAutoClaimModal = function() {
                 const costStrZn = formatCompactCost(costZn);
                 const costStrUsd = costUsd > 0 ? ` + $${costUsd.toFixed(2)}` : '';
                 
-                const currentUnclaim = parseFloat(getState().unclaimed || 0);
+                const currentUnclaim = parseFloat(pData.unclaimed || 0);
                 const canAfford = ((bal + currentUnclaim) >= costZn) && (usdBal >= costUsd);
 
                 upgradeStgBtn.innerText = isUpgradingStorage ? "جاري الترقية... ⏳" : `ترقية المخزن Lvl ${nextLvl + 1} (${costStrZn} ZN${costStrUsd}) 📦`;
@@ -837,12 +923,12 @@ window.closeAutoClaimModal = function() {
             const currentUnclaim = parseFloat(pData.unclaimed || 0);
 
             for (let i = 1; i <= 8; i++) {
-                let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
-                let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || 0);
+                let count = parseInt(currentUpgrades[`lvl${i}`] || currentUpgrades[String(i)] || 0, 10);
+                let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || currentUpgrades[String(i-1)] || 0, 10);
                 let isUnlocked = (i === 1) || (prevCount > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 
-                let lvlCfg = GAME_CONFIG.upgradeCosts[i] || {};
+                let lvlCfg = GAME_CONFIG.upgradeCosts[i] || GAME_CONFIG.upgradeCosts[String(i)] || {};
                 let costZn = lvlCfg.cost_zn ?? lvlCfg.base_cost ?? lvlCfg.price ?? 0;
                 let costUsd = lvlCfg.cost_usd ?? lvlCfg.base_cost_usd ?? 0;
 
@@ -857,7 +943,7 @@ window.closeAutoClaimModal = function() {
                     <div class="mining-card">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i} (MAX)</div>
-                        <button class="mining-card-btn" disabled>15/15 MAX</button>
+                        <button class="mining-card-btn" disabled>${GAME_CONFIG.maxUpgradesPerLevel}/${GAME_CONFIG.maxUpgradesPerLevel} MAX</button>
                     </div>`;
                 } else if (count > 0 || isUnlocked) {
                     const titleText = count > 0 ? `مستوى ${i} (x${count})` : `مستوى ${i}`;
@@ -883,12 +969,10 @@ window.closeAutoClaimModal = function() {
         updateBoostButtonUI(pData);
         renderDailyRewards();
 
-        // 🔥 تم الإصلاح: الاعتماد المطلق على calculateTrueMaxCap لمنع القراءة الخاطئة
-        const maxC = typeof window.calculateTrueMaxCap === 'function' 
-            ? window.calculateTrueMaxCap(pData) 
-            : (parseFloat(pData.max_cap) || 100);
+        // استخدام الدالة المحمية للسعة الحقيقية (مع دعم الضعف ×2 للباقات الفعالة)
+        const maxC = calculateEffectiveMaxCap(pData);
+        const unclaim = Math.min(maxC, Math.max(0, parseFloat(pData.unclaimed || 0)));
 
-        const unclaim = Math.min(maxC, parseFloat(pData.unclaimed || 0));
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         if (progressEl && storageTextEl) {
@@ -1012,11 +1096,8 @@ window.closeAutoClaimModal = function() {
         }
         lastCheckedDate = todayStr;
 
-        // 🔥 تم الإصلاح: الاعتماد المطلق على calculateTrueMaxCap لمنع القراءة الخاطئة
-        let maxC = typeof window.calculateTrueMaxCap === 'function' 
-            ? window.calculateTrueMaxCap(pData) 
-            : (parseFloat(pData.max_cap) || 100);
-
+        // حساب السعة الحقيقية في كل ثانية مع مراقبة صلاحية باقة الـ VIP
+        let maxC = calculateEffectiveMaxCap(pData);
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
@@ -1030,13 +1111,25 @@ window.closeAutoClaimModal = function() {
         let baseUnclaimed = parseFloat(pData.base_unclaimed !== undefined ? pData.base_unclaimed : (pData.unclaimed || 0));
         let unclaim = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
-        if (unclaim >= maxC) unclaim = maxC;
-        if (window.userState) window.userState.unclaimed = unclaim;
-        if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
+        const isBotActive = isBotCurrentlyActive(pData);
 
-        const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
+        if (unclaim >= maxC) unclaim = maxC;
+
+        if (window.userState) {
+            window.userState.unclaimed = unclaim;
+            window.userState.max_cap = maxC;
+            window.userState.bot_active = isBotActive;
+        }
+        if (window.PlayerData) {
+            window.PlayerData.unclaimed = unclaim;
+            window.PlayerData.max_cap = maxC;
+            window.PlayerData.bot_active = isBotActive;
+        }
+
+        const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
+        if (botBadge) botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         
-        // بوت التجميع التلقائي سيحسب نسبة الـ 80% هنا بناءً على السعة الحقيقية الآن (مثلاً 640 بدلاً من 4.8)
+        // التجميع التلقائي الفوري عند وصول المخزن إلى 80% من السعة الفعلية
         if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain) {
             if (NativeDateNow() - lastAutoClaimAttempt > 10000) {
                 lastAutoClaimAttempt = NativeDateNow();
@@ -1098,7 +1191,8 @@ window.closeAutoClaimModal = function() {
 
     function syncOnVisibility() {
         if (document.visibilityState === "visible") {
-            window.fetchPlayerDataFromServer(false);
+            // جلب إجباري من السيرفر فور فتح البوت لتنفيذ التجميع التلقائي للأوفلاين
+            window.fetchPlayerDataFromServer(true);
         }
     }
 
@@ -1115,11 +1209,12 @@ window.closeAutoClaimModal = function() {
         if (isDebouncedClick() || isUpgradingStorage) return;
 
         const pData = getState();
+        const maxAllowedStgLvl = getMaxStorageLevel();
         const stgLvl = parseInt(pData.storage_level ?? 0, 10);
         const nextLvl = stgLvl + 1;
         const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
 
-        if (stgLvl >= 15 || !nextCfg) return;
+        if (stgLvl >= maxAllowedStgLvl || !nextCfg) return;
 
         const costZn = typeof nextCfg === 'object' ? (nextCfg.cost_zn ?? nextCfg.cost ?? 0) : 0;
         const costUsd = typeof nextCfg === 'object' ? (nextCfg.cost_usd ?? 0) : 0;
@@ -1140,15 +1235,7 @@ window.closeAutoClaimModal = function() {
         const nowMs = getAdjustedNowMs();
         setStoredBalance(Math.max(0, totalAvailableZn - costZn), Math.max(0, usdBal - costUsd));
 
-        // 🔥 تم الإصلاح: الاعتماد على الدالة العالمية الموحدة لمعرفة سعة المخزن بعد الترقية
-        let effectiveNextCap;
-        if (typeof window.calculateTrueMaxCap === 'function') {
-            effectiveNextCap = window.calculateTrueMaxCap(Object.assign({}, pData, { storage_level: nextLvl }));
-        } else {
-            const isDouble = pData.vip_storage_multiplier === 2 || pData.is_double_storage_active === true;
-            const rawNextCap = nextCfg.capacity !== undefined ? parseFloat(nextCfg.capacity) : 100;
-            effectiveNextCap = isDouble ? (rawNextCap * 2.0) : rawNextCap;
-        }
+        const effectiveNextCap = calculateEffectiveMaxCap(Object.assign({}, pData, { storage_level: nextLvl }));
 
         updateState({
             storage_level: nextLvl,
@@ -1166,15 +1253,21 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
+                const confirmedLvl = resData.storage_level !== undefined ? parseInt(resData.storage_level, 10) : nextLvl;
+                const confirmedCap = resData.max_cap !== undefined 
+                    ? parseFloat(resData.max_cap) 
+                    : calculateEffectiveMaxCap(Object.assign({}, getState(), { storage_level: confirmedLvl }));
+
                 updateState({
-                    storage_level: resData.storage_level !== undefined ? resData.storage_level : nextLvl,
+                    storage_level: confirmedLvl,
+                    max_cap: confirmedCap,
                     unclaimed: 0.0,
                     base_unclaimed: 0.0,
                     last_claim_time: resData.server_time,
                     last_accrual_time: parseServerDateMs(resData.server_time)
                 });
 
-                showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
+                showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${confirmedLvl + 1}!`);
             } else {
                 restoreState(stateBackup);
                 showToast(resData?.error || "❌ تعذر ترقية المخزن");
@@ -1192,7 +1285,7 @@ window.closeAutoClaimModal = function() {
     window.handleUpgrade = async function(level) {
         if (isDebouncedClick() || upgradingLevel !== null) return;
 
-        const lvlCfg = GAME_CONFIG.upgradeCosts[level] || {};
+        const lvlCfg = GAME_CONFIG.upgradeCosts[level] || GAME_CONFIG.upgradeCosts[String(level)] || {};
         const costZn = lvlCfg.cost_zn ?? lvlCfg.base_cost ?? lvlCfg.price ?? 0;
         const costUsd = lvlCfg.cost_usd ?? lvlCfg.base_cost_usd ?? 0;
 
@@ -1221,13 +1314,13 @@ window.closeAutoClaimModal = function() {
         upgradesObj[`lvl${level}`] = currentCount + 1;
 
         const totalUpgradesCount = Object.values(upgradesObj).reduce((acc, v) => acc + (parseInt(v) || 0), 0);
-        const addRate = parseFloat(lvlCfg.rate || 0);
+        const addRate = parseFloat(lvlCfg.rate || lvlCfg.rate_bonus || 0);
         const currentHourly = parseFloat(stateObj.hourly_rate || 0.1);
 
         updateState({
             upgrades: upgradesObj,
             upgrades_count: totalUpgradesCount,
-            hourly_rate: addRate > 0 ? (currentHourly + addRate) : currentHourly,
+            hourly_rate: addRate > 0 ? Number((currentHourly + addRate).toFixed(4)) : currentHourly,
             unclaimed: 0.0,
             base_unclaimed: 0.0,
             last_claim_time: new Date(nowMs).toISOString(),
@@ -1249,6 +1342,7 @@ window.closeAutoClaimModal = function() {
                     last_accrual_time: parseServerDateMs(resData.server_time)
                 };
                 if (newHourly !== undefined && newHourly !== null) patch.hourly_rate = parseFloat(newHourly);
+                if (resData.max_cap !== undefined) patch.max_cap = parseFloat(resData.max_cap);
                 if (resData.upgrades) {
                     patch.upgrades = resData.upgrades;
                     patch.upgrades_count = Object.values(resData.upgrades).reduce((acc, v) => acc + (parseInt(v) || 0), 0);
@@ -1405,7 +1499,8 @@ window.closeAutoClaimModal = function() {
         }
 
         try {
-            await executeClaimApi(false);
+            const ok = await executeClaimApi(false);
+            if (!ok) restoreState(stateBackup);
         } catch (e) {
             restoreState(stateBackup);
         } finally {
