@@ -72,7 +72,7 @@
   .btn-cancel { flex: 1; background: #ef4444; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
 </style>
 
-<!-- مشغل كود المزامنة التلقائية يعمل فورياً حتى عند تحميل الصفحة عبر innerHTML -->
+<!-- مشغل كود المزامنة التلقائية يعمل فورياً عبر MutationObserver فقط بدون إرهاق المعالج -->
 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onerror="
   (function syncFeeHandler() {
     function updateNoticeFee() {
@@ -88,13 +88,10 @@
     }
     updateNoticeFee();
     var feeElem = document.getElementById('fee-amount');
-    if (feeElem && !window._withdrawFeeSyncInit) {
-      window._withdrawFeeSyncInit = true;
-      if (window.MutationObserver) {
-        var obs = new MutationObserver(updateNoticeFee);
-        obs.observe(feeElem, { childList: true, characterData: true, subtree: true });
-      }
-      setInterval(updateNoticeFee, 200);
+    if (feeElem && !feeElem.dataset.feeObserved && window.MutationObserver) {
+      feeElem.dataset.feeObserved = 'true';
+      var obs = new MutationObserver(updateNoticeFee);
+      obs.observe(feeElem, { childList: true, characterData: true, subtree: true });
     }
   })();
 " style="display:none;" />
@@ -137,7 +134,7 @@
         <span id="min-withdraw-info" style="color:#f59e0b; font-size:11px;">الحد الأدنى: 1000 ZNX</span>
       </label>
       <div class="w-input-wrapper">
-        <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="0.000001" step="any" />
+        <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="0.0001" step="0.0001" inputmode="decimal" />
         <button type="button" class="btn-max" onclick="withdrawModule.setPreset('max')">MAX 🚀</button>
       </div>
     </div>
@@ -201,4 +198,4 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+<script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js" defer></script>
