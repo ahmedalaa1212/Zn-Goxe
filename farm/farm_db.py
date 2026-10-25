@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 farm_db.py - موديول إدارة المزرعة والتعدين المربوط بـ Supabase (PostgreSQL)
-مُعالج من بطء الـ Cooldown ومشكلة تحميل بيانات المتجر والباقات ⚡
-تم توحيد الإعدادات وإزالة تكرار الأعمدة (storage_config و packages فقط)
-✅ تم تطبيق القاعدة 7: Atomic Updates & COALESCE لمنع الأرصدة السالبة وقيم Null
-✅ تم حل مشكلة القفزات عند الترقية (Auto-Claim on Upgrade)
-✅ تم ربط توزيع عمولات الإحالة (10% / 12% VIP) ومزامنة الـ 3 ترقيات تلقائياً مع جدول الأصدقاء
-✅ تحديث أمني: تفعيل بوت الأوفلاين، حماية تخطي المستويات، ومطابقة السعة المضاعفة
+مُعالج بالكامل لمشاكل السعة، باقات الـ VIP (×2)، وبوت التجميع التلقائي للأوفلاين ⚡
+✅ Atomic Updates & COALESCE لمنع الأرصدة السالبة وقيم Null
+✅ تجميع تلقائي مستمر بدون سقف مخزن طوال فترة إغلاق البوت للمشتركين في الباقات
+✅ فك تشفير آمن لـ vip_status ومراقبة دقيقة لوقت انتهاء الباقة (expires_at)
+✅ حماية صارمة لسرعة التعدين، منع تخطي المستويات، وتوزيع عمولات الإحالة (10% / 12% VIP)
 """
 import time
 import json
@@ -34,9 +33,10 @@ except Exception as _imp_err:
 
 # ==================== ثوابت وحدود الأمان القصوى (Sanity Checks Limits) ====================
 MAX_SAFE_BALANCE = 1000000000.0     # الحد الأقصى المسموح به للرصيد (1 مليار ZN)
-MAX_SAFE_HOURLY_RATE = 500.0        # الحد الأقصى لمعدل التعدين بالساعة (500 ZN/h)
-MAX_SAFE_STORAGE_CAP = 5000.0       # الحد الأقصى لسعة المخزن (5000 ZN)
+MAX_SAFE_HOURLY_RATE = 5000.0       # الحد الأقصى لمعدل التعدين بالساعة (يستوعب كافة الترقيات القصوى)
+MAX_SAFE_STORAGE_CAP = 50000.0      # الحد الأقصى لسعة المخزن (يستوعب المستوى الأقصى مع الضعف ×2)
 FUTURE_SKEW_TOLERANCE_SEC = 300     # التسامح المسموح لفرق التوقيت المستقبلي (5 دقائق)
+MIN_OFFLINE_AUTO_CLAIM_SEC = 30     # الحد الأدنى لثواني الأوفلاين لتحويل الرصيد تلقائياً عند فتح البوت
 
 
 def to_bool(val):
@@ -44,10 +44,31 @@ def to_bool(val):
     if isinstance(val, bool):
         return val
     if isinstance(val, str):
-        return val.strip().lower() in ("true", "1", "yes")
+        return val.strip().lower() in ("true", "1", "yes", "ok", "success")
     if isinstance(val, (int, float)):
         return val != 0
     return False
+
+
+def parse_json_field(raw_val, default_factory=dict):
+    """فك تشفير حقول JSON/JSONB بأمان تام حتى لو كانت مخزنة كنص مزدوج"""
+    if raw_val is None:
+        return default_factory()
+    if isinstance(raw_val, (dict, list)):
+        return copy.deepcopy(raw_val)
+    if isinstance(raw_val, str):
+        s = raw_val.strip()
+        if not s:
+            return default_factory()
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, type(default_factory())):
+                return parsed
+        except Exception:
+            pass
+    return default_factory()
 
 
 def safe_parse_datetime(dt_raw, default_dt=None):
@@ -56,15 +77,18 @@ def safe_parse_datetime(dt_raw, default_dt=None):
         return default_dt
     try:
         if isinstance(dt_raw, (int, float)):
-            if dt_raw < 0 or dt_raw > 4102444800:
+            ts = dt_raw / 1000.0 if dt_raw > 10000000000 else dt_raw
+            if ts < 0 or ts > 4102444800:
                 return default_dt
-            return datetime.fromtimestamp(dt_raw, tz=timezone.utc)
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
         elif isinstance(dt_raw, datetime):
             if dt_raw.tzinfo is None:
                 return dt_raw.replace(tzinfo=timezone.utc)
             return dt_raw.astimezone(timezone.utc)
         else:
-            s = str(dt_raw).strip().replace(' ', 'T').replace('Z', '+00:00')
+            s = str(dt_raw).strip().replace(' ', 'T')
+            if s.endswith('Z'):
+                s = s[:-1] + '+00:00'
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
@@ -264,6 +288,32 @@ DEFAULT_GAME_SETTINGS = {
 }
 
 
+def _normalize_storage_config(raw_storage):
+    """توحيد وضمان سلامة جدول سعات المخزن (المستويات 0 إلى 8) ومنع أي قيم تالفة كالرقم 6"""
+    default_stg = copy.deepcopy(DEFAULT_GAME_SETTINGS["storage_config"])
+    if not isinstance(raw_storage, dict) or len(raw_storage) == 0:
+        return default_stg
+
+    normalized = {}
+    for lvl_str, def_val in default_stg.items():
+        item = raw_storage.get(lvl_str) or raw_storage.get(int(lvl_str))
+        if isinstance(item, dict):
+            cap = float(item.get("capacity", item.get("cap", def_val["capacity"])) or def_val["capacity"])
+            cost_zn = float(item.get("cost_zn", item.get("cost", item.get("price", def_val["cost_zn"]))) or 0.0)
+            cost_usd = float(item.get("cost_usd", item.get("usd_cost", def_val["cost_usd"])) or 0.0)
+            # إذا كانت السعة في الداتابيز تالفة أو أقل من الافتراضي في المستويات العليا (مثل مشكلة رقم 6 في مستوى 8) نعتمد القيمة الصحيحة
+            if int(lvl_str) >= 5 and cap < def_val["capacity"]:
+                cap = def_val["capacity"]
+            normalized[lvl_str] = {
+                "capacity": cap,
+                "cost_zn": cost_zn,
+                "cost_usd": cost_usd
+            }
+        else:
+            normalized[lvl_str] = copy.deepcopy(def_val)
+    return normalized
+
+
 def get_game_settings(force_refresh=False):
     """جلب إعدادات المزرعة والمتجر من Supabase بنسخ عميق وتوحيد المفاتيح"""
     global _SETTINGS_CACHE
@@ -291,16 +341,9 @@ def get_game_settings(force_refresh=False):
                         elif row['key'] == 'shop_settings':
                             found_shop = True
                             
-                        val = row['value']
-                        if isinstance(val, str):
-                            try:
-                                val = json.loads(val)
-                                if isinstance(val, str):
-                                    val = json.loads(val)
-                            except Exception:
-                                pass
+                        val = parse_json_field(row['value'], dict)
                         
-                        if isinstance(val, dict):
+                        if isinstance(val, dict) and len(val) > 0:
                             if "storage_config" in val and isinstance(val["storage_config"], dict) and len(val["storage_config"]) > 0:
                                 db_storage = copy.deepcopy(val["storage_config"])
                             elif db_storage is None and "storage_capacities" in val and isinstance(val["storage_capacities"], dict) and len(val["storage_capacities"]) > 0:
@@ -315,10 +358,7 @@ def get_game_settings(force_refresh=False):
                                 if k not in ["packages", "usdt_packages", "storage_config", "storage_capacities"]:
                                     data[k] = copy.deepcopy(v)
 
-                if db_storage is not None:
-                    data["storage_config"] = db_storage
-                else:
-                    data["storage_config"] = copy.deepcopy(DEFAULT_GAME_SETTINGS["storage_config"])
+                data["storage_config"] = _normalize_storage_config(db_storage)
 
                 if db_packages is not None:
                     data["packages"] = db_packages
@@ -332,7 +372,7 @@ def get_game_settings(force_refresh=False):
                     farm_defaults = {
                         "daily_rewards": DEFAULT_GAME_SETTINGS["daily_rewards"],
                         "mining_config": DEFAULT_GAME_SETTINGS["mining_config"],
-                        "storage_config": DEFAULT_GAME_SETTINGS["storage_config"],
+                        "storage_config": data["storage_config"],
                         "upgrade_config": DEFAULT_GAME_SETTINGS["upgrade_config"]
                     }
                     cur.execute("""
@@ -372,6 +412,65 @@ def parse_daily_rewards(rewards_data):
     return [float(x) for x in DEFAULT_GAME_SETTINGS["daily_rewards"]]
 
 
+def get_bot_expiration_dt(user_data):
+    """استخراج تاريخ انتهاء الباقة/البوت بدقة سواء من vip_status أو أعمدة المستخدم"""
+    vip_info = parse_json_field(user_data.get("vip_status"), dict)
+    expires_at_raw = (
+        vip_info.get("expires_at")
+        or vip_info.get("vip_expires_at")
+        or vip_info.get("bot_expires_at")
+        or user_data.get("bot_expires_at")
+        or user_data.get("vip_expires_at")
+        or user_data.get("expires_at")
+    )
+    return safe_parse_datetime(expires_at_raw)
+
+
+def get_vip_flags(user_data, settings=None, now_dt=None):
+    """
+    فحص شامل وموحد لحالة باقة المستخدم:
+    يرجع (is_auto_bot_active, is_double_storage_active, exp_dt, is_expired, had_bot_before_expiry)
+    """
+    if now_dt is None:
+        now_dt = datetime.now(timezone.utc)
+    if not settings:
+        settings = DEFAULT_GAME_SETTINGS
+
+    vip_info = parse_json_field(user_data.get("vip_status"), dict)
+    user_data["vip_status"] = vip_info
+
+    exp_dt = get_bot_expiration_dt(user_data)
+    is_expired = (exp_dt is not None and exp_dt <= now_dt)
+
+    # معرفة ما إذا كانت الباقة تتضمن بوت تجميع أو مضاعفة سعة
+    pkg_id = str(vip_info.get("package_id") or vip_info.get("package") or vip_info.get("tier") or "").strip().upper()
+    packages_cfg = settings.get("packages") or DEFAULT_USDT_PACKAGES
+    pkg_features = {}
+    if pkg_id and pkg_id in packages_cfg and isinstance(packages_cfg[pkg_id], dict):
+        pkg_features = packages_cfg[pkg_id].get("features", {}) or {}
+
+    raw_bot = (
+        to_bool(vip_info.get("auto_bot", False))
+        or to_bool(pkg_features.get("auto_bot", False))
+        or to_bool(user_data.get("bot_active", False))
+        or to_bool(user_data.get("has_bot", False))
+        or to_bool(user_data.get("is_auto_bot_active", False))
+    )
+
+    raw_double = (
+        to_bool(vip_info.get("double_storage", False))
+        or to_bool(pkg_features.get("double_storage", False))
+        or to_bool(user_data.get("is_double_storage_active", False))
+        or to_bool(user_data.get("double_storage", False))
+        or (int(user_data.get("vip_storage_multiplier") or 1) == 2)
+    )
+
+    if is_expired:
+        return False, False, exp_dt, True, raw_bot
+
+    return raw_bot, raw_double, exp_dt, False, raw_bot
+
+
 def get_base_storage_capacity(storage_level, settings=None):
     if not settings:
         settings = get_game_settings()
@@ -392,7 +491,7 @@ def get_base_storage_capacity(storage_level, settings=None):
 
 
 def calculate_user_max_cap(user_data, settings=None, now_dt=None):
-    """حساب سعة المخزن مع تطبيق ميزة الضعف ×2 لباقات VIP إذا كانت صالحة"""
+    """حساب سعة المخزن الفعلية مع تطبيق ميزة الضعف ×2 لباقات VIP السارية فقط"""
     if not settings:
         settings = get_game_settings()
     if now_dt is None:
@@ -403,30 +502,40 @@ def calculate_user_max_cap(user_data, settings=None, now_dt=None):
     extra_cap = max(0.0, float(user_data.get("extra_storage", 0.0) or 0.0))
     raw_cap = base_cap + extra_cap
 
-    vip_info = user_data.get("vip_status")
-    is_double = False
-    exp_dt = get_bot_expiration_dt(user_data)
-    is_expired = (exp_dt is not None and exp_dt <= now_dt)
-
-    if not is_expired and isinstance(vip_info, dict):
-        if to_bool(vip_info.get("double_storage", False)):
-            is_double = True
+    _, is_double, _, _, _ = get_vip_flags(user_data, settings, now_dt)
 
     total_cap = (raw_cap * 2.0) if is_double else raw_cap
     return min(round(total_cap, 4), MAX_SAFE_STORAGE_CAP)
 
 
-def get_bot_expiration_dt(user_data):
-    vip_info = user_data.get("vip_status")
-    expires_at_raw = None
+def calculate_verified_hourly_rate(user_data, settings=None):
+    """حساب وتأمين سرعة التعدين بناءً على ترقيات اللاعب الفعلية لمنع نقصان السرعة أو التلاعب"""
+    if not settings:
+        settings = DEFAULT_GAME_SETTINGS
 
-    if isinstance(vip_info, dict):
-        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at")
-    
-    if not expires_at_raw:
-        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at")
+    mining_cfg = settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
+    base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
+    max_per_lvl = int(mining_cfg.get("max_upgrades_per_level", 15))
+    upgrade_configs = settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
 
-    return safe_parse_datetime(expires_at_raw)
+    upgrades = parse_json_field(user_data.get("upgrades"), dict)
+    user_data["upgrades"] = upgrades
+
+    calculated_rate = base_free_rate
+    for lvl_num in range(1, 9):
+        lvl_str = str(lvl_num)
+        cnt = int(upgrades.get(f"lvl{lvl_str}", upgrades.get(lvl_str, 0)) or 0)
+        cnt = max(0, min(cnt, max_per_lvl))
+        lvl_cfg = upgrade_configs.get(lvl_str) or DEFAULT_GAME_SETTINGS["upgrade_config"].get(lvl_str, {})
+        bonus = float(lvl_cfg.get("rate_bonus", lvl_cfg.get("rate", 0.0)) or 0.0)
+        calculated_rate += (cnt * bonus)
+
+    calculated_rate = round(calculated_rate, 4)
+    stored_rate = float(user_data.get("hourly_rate") or base_free_rate)
+
+    # نعتمد القيمة الأعلى بين المحسوبة والمخزنة (لحفظ أي مكافآت سرعة إضافية) مع سقف الأمان
+    effective_rate = max(base_free_rate, calculated_rate, stored_rate)
+    return min(round(effective_rate, 4), MAX_SAFE_HOURLY_RATE)
 
 
 def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None):
@@ -492,24 +601,25 @@ def dismiss_welcome_db(user_id_str):
 def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
     if now_dt is None:
         now_dt = datetime.now(timezone.utc)
+    if not game_settings:
+        game_settings = get_game_settings()
 
-    raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", False)))
-    vip_info = user_data.get("vip_status")
-    if isinstance(vip_info, dict):
-        raw_bot_flag = raw_bot_flag or to_bool(vip_info.get("auto_bot", False))
+    user_data["vip_status"] = parse_json_field(user_data.get("vip_status"), dict)
+    user_data["upgrades"] = parse_json_field(user_data.get("upgrades"), dict)
 
-    exp_dt = get_bot_expiration_dt(user_data)
-    is_active = False
-    if raw_bot_flag:
-        if exp_dt is None or exp_dt > now_dt:
-            is_active = True
+    is_bot_active, is_double_active, _, _, _ = get_vip_flags(user_data, game_settings, now_dt)
+    verified_rate = calculate_verified_hourly_rate(user_data, game_settings)
+    effective_max_cap = calculate_user_max_cap(user_data, game_settings, now_dt)
 
     user_data["balance"] = min(max(0.0, float(user_data.get("balance") or 0.0)), MAX_SAFE_BALANCE)
     user_data["usd_balance"] = min(max(0.0, float(user_data.get("usd_balance") or 0.0)), 1000000.0)
-    user_data["hourly_rate"] = min(max(0.10, float(user_data.get("hourly_rate") or 0.10)), MAX_SAFE_HOURLY_RATE)
+    user_data["hourly_rate"] = verified_rate
+    user_data["max_cap"] = effective_max_cap
 
-    user_data["bot_active"] = is_active
-    user_data["is_auto_bot_active"] = is_active
+    user_data["bot_active"] = is_bot_active
+    user_data["is_auto_bot_active"] = is_bot_active
+    user_data["is_double_storage_active"] = is_double_active
+    user_data["vip_storage_multiplier"] = 2 if is_double_active else 1
     return user_data
 
 
@@ -547,37 +657,53 @@ def get_or_create_user_farm_data(user_id_str):
                 else:
                     user_data = dict(user_row)
 
+                # فك تشفير الحقول وتحديث إحصائيات اللاعب (السرعة والسعة والباقات) فوراً
+                user_data["vip_status"] = parse_json_field(user_data.get("vip_status"), dict)
+                user_data["upgrades"] = parse_json_field(user_data.get("upgrades"), dict)
+
+                is_bot_active, is_double_active, exp_dt, is_expired, had_bot_before_expiry = get_vip_flags(user_data, game_settings, now)
                 user_data = calculate_user_effective_stats(user_data, game_settings, now)
-                expected_max_cap = calculate_user_max_cap(user_data, game_settings, now)
-                user_data["max_cap"] = expected_max_cap
+                expected_max_cap = user_data["max_cap"]
+
+                # إذا كانت سرعة التعدين المحسوبة من الترقيات أعلى من المسجلة، نحدثها في الداتابيز
+                db_hourly = float(user_row.get("hourly_rate") or 0.10) if user_row else base_free_rate
+                if abs(user_data["hourly_rate"] - db_hourly) > 0.001:
+                    cur.execute("UPDATE users SET hourly_rate = %s WHERE tg_id = %s", (user_data["hourly_rate"], str_uid))
+
+                # إذا انتهت صلاحية الباقة وكان عمود bot_active لا يزال TRUE، نغلقه بعد حساب مستحقاته
+                if is_expired and to_bool(user_row.get("bot_active") if user_row else False):
+                    cur.execute("UPDATE users SET bot_active = FALSE WHERE tg_id = %s", (str_uid,))
 
                 last_claim_dt = safe_parse_datetime(user_data.get("last_claim_time"), now)
                 if not last_claim_dt or last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
                     last_claim_dt = now
 
-                # 🤖 معالجة بوت التجميع التلقائي أثناء إغلاق اللعبة (Offline Auto-Claim)
-                exp_dt = get_bot_expiration_dt(user_data)
-                raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", False)))
-                vip_info = user_data.get("vip_status")
-                if isinstance(vip_info, dict):
-                    raw_bot_flag = raw_bot_flag or to_bool(vip_info.get("auto_bot", False))
-
+                # 🤖 معالجة بوت التجميع التلقائي أثناء إغلاق اللعبة (Offline Auto-Claim بدون سقف 400)
                 bot_effective_end = None
-                if raw_bot_flag:
-                    if exp_dt is None or exp_dt > now:
-                        bot_effective_end = now
-                    elif exp_dt > last_claim_dt:
-                        bot_effective_end = exp_dt
+                if is_bot_active:
+                    bot_effective_end = now
+                elif is_expired and had_bot_before_expiry and exp_dt and exp_dt > last_claim_dt:
+                    bot_effective_end = exp_dt
 
                 if bot_effective_end and bot_effective_end > last_claim_dt:
+                    offline_seconds = (bot_effective_end - last_claim_dt).total_seconds()
                     total_offline_mined = _calculate_interval_mined(
                         user_data.get("hourly_rate", 0.10),
                         last_claim_dt,
                         bot_effective_end,
                         user_data.get("last_boost_time")
                     )
-                    # التجميع التلقائي بدون سقف إذا وصل لـ 80% أثناء غياب اللاعب
-                    if total_offline_mined >= (expected_max_cap * 0.80) or (exp_dt and exp_dt <= now and total_offline_mined > 0):
+
+                    # يجمع البوت في الرصيد طوال فترة غياب المستخدم بدون أي سقف مخزن
+                    should_auto_claim = (
+                        total_offline_mined > 0 and (
+                            offline_seconds >= MIN_OFFLINE_AUTO_CLAIM_SEC
+                            or total_offline_mined >= (expected_max_cap * 0.80)
+                            or (is_expired and exp_dt is not None)
+                        )
+                    )
+
+                    if should_auto_claim:
                         auto_claimed_amount = round(total_offline_mined, 8)
                         cur.execute("""
                             UPDATE users SET
@@ -597,9 +723,10 @@ def get_or_create_user_farm_data(user_id_str):
 
                         ref_id_for_auto = _resolve_referrer_id(cur, user_data, str_uid)
                         user_name = user_data.get("first_name") or user_data.get("name") or "صديق"
-                        user_upgrades_cnt = int(user_data.get("upgrades_count") or 0)
+                        calc_upg = sum(int(v) for v in user_data["upgrades"].values() if isinstance(v, (int, float)))
+                        user_upgrades_cnt = max(int(user_data.get("upgrades_count") or 0), calc_upg)
 
-                # ✅ إخفاء رسالة الترحيب نهائياً إذا كانت لديه أرصدة مسبقة
+                # إخفاء رسالة الترحيب نهائياً إذا كانت لديه أرصدة مسبقة
                 is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
                 if not is_welcome_seen and (float(user_data.get("total_mined") or 0) > 0 or float(user_data.get("balance") or 0) > 0):
                     is_welcome_seen = True
@@ -610,23 +737,8 @@ def get_or_create_user_farm_data(user_id_str):
         if ref_id_for_auto and auto_claimed_amount > 0:
             _dispatch_referral_commission(ref_id_for_auto, str_uid, auto_claimed_amount, user_upgrades_cnt, user_name)
 
-        if isinstance(user_data.get("upgrades"), str):
-            try: user_data["upgrades"] = json.loads(user_data["upgrades"])
-            except Exception: user_data["upgrades"] = {}
-        elif not user_data.get("upgrades"):
-            user_data["upgrades"] = {}
-
-        if isinstance(user_data.get("boost_history"), str):
-            try: user_data["boost_history"] = json.loads(user_data["boost_history"])
-            except Exception: user_data["boost_history"] = []
-        elif not user_data.get("boost_history"):
-            user_data["boost_history"] = []
-
-        if isinstance(user_data.get("daily_history"), str):
-            try: user_data["daily_history"] = json.loads(user_data["daily_history"])
-            except Exception: user_data["daily_history"] = []
-        elif not user_data.get("daily_history"):
-            user_data["daily_history"] = []
+        user_data["boost_history"] = parse_json_field(user_data.get("boost_history"), list)
+        user_data["daily_history"] = parse_json_field(user_data.get("daily_history"), list)
 
         user_data["boost_claims_count"] = int(user_data.get("boost_claims_count") or 0)
         user_data["daily_claims_count"] = int(user_data.get("daily_claims_count") or 0)
@@ -689,6 +801,11 @@ def claim_mined_tokens_db(user_id_str):
                 now = datetime.now(timezone.utc)
                 today_utc_str = now.strftime('%Y-%m-%d')
 
+                user_data = calculate_user_effective_stats(user_data, game_settings, now)
+                is_bot_active = user_data["bot_active"]
+                is_double_active = user_data["is_double_storage_active"]
+                max_cap = user_data["max_cap"]
+
                 last_claim_str = user_data.get("last_claim_time")
                 if last_claim_str:
                     last_claim = safe_parse_datetime(last_claim_str)
@@ -698,9 +815,8 @@ def claim_mined_tokens_db(user_id_str):
                             rem = int(cooldown_seconds - seconds_passed) + 1
                             return {"success": False, "error": f"الرجاء الانتظار {rem} ثانية قبل التجميع مجدداً", "cooldown_remaining": rem}
 
-                # تمرير now لضمان قراءة سعة المخزن المضاعفة
-                max_cap = calculate_user_max_cap(user_data, game_settings, now)
-                mined_amount = calculate_accrued_mined(user_data, now, max_cap)
+                # إذا كان البوت التلقائي مفعلاً، لا نقص الرصيد المجمع عند سقف المخزن أبداً
+                mined_amount = calculate_accrued_mined(user_data, now, max_cap, ignore_cap=is_bot_active)
 
                 if mined_amount <= 0:
                     return {"success": False, "error": "المخزن فارغ حالياً"}
@@ -725,9 +841,6 @@ def claim_mined_tokens_db(user_id_str):
                 ref_id = _resolve_referrer_id(cur, user_data, str_uid)
                 user_name = user_data.get("first_name") or user_data.get("name") or "صديق"
                 upgrades_dict = user_data.get("upgrades") or {}
-                if isinstance(upgrades_dict, str):
-                    try: upgrades_dict = json.loads(upgrades_dict)
-                    except Exception: upgrades_dict = {}
                 calc_upg = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float))) if isinstance(upgrades_dict, dict) else 0
                 user_upgrades_cnt = max(int(user_data.get("upgrades_count") or 0), calc_upg)
 
@@ -746,6 +859,11 @@ def claim_mined_tokens_db(user_id_str):
             "last_claim_ad_date": today_utc_str,
             "base_unclaimed": 0.0,
             "unclaimed": 0.0,
+            "max_cap": max_cap,
+            "hourly_rate": user_data["hourly_rate"],
+            "bot_active": is_bot_active,
+            "is_auto_bot_active": is_bot_active,
+            "is_double_storage_active": is_double_active,
             "server_time": now_iso,
             "claimed_amount": mined_amount
         }
@@ -791,8 +909,10 @@ def buy_upgrade_db(user_id_str, level):
                 now = datetime.now(timezone.utc)
                 now_iso = format_iso(now)
 
-                current_max_cap = calculate_user_max_cap(user_data, game_settings, now)
-                pending_amount = calculate_accrued_mined(user_data, now, current_max_cap)
+                user_data = calculate_user_effective_stats(user_data, game_settings, now)
+                current_max_cap = user_data["max_cap"]
+                is_bot_active = user_data["bot_active"]
+                pending_amount = calculate_accrued_mined(user_data, now, current_max_cap, ignore_cap=is_bot_active)
 
                 current_balance = float(user_data.get("balance") or 0.0)
                 current_usd_balance = float(user_data.get("usd_balance") or 0.0)
@@ -806,11 +926,8 @@ def buy_upgrade_db(user_id_str, level):
                     return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
                 upgrades = user_data.get("upgrades") or {}
-                if isinstance(upgrades, str):
-                    try: upgrades = json.loads(upgrades)
-                    except Exception: upgrades = {}
 
-                # 🛡️ حماية قصوى: منع شراء مستوى أعلى قبل فتح المستوى السابق له على الأقل مرة واحدة
+                # حماية قصوى: منع شراء مستوى أعلى قبل فتح المستوى السابق له على الأقل مرة واحدة
                 lvl_num = int(level_str)
                 if lvl_num > 1:
                     prev_key = f"lvl{lvl_num - 1}"
@@ -825,13 +942,21 @@ def buy_upgrade_db(user_id_str, level):
                     return {"success": False, "error": f"لقد وصلت للحد الأقصى للشراء لهذا المستوى ({max_limit}/{max_limit})"}
 
                 upgrades[lvl_key] = current_count + 1
+                if level_str in upgrades and f"lvl{level_str}" != level_str:
+                    del upgrades[level_str]
+
                 total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
+                user_data["upgrades"] = upgrades
+                new_verified_hourly = calculate_verified_hourly_rate(
+                    {"upgrades": upgrades, "hourly_rate": float(user_data.get("hourly_rate") or 0.10) + rate_bonus},
+                    game_settings
+                )
 
                 cur.execute("""
                     UPDATE users SET
                         balance = LEAST(%s, GREATEST(0.0, COALESCE(balance, 0.0) + %s - %s)),
                         usd_balance = GREATEST(0.0, COALESCE(usd_balance, 0.0) - %s),
-                        hourly_rate = GREATEST(0.10, COALESCE(hourly_rate, 0.10) + %s),
+                        hourly_rate = %s,
                         upgrades = %s,
                         upgrades_count = %s,
                         last_claim_time = %s,
@@ -839,7 +964,7 @@ def buy_upgrade_db(user_id_str, level):
                         total_mined = COALESCE(total_mined, mined_points, 0.0) + %s
                     WHERE tg_id = %s
                     RETURNING balance, usd_balance, hourly_rate
-                """, (MAX_SAFE_BALANCE, pending_amount, cost_zn, cost_usd, rate_bonus, Json(upgrades), total_upgrades_count, now, pending_amount, pending_amount, str_uid))
+                """, (MAX_SAFE_BALANCE, pending_amount, cost_zn, cost_usd, new_verified_hourly, Json(upgrades), total_upgrades_count, now, pending_amount, pending_amount, str_uid))
                 
                 updated_row = cur.fetchone()
                 db_new_balance = float(updated_row['balance'])
@@ -870,8 +995,12 @@ def buy_upgrade_db(user_id_str, level):
             "new_balance": db_new_balance,
             "new_usd_balance": db_usd_balance,
             "new_hourly_rate": db_new_hourly,
+            "hourly_rate": db_new_hourly,
+            "max_cap": current_max_cap,
             "upgrades": upgrades,
             "upgrades_count": total_upgrades_count,
+            "bot_active": is_bot_active,
+            "is_double_storage_active": user_data["is_double_storage_active"],
             "server_time": now_iso
         }
 
@@ -903,6 +1032,7 @@ def buy_storage_db(user_id_str):
                 now = datetime.now(timezone.utc)
                 now_iso = format_iso(now)
 
+                user_data = calculate_user_effective_stats(user_data, game_settings, now)
                 current_level = int(user_data.get("storage_level", 0))
                 next_level = current_level + 1
 
@@ -913,8 +1043,9 @@ def buy_storage_db(user_id_str):
                 cost_zn = float(next_cfg.get("cost_zn", next_cfg.get("price", 0.0))) if isinstance(next_cfg, dict) else 0.0
                 cost_usd = float(next_cfg.get("cost_usd", next_cfg.get("usd_cost", 0.0))) if isinstance(next_cfg, dict) else 0.0
 
-                current_max_cap = calculate_user_max_cap(user_data, game_settings, now)
-                pending_amount = calculate_accrued_mined(user_data, now, current_max_cap)
+                current_max_cap = user_data["max_cap"]
+                is_bot_active = user_data["bot_active"]
+                pending_amount = calculate_accrued_mined(user_data, now, current_max_cap, ignore_cap=is_bot_active)
 
                 current_balance = float(user_data.get("balance") or 0.0)
                 current_usd_balance = float(user_data.get("usd_balance") or 0.0)
@@ -943,6 +1074,9 @@ def buy_storage_db(user_id_str):
                 db_new_balance = float(updated_row['balance'])
                 db_usd_balance = float(updated_row['usd_balance'])
 
+                user_data["storage_level"] = next_level
+                new_max_cap = calculate_user_max_cap(user_data, game_settings, now)
+
                 ref_id = _resolve_referrer_id(cur, user_data, str_uid)
                 user_name = user_data.get("first_name") or user_data.get("name") or "صديق"
                 user_upgrades_cnt = int(user_data.get("upgrades_count") or 0)
@@ -957,6 +1091,9 @@ def buy_storage_db(user_id_str):
             "new_balance": db_new_balance,
             "new_usd_balance": db_usd_balance,
             "storage_level": next_level,
+            "max_cap": new_max_cap,
+            "bot_active": is_bot_active,
+            "is_double_storage_active": user_data["is_double_storage_active"],
             "server_time": now_iso
         }
 
@@ -1000,12 +1137,7 @@ def claim_daily_reward_db(user_id_str):
                 reward_index = min(max(effective_daily_day - 1, 0), 29)
                 reward_amount = float(parsed_rewards[reward_index])
 
-                daily_history = user_data.get("daily_history") or []
-                if isinstance(daily_history, str):
-                    try: daily_history = json.loads(daily_history)
-                    except Exception: daily_history = []
-                if not isinstance(daily_history, list):
-                    daily_history = []
+                daily_history = parse_json_field(user_data.get("daily_history"), list)
 
                 new_daily_entry = {
                     "timestamp": now_iso,
@@ -1057,6 +1189,7 @@ def claim_daily_reward_db(user_id_str):
 
 def claim_daily_boost_db(user_id_str):
     str_uid = str(user_id_str)
+    game_settings = get_game_settings()
 
     try:
         with get_db_connection() as conn:
@@ -1071,6 +1204,8 @@ def claim_daily_boost_db(user_id_str):
                 now = datetime.now(timezone.utc)
                 now_iso = format_iso(now)
 
+                user_data = calculate_user_effective_stats(user_data, game_settings, now)
+
                 last_boost_str = user_data.get("last_boost_time")
                 if last_boost_str:
                     last_boost = safe_parse_datetime(last_boost_str)
@@ -1080,12 +1215,7 @@ def claim_daily_boost_db(user_id_str):
                             rem_mins = int((10800 - elapsed_seconds) // 60)
                             return {"success": False, "error": f"الرجاء الانتظار {rem_mins} دقيقة قبل تفعيل المعزز مجدداً"}
 
-                boost_history = user_data.get("boost_history") or []
-                if isinstance(boost_history, str):
-                    try: boost_history = json.loads(boost_history)
-                    except Exception: boost_history = []
-                if not isinstance(boost_history, list):
-                    boost_history = []
+                boost_history = parse_json_field(user_data.get("boost_history"), list)
 
                 new_boost_entry = {
                     "timestamp": now_iso,
@@ -1116,6 +1246,10 @@ def claim_daily_boost_db(user_id_str):
                 "boost_duration_hours": 2,
                 "last_boost_time": now_iso,
                 "boost_claims_count": db_boost_count,
+                "max_cap": user_data["max_cap"],
+                "hourly_rate": user_data["hourly_rate"],
+                "bot_active": user_data["bot_active"],
+                "is_double_storage_active": user_data["is_double_storage_active"],
                 "server_time": now_iso
             }
 
