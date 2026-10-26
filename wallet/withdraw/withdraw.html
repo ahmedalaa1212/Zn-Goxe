@@ -13,7 +13,7 @@
     background: #020617; 
     border: 1px solid #334155; 
     border-radius: 12px; 
-    padding: 12px 14px 12px 90px; 
+    padding: 13px 14px 13px 92px; 
     color: #38bdf8; 
     font-size: 16px; 
     font-weight: bold; 
@@ -21,7 +21,9 @@
     outline: none; 
     direction: ltr;
     text-align: right;
-    transition: border-color 0.2s, box-shadow 0.2s; 
+    transition: border-color 0.2s, box-shadow 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
   }
   .w-input:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15); }
   
@@ -33,7 +35,7 @@
     background: linear-gradient(135deg, #0284c7, #38bdf8); 
     color: #ffffff; 
     border: none; 
-    padding: 6px 12px; 
+    padding: 7px 13px; 
     border-radius: 8px; 
     font-size: 12px; 
     font-weight: 700; 
@@ -42,7 +44,6 @@
     box-shadow: 0 2px 6px rgba(56, 189, 248, 0.25); 
     z-index: 5;
   }
-  .btn-max:hover { opacity: 0.9; transform: translateY(-50%) scale(1.02); }
   .btn-max:active { transform: translateY(-50%) scale(0.95); }
 
   .fee-details { background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
@@ -54,18 +55,26 @@
   .notice-box { padding: 12px; border-radius: 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
   .notice-info { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #93c5fd; }
 
+  .unlinked-wallet-notice {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fcd34d;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    line-height: 1.6;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+
   .btn-submit-withdraw { width: 100%; background: linear-gradient(135deg, #10b981, #0284c7); color: #fff; border: none; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.1s, opacity 0.2s; }
   .btn-submit-withdraw:active { transform: scale(0.98); }
   .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
 
-  .wallet-actions-row { display: flex; gap: 8px; width: 100%; }
-  .btn-connect { flex: 1; background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(16, 185, 129, 0.15)); color: #38bdf8; border: 1px dashed #38bdf8; padding: 12px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 6px; }
+  .btn-connect { width: 100%; background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(16, 185, 129, 0.15)); color: #38bdf8; border: 1px dashed #38bdf8; padding: 14px 12px; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
   .btn-connect:active { background: #38bdf8; color: #020617; }
-  .btn-tonconnect-direct { background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 12px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap; }
-  .btn-tonconnect-direct:active { background: #10b981; color: #020617; }
 
-  .address-display { background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 13px; margin-bottom: 10px; word-break: break-all; display: none; text-align: left; direction: ltr; font-family: monospace; cursor: pointer; transition: border-color 0.2s; }
-  .address-display:hover { border-color: #38bdf8; }
+  .address-display { background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 13px; margin-bottom: 10px; word-break: break-all; display: none; text-align: left; direction: ltr; font-family: monospace; }
 
   .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 99999; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(4px); box-sizing: border-box; }
   .modal-overlay.active { display: flex; }
@@ -75,78 +84,66 @@
   .modal-buttons { display: flex; gap: 12px; margin-top: 16px; }
   .btn-save { flex: 1; background: #10b981; color: #fff; border: none; padding: 13px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
   .btn-cancel { flex: 1; background: #ef4444; color: #fff; border: none; padding: 13px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
-  .btn-ton-modal { width: 100%; margin-top: 10px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 11px; border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; }
 </style>
 
-<!-- مشغل كود المزامنة التلقائية يعمل فورياً عبر MutationObserver فقط بدون إرهاق المعالج -->
-<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onerror="
-  (function syncFeeHandler() {
-    function updateNoticeFee() {
-      var feeElem = document.getElementById('fee-amount');
-      var noticeFeeElem = document.getElementById('notice-fee-display');
-      if (feeElem && noticeFeeElem) {
-        var text = feeElem.innerText || feeElem.textContent || '';
-        var cleanFee = text.split('(')[0].trim();
-        if (cleanFee && noticeFeeElem.textContent !== cleanFee) {
-          noticeFeeElem.textContent = cleanFee;
-        }
-      }
-    }
-    updateNoticeFee();
-    var feeElem = document.getElementById('fee-amount');
-    if (feeElem && !feeElem.dataset.feeObserved && window.MutationObserver) {
-      feeElem.dataset.feeObserved = 'true';
-      var obs = new MutationObserver(updateNoticeFee);
-      obs.observe(feeElem, { childList: true, characterData: true, subtree: true });
-    }
-  })();
-" style="display:none;" />
-
-<!-- عنصر جذر ثابت ومخفي لـ TONConnect لمنع أخطاء الإنشاء الديناميكي -->
+<!-- عنصر جذر ثابت ومخفي لـ TONConnect -->
 <div id="ton-connect-hidden-root" style="display:none;"></div>
 
 <div class="withdraw-wrapper">
-  <!-- 1. ربط وتغيير محفظة TON بحرية تامة -->
+  <!-- 1. بطاقة ربط واختيار محفظة TON عبر القائمة الرسمية فقط -->
   <div class="w-card">
     <div class="w-title">
       <span>🪙 عملة السحب: ZNX</span>
       <span id="tier-badge" style="font-size:12px; color:#38bdf8; background:rgba(56,189,248,0.15); padding:3px 8px; border-radius:6px;">الشريحة الأولى</span>
     </div>
 
-    <div class="w-input-group">
+    <div class="w-input-group" style="margin-bottom: 0;">
       <div class="w-label">
         <span>محفظة استلام تلجرام (TON Wallet):</span>
       </div>
-      
-      <div id="wallet-address-display" class="address-display" onclick="withdrawModule.openWalletModal()"></div>
 
-      <div class="wallet-actions-row">
-        <button type="button" id="btn-connect-wallet" class="btn-connect" onclick="withdrawModule.openWalletModal()">
-          ✏️ إدخال / تغيير محفظة TON
-        </button>
-        <button type="button" class="btn-tonconnect-direct" onclick="withdrawModule.connectTonWallet()">
-          🔗 ربط تلقائي
-        </button>
+      <!-- يظهر هذا التنبيه فقط إذا لم تكن المحفظة مربوطة -->
+      <div id="wallet-unlinked-hint" class="unlinked-wallet-notice">
+        🔒 يرجى ربط واختيار محفظة <strong>TON</strong> الخاصة بك أولاً من قائمة المحافظ لتظهر لك قائمة السحب.
       </div>
+      
+      <div id="wallet-address-display" class="address-display"></div>
+
+      <button type="button" id="btn-connect-wallet" class="btn-connect" onclick="withdrawModule.connectTonWallet()">
+        🔗 ربط محفظة TON (اختيار من المحافظ)
+      </button>
 
       <input type="hidden" id="wallet-address-input" value="" />
     </div>
   </div>
 
-  <!-- 2. نموذج طلب السحب -->
-  <div class="w-card">
+  <!-- 2. قائمة ونموذج طلب السحب (مخفي تماماً ولا يظهر إلا بعد ربط المحفظة) -->
+  <div id="withdraw-form-card" class="w-card" style="display: none;">
     <div class="w-title">
       <span>طلب سحب ZNX</span>
-      <span id="user-balance-display" class="user-bal-tag">رصيدك: 0.0000 ZNX</span>
+      <span id="user-balance-display" class="user-bal-tag">رصيدك: 0 ZNX</span>
     </div>
 
     <div class="w-input-group">
       <label class="w-label" for="coins-input">
         <span>عدد عملات ZNX المراد سحبها:</span>
-        <span id="min-withdraw-info" style="color:#f59e0b; font-size:11px;">الحد الأدنى: 1000 ZNX</span>
+        <span id="min-withdraw-info" style="color:#f59e0b; font-size:11px;">الحد الأدنى: 1,000 ZNX</span>
       </label>
       <div class="w-input-wrapper">
-        <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="0.0001" step="0.0001" inputmode="decimal" />
+        <input
+          type="text"
+          id="coins-input"
+          name="custom_znx_withdraw_amount"
+          class="w-input"
+          placeholder="أدخل الكمية هنا..."
+          inputmode="decimal"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          data-lpignore="true"
+          data-form-type="other"
+        />
         <button type="button" class="btn-max" onclick="withdrawModule.setPreset('max')">MAX 🚀</button>
       </div>
     </div>
@@ -162,7 +159,7 @@
       </div>
       <div class="fee-row">
         <span>الصافي النهائي المستلم:</span>
-        <span id="net-crypto" class="net-val">0.0000 ZNX</span>
+        <span id="net-crypto" class="net-val">0 ZNX</span>
       </div>
     </div>
 
@@ -170,7 +167,7 @@
       ℹ️ <strong>معلومات وتنبيهات السحب:</strong><br/>
       • مدة معالجة وتأكيد الطلب تستغرق من <strong>1 دقيقة عمل إلى 48 ساعة</strong>.<br/>
       • يتم اقتطاع رسوم السحب الثابتة الموضحة أعلاه (<strong id="notice-fee-display" style="color:#fbbf24;">$0.02 USD</strong>) من رصيد الدولار لديك، وتصلك عملات ZNX بالكامل دون أي خصم.<br/>
-      • يمكنك تغيير عنوان محفظة TON الخاصة بك في أي وقت قبل تأكيد عملية السحب.
+      • يمكنك تغيير محفظة TON المربوطة في أي وقت عبر زر تغيير المحفظة أعلاه.
     </div>
 
     <button type="button" id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal(event)">
@@ -178,25 +175,7 @@
     </button>
   </div>
 
-  <!-- 3. نافذة إدخال وتغيير المحفظة بمرونة كاملة -->
-  <div id="wallet-modal" class="modal-overlay">
-    <div class="modal-card">
-      <div class="modal-title">🔗 إعداد / تغيير محفظة TON</div>
-      <div class="modal-subtitle">
-        أدخل أو الصق عنوان محفظة TON (Telegram / Tonkeeper) لاستلام عملات <strong>ZNX</strong> عليها:
-      </div>
-      <input type="text" id="modal-wallet-input" class="w-input" style="padding: 12px; text-align: left;" placeholder="UQ... أو EQ..." />
-      <button type="button" class="btn-ton-modal" onclick="withdrawModule.connectTonWallet()">
-        ⚡ أو اختر المحفظة تلقائياً عبر TON Connect
-      </button>
-      <div class="modal-buttons">
-        <button type="button" id="btn-save-wallet-modal" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ المحفظة</button>
-        <button type="button" class="btn-cancel" onclick="withdrawModule.closeWalletModal()">إلغاء</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 4. نافذة تنبيه نقص رسوم الدولار الاحترافية -->
+  <!-- 3. نافذة تنبيه نقص رسوم الدولار -->
   <div id="fee-notice-modal" class="modal-overlay">
     <div class="modal-card" style="border-color: #f59e0b;">
       <div class="modal-title" style="color: #f59e0b;">⚠️ رسوم السحب لا تكفي</div>
