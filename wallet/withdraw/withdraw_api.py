@@ -65,6 +65,23 @@ def _get_tx_lock(tx_id: str) -> threading.Lock:
         return _TX_LOCKS[tx_id]
 
 
+def format_clean_znx(val) -> str:
+    """
+    تنسيق ذكي ونظيف للأرقام يمنع ظهور .0000 للأرقام الصحيحة
+    مثال: 1000 -> 1,000 | 5000 -> 5,000 | 2.5 -> 2.5
+    """
+    try:
+        num = float(val or 0.0)
+        if not math.isfinite(num) or num <= 0:
+            return "0"
+        rounded = round(num, 4)
+        if abs(rounded - round(rounded)) < 1e-6:
+            return f"{int(round(rounded)):,}"
+        return f"{rounded:,.4f}".rstrip("0").rstrip(".")
+    except Exception:
+        return str(val or "0")
+
+
 def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
     """
     التحقق التشفيري المرن والآمن من جلسة Telegram WebApp (HMAC-SHA256)
@@ -74,7 +91,6 @@ def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
         return True
 
     if not init_data or not str(init_data).strip():
-        # السماح بالمرور إذا كان المستخدم مسجلاً بالفعل في قاعدة البيانات ولم يرسل المتصفح initData
         if expected_user_id:
             _, u_data = get_user_doc(expected_user_id)
             if u_data:
@@ -125,7 +141,7 @@ def verify_telegram_webapp_data(init_data: str, expected_user_id: str) -> bool:
 
 
 def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
-    """نشر إثبات السحب في القناة الرسمية عند قبول الأدمن"""
+    """نشر إثبات السحب في القناة الرسمية عند قبول الأدمن بتنسيق أرقام نظيف"""
     if not BOT_TOKEN or not PROOF_CHANNEL_ID:
         return
 
@@ -134,13 +150,14 @@ def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
     w_str = str(wallet_address).strip()
     masked_wallet = f"{w_str[:5]}...{w_str[-4:]}" if len(w_str) >= 12 else w_str
     verify_url = f"https://tonviewer.com/{wallet_address}"
+    clean_coins_str = format_clean_znx(coins)
 
     proof_text = (
         "🎉 <b>إثبات سحب جديد من تطبيق ZN Goxe!</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"👤 <b>المستخدم:</b> <code>{html.escape(masked_uid)}</code>\n"
-        f"💰 <b>المبلغ المسحوب:</b> <code>{coins:,.2f} ZNX</code>\n"
-        f"💎 <b>الصافي المستلم:</b> <code>{coins:,.2f} ZNX</code>\n"
+        f"💰 <b>المبلغ المسحوب:</b> <code>{clean_coins_str} ZNX</code>\n"
+        f"💎 <b>الصافي المستلم:</b> <code>{clean_coins_str} ZNX</code>\n"
         f"📫 <b>المحفظة:</b> <code>{html.escape(masked_wallet)}</code>\n"
         f"🆔 <b>رقم المعاملة:</b> <code>#{html.escape(str(tx_id)[:12])}</code>\n\n"
         "✅ <b>تم التحويل بنجاح عبر شبكة TON</b>\n\n"
@@ -172,26 +189,30 @@ def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
             print(f"⚠️ خطأ أثناء إرسال منشور الإثبات للقناة: {e}")
 
 
-def notify_user_withdraw_status(user_id, action, coins, fee_usd, wallet_address, tx_id):
+def notify_user_withdraw_status(user_id, action, coins, fee_usd, wallet_address, tx_id, new_znx_bal=None):
     """إرسال إشعار فوري للمستخدم على البوت عند قبول أو رفض طلب السحب الخاص به"""
     if not user_id:
         return
+
+    clean_coins_str = format_clean_znx(coins)
 
     if action == "approve":
         msg = (
             "✅ <b>تم قبول وتنفيذ طلب السحب الخاص بك بنجاح!</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            f"💰 <b>المبلغ المحول:</b> <code>{coins:,.4f} ZNX</code>\n"
+            f"💰 <b>المبلغ المحول:</b> <code>{clean_coins_str} ZNX</code>\n"
             f"📥 <b>المحفظة:</b> <code>{html.escape(str(wallet_address))}</code>\n"
             f"🆔 <b>رقم المعاملة:</b> <code>#{html.escape(str(tx_id)[:12])}</code>\n\n"
             "🎉 شكراً لاستخدامك <b>ZN Goxe</b>!"
         )
     else:
+        bal_line = f"🏦 <b>رصيدك الحالي بعد الاسترداد:</b> <code>{format_clean_znx(new_znx_bal)} ZNX</code>\n" if new_znx_bal is not None else ""
         msg = (
             "🔴 <b>تم رفض طلب السحب وإعادة الرصيد لحسابك</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            f"💰 <b>المبلغ المسترد:</b> <code>{coins:,.4f} ZNX</code>\n"
+            f"💰 <b>المبلغ المسترد:</b> <code>{clean_coins_str} ZNX</code>\n"
             f"💵 <b>رسوم الدولار المستردة:</b> <code>${fee_usd:.2f} USD</code>\n"
+            f"{bal_line}"
             f"🆔 <b>رقم المعاملة:</b> <code>#{html.escape(str(tx_id)[:12])}</code>\n\n"
             "ℹ️ تم إرجاع كامل الرصيد والرسوم إلى محفظتك داخل التطبيق."
         )
@@ -216,7 +237,10 @@ def notify_user_withdraw_status(user_id, action, coins, fee_usd, wallet_address,
 
 
 def execute_admin_decision(tx_id, action, admin_id=None):
-    """تنفيذ قرار الأدمن (قبول / رفض) وتحديث كافة جداول السحب والسجل في Supabase ذرياً"""
+    """
+    تنفيذ قرار الأدمن (قبول / رفض) وتحديث كافة جداول السحب والسجل وإرجاع الرصيد في Supabase
+    مع نظام Auto-Retry ضد انقطاعات الـ Pooler وحماية SAVEPOINT لكل جدول.
+    """
     clean_tx_id = str(tx_id or "").strip()
     if not safe_get_db() or not get_db_connection or not clean_tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
@@ -228,119 +252,225 @@ def execute_admin_decision(tx_id, action, admin_id=None):
     if not tx_lock.acquire(blocking=False):
         return False, "هذه المعاملة قيد المعالجة حالياً من قِبل المشرف!"
 
-    conn = None
     try:
         processed_by = str(admin_id) if admin_id else "admin"
         new_status = "completed" if action == "approve" else "rejected"
         failure_msg = "تم رفض الطلب وإعادة الرصيد لحسابك" if action == "reject" else None
 
-        with get_db_connection() as conn:
-            conn.autocommit = False
+        last_err = None
+        for attempt in range(3):
+            conn = None
             try:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # البحث عن المعاملة في الجداول الثلاثة لضمان العثور عليها دائماً
-                    tx_data = None
-                    cur.execute("""
-                        SELECT * FROM processed_txs
-                        WHERE tx_id = %s OR id = %s OR tx_hash = %s
-                        LIMIT 1
-                        FOR UPDATE
-                    """, (clean_tx_id, clean_tx_id, clean_tx_id))
-                    tx_data = cur.fetchone()
+                with get_db_connection() as conn:
+                    conn.autocommit = False
+                    try:
+                        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                            records = []
 
-                    if not tx_data:
-                        cur.execute("""
-                            SELECT * FROM withdraw_requests
-                            WHERE tx_id = %s OR CAST(id AS TEXT) = %s
-                            LIMIT 1
-                            FOR UPDATE
-                        """, (clean_tx_id, clean_tx_id))
-                        tx_data = cur.fetchone()
+                            # 1. البحث في withdraw_requests أولاً (الجدول الأساسي لطلبات السحب)
+                            cur.execute("SAVEPOINT sp_find_wr")
+                            try:
+                                cur.execute("""
+                                    SELECT * FROM withdraw_requests
+                                    WHERE tx_id = %s OR tx_hash = %s OR CAST(id AS TEXT) = %s
+                                    LIMIT 1
+                                    FOR UPDATE
+                                """, (clean_tx_id, clean_tx_id, clean_tx_id))
+                                row_wr = cur.fetchone()
+                                if row_wr:
+                                    records.append(dict(row_wr))
+                                cur.execute("RELEASE SAVEPOINT sp_find_wr")
+                            except Exception:
+                                cur.execute("ROLLBACK TO SAVEPOINT sp_find_wr")
 
-                    if not tx_data:
-                        cur.execute("""
-                            SELECT * FROM transactions
-                            WHERE tx_id = %s OR CAST(id AS TEXT) = %s
-                            LIMIT 1
-                            FOR UPDATE
-                        """, (clean_tx_id, clean_tx_id))
-                        tx_data = cur.fetchone()
+                            # 2. البحث في transactions
+                            cur.execute("SAVEPOINT sp_find_tx")
+                            try:
+                                cur.execute("""
+                                    SELECT * FROM transactions
+                                    WHERE tx_id = %s OR tx_hash = %s OR CAST(id AS TEXT) = %s
+                                    LIMIT 1
+                                    FOR UPDATE
+                                """, (clean_tx_id, clean_tx_id, clean_tx_id))
+                                row_tx = cur.fetchone()
+                                if row_tx:
+                                    records.append(dict(row_tx))
+                                cur.execute("RELEASE SAVEPOINT sp_find_tx")
+                            except Exception:
+                                cur.execute("ROLLBACK TO SAVEPOINT sp_find_tx")
 
-                    if not tx_data:
+                            # 3. البحث في processed_txs
+                            cur.execute("SAVEPOINT sp_find_ptx")
+                            try:
+                                cur.execute("""
+                                    SELECT * FROM processed_txs
+                                    WHERE tx_id = %s OR id = %s OR tx_hash = %s
+                                    LIMIT 1
+                                    FOR UPDATE
+                                """, (clean_tx_id, clean_tx_id, clean_tx_id))
+                                row_ptx = cur.fetchone()
+                                if row_ptx:
+                                    records.append(dict(row_ptx))
+                                cur.execute("RELEASE SAVEPOINT sp_find_ptx")
+                            except Exception:
+                                cur.execute("ROLLBACK TO SAVEPOINT sp_find_ptx")
+
+                            if not records:
+                                conn.rollback()
+                                return False, "لم يتم العثور على طلب السحب في قاعدة البيانات!"
+
+                            # فحص ما إذا كانت المعاملة قد عولجت مسبقاً في أي جدول
+                            for r in records:
+                                st = str(r.get("status") or "pending").lower().strip()
+                                if st in ("completed", "approved", "rejected", "failed", "cancelled"):
+                                    conn.rollback()
+                                    st_ar = "مقبولة مسبقاً" if st in ("completed", "approved") else "مرفوضة مسبقاً"
+                                    return False, f"هذه المعاملة تم معالجتها بالفعل ({st_ar})!"
+
+                            # استخلاص بيانات المعاملة بأعلى دقة من السجلات المكتشفة
+                            user_id = None
+                            coins = 0.0
+                            fee_usd = 0.02
+                            wallet_address = ""
+
+                            for r in records:
+                                if not user_id:
+                                    user_id = _sanitize_id(r.get("user_id") or r.get("tg_id") or r.get("telegram_id"))
+                                if coins <= 0:
+                                    c_val = float(r.get("coins") or r.get("amount") or r.get("net_amount") or r.get("net_coins") or 0.0)
+                                    if c_val > 0:
+                                        coins = c_val
+                                if r.get("fee_usd") is not None or r.get("fee") is not None:
+                                    f_val = float(r.get("fee_usd") if r.get("fee_usd") is not None else (r.get("fee") or 0.02))
+                                    if f_val >= 0:
+                                        fee_usd = f_val
+                                if not wallet_address and r.get("wallet_address"):
+                                    wallet_address = str(r.get("wallet_address")).strip()
+
+                                # محاولة إضافية لاستخراج المبلغ من details إذا كان مخزناً بصيغة JSON
+                                if coins <= 0 and r.get("details"):
+                                    det_parsed = _parse_json_val(r.get("details"), {})
+                                    if isinstance(det_parsed, dict) and det_parsed.get("coins"):
+                                        coins = float(det_parsed.get("coins") or 0.0)
+
+                            refunded_znx_bal = None
+                            refunded_usd_bal = None
+
+                            # في حال الرفض: إرجاع رصيد ZNX ورسوم الدولار لحساب المستخدم فوراً
+                            if action == "reject" and user_id:
+                                cur.execute("""
+                                    UPDATE users
+                                    SET znx_balance = ROUND(CAST(GREATEST(0.0, COALESCE(znx_balance, 0.0)) + %s AS NUMERIC), 6),
+                                        usd_balance = ROUND(CAST(GREATEST(0.0, COALESCE(usd_balance, 0.0)) + %s AS NUMERIC), 4),
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE CAST(tg_id AS TEXT) = %s
+                                       OR CAST(user_id AS TEXT) = %s
+                                       OR CAST(telegram_id AS TEXT) = %s
+                                    RETURNING znx_balance, usd_balance
+                                """, (coins, fee_usd, user_id, user_id, user_id))
+                                ref_row = cur.fetchone()
+                                if ref_row:
+                                    refunded_znx_bal = float(ref_row.get("znx_balance") or 0.0)
+                                    refunded_usd_bal = float(ref_row.get("usd_balance") or 0.0)
+
+                            # تحديث الحالة في withdraw_requests
+                            cur.execute("SAVEPOINT sp_upd_wr")
+                            try:
+                                cur.execute("""
+                                    UPDATE withdraw_requests
+                                    SET status = %s, processed_by = %s, failure_reason = %s,
+                                        processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                                    WHERE tx_id = %s OR tx_hash = %s OR CAST(id AS TEXT) = %s
+                                """, (new_status, processed_by, failure_msg, clean_tx_id, clean_tx_id, clean_tx_id))
+                                cur.execute("RELEASE SAVEPOINT sp_upd_wr")
+                            except Exception:
+                                cur.execute("ROLLBACK TO SAVEPOINT sp_upd_wr")
+
+                            # تحديث الحالة في transactions
+                            cur.execute("SAVEPOINT sp_upd_tx")
+                            try:
+                                cur.execute("""
+                                    UPDATE transactions
+                                    SET status = %s, processed_by = %s, failure_reason = %s,
+                                        processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                                    WHERE tx_id = %s OR tx_hash = %s OR CAST(id AS TEXT) = %s
+                                """, (new_status, processed_by, failure_msg, clean_tx_id, clean_tx_id, clean_tx_id))
+                                cur.execute("RELEASE SAVEPOINT sp_upd_tx")
+                            except Exception:
+                                cur.execute("ROLLBACK TO SAVEPOINT sp_upd_tx")
+
+                            # تحديث الحالة في processed_txs
+                            cur.execute("SAVEPOINT sp_upd_ptx")
+                            try:
+                                cur.execute("""
+                                    UPDATE processed_txs
+                                    SET status = %s, processed_by = %s, failure_reason = %s,
+                                        processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                                    WHERE tx_id = %s OR id = %s OR tx_hash = %s
+                                """, (new_status, processed_by, failure_msg, clean_tx_id, clean_tx_id, clean_tx_id))
+                                cur.execute("RELEASE SAVEPOINT sp_upd_ptx")
+                            except Exception:
+                                cur.execute("ROLLBACK TO SAVEPOINT sp_upd_ptx")
+
+                            # توثيق القرار في admin_logs
+                            cur.execute("SAVEPOINT sp_ins_log")
+                            try:
+                                cur.execute("""
+                                    INSERT INTO admin_logs (action, tx_id, user_id, admin_id, status, amount, created_at)
+                                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                                """, (f"withdraw_{action}", clean_tx_id, user_id, processed_by, new_status, coins))
+                                cur.execute("RELEASE SAVEPOINT sp_ins_log")
+                            except Exception:
+                                cur.execute("ROLLBACK TO SAVEPOINT sp_ins_log")
+
+                        conn.commit()
+                    except Exception as inner_e:
                         conn.rollback()
-                        return False, "لم يتم العثور على طلب السحب في قاعدة البيانات!"
+                        raise inner_e
+                    finally:
+                        try:
+                            conn.autocommit = True
+                        except Exception:
+                            pass
 
-                    current_status = str(tx_data.get("status") or "pending").lower()
-                    if current_status in ("completed", "approved", "rejected", "failed", "cancelled"):
-                        conn.rollback()
-                        return False, f"هذه المعاملة تمت معالجتها مسبقاً ({current_status})!"
+                clean_coins_str = format_clean_znx(coins)
 
-                    user_id = _sanitize_id(tx_data.get("user_id") or tx_data.get("tg_id"))
-                    coins = float(tx_data.get("coins") or tx_data.get("amount") or 0.0)
-                    fee_usd = float(tx_data.get("fee_usd") or tx_data.get("fee") or 0.02)
-                    wallet_address = str(tx_data.get("wallet_address") or "")
+                # إرسال إشعار القناة وإشعار المستخدم في الخلفية بعد نجاح حفظ القرار
+                if action == "approve":
+                    threading.Thread(
+                        target=send_proof_to_channel,
+                        args=(user_id, coins, wallet_address, clean_tx_id),
+                        daemon=True
+                    ).start()
+                    threading.Thread(
+                        target=notify_user_withdraw_status,
+                        args=(user_id, "approve", coins, fee_usd, wallet_address, clean_tx_id, None),
+                        daemon=True
+                    ).start()
+                    res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد سحب {clean_coins_str} ZNX ونشر الإثبات."
+                else:
+                    threading.Thread(
+                        target=notify_user_withdraw_status,
+                        args=(user_id, "reject", coins, fee_usd, wallet_address, clean_tx_id, refunded_znx_bal),
+                        daemon=True
+                    ).start()
+                    if refunded_znx_bal is not None:
+                        res_msg = (
+                            f"🔴 تم رفض الطلب وإعادة {clean_coins_str} ZNX و ${fee_usd:.2f} USD إلى حساب المستخدم بنجاح! "
+                            f"(رصيد المستخدم الآن: {format_clean_znx(refunded_znx_bal)} ZNX)"
+                        )
+                    else:
+                        res_msg = f"🔴 تم رفض الطلب وإعادة {clean_coins_str} ZNX و ${fee_usd:.2f} USD إلى حساب المستخدم بنجاح!"
 
-                    # في حال الرفض: إرجاع رصيد ZNX ورسوم الدولار لحساب المستخدم فوراً
-                    if action == "reject" and user_id:
-                        cur.execute("""
-                            UPDATE users
-                            SET znx_balance = ROUND(CAST(GREATEST(0.0, COALESCE(znx_balance, 0.0)) + %s AS NUMERIC), 6),
-                                usd_balance = ROUND(CAST(GREATEST(0.0, COALESCE(usd_balance, 0.0)) + %s AS NUMERIC), 4),
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE CAST(tg_id AS TEXT) = %s OR CAST(user_id AS TEXT) = %s OR CAST(telegram_id AS TEXT) = %s
-                        """, (coins, fee_usd, user_id, user_id, user_id))
+                return True, res_msg
 
-                    # تحديث الحالة في الجداول الثلاثة لتنعكس فوراً في السجل ولوحة التحكم
-                    cur.execute("""
-                        UPDATE processed_txs
-                        SET status = %s, processed_by = %s, failure_reason = %s,
-                            processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                        WHERE tx_id = %s OR id = %s OR tx_hash = %s
-                    """, (new_status, processed_by, failure_msg, clean_tx_id, clean_tx_id, clean_tx_id))
+            except Exception as attempt_err:
+                last_err = attempt_err
+                print(f"⚠️ محاولة رقم {attempt + 1} لمعالجة قرار السحب فشلت: {attempt_err}")
+                time.sleep(0.4)
 
-                    cur.execute("""
-                        UPDATE transactions
-                        SET status = %s, processed_by = %s, failure_reason = %s,
-                            processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                        WHERE tx_id = %s OR tx_hash = %s
-                    """, (new_status, processed_by, failure_msg, clean_tx_id, clean_tx_id))
+        return False, f"حدث خطأ أثناء المعالجة: {str(last_err)}"
 
-                    cur.execute("""
-                        UPDATE withdraw_requests
-                        SET status = %s, processed_by = %s, failure_reason = %s,
-                            processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                        WHERE tx_id = %s OR tx_hash = %s
-                    """, (new_status, processed_by, failure_msg, clean_tx_id, clean_tx_id))
-
-                    cur.execute("""
-                        INSERT INTO admin_logs (action, tx_id, user_id, admin_id, status, amount, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                    """, (f"withdraw_{action}", clean_tx_id, user_id, processed_by, new_status, coins))
-
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
-            finally:
-                try:
-                    conn.autocommit = True
-                except Exception:
-                    pass
-
-        # إرسال إشعار القناة وإشعار المستخدم في الخلفية
-        if action == "approve":
-            threading.Thread(target=send_proof_to_channel, args=(user_id, coins, wallet_address, clean_tx_id), daemon=True).start()
-            threading.Thread(target=notify_user_withdraw_status, args=(user_id, "approve", coins, fee_usd, wallet_address, clean_tx_id), daemon=True).start()
-            res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد سحب {coins:,.4f} ZNX ونشر الإثبات."
-        else:
-            threading.Thread(target=notify_user_withdraw_status, args=(user_id, "reject", coins, fee_usd, wallet_address, clean_tx_id), daemon=True).start()
-            res_msg = f"🔴 تم رفض الطلب وإعادة {coins:,.4f} ZNX و ${fee_usd:.2f} USD إلى حساب المستخدم بنجاح!"
-
-        return True, res_msg
-
-    except Exception as e:
-        print(f"⚠️ خطأ أثناء تنفيذ قرار السحب في Supabase PostgreSQL: {e}")
-        return False, f"حدث خطأ أثناء المعالجة: {str(e)}"
     finally:
         tx_lock.release()
 
@@ -391,7 +521,7 @@ def handle_save_wallet():
     )
 
     if not user_id or not wallet_address:
-        return jsonify({"success": False, "message": "يرجى إدخال عنوان المحفظة بشكل صحيح."}), 400
+        return jsonify({"success": False, "message": "يرجى اختيار محفظة TON بشكل صحيح."}), 400
 
     if not verify_telegram_webapp_data(init_data, user_id):
         return jsonify({"success": False, "message": "فشل التحقق من جلسة الأمان الخاصة بك. يرجى إعادة فتح التطبيق."}), 403
@@ -404,7 +534,7 @@ def handle_save_wallet():
         return jsonify({
             "success": True,
             "wallet_address": wallet_address,
-            "message": "تم حفظ وتحديث عنوان المحفظة بنجاح!"
+            "message": "تم ربط وحفظ المحفظة بنجاح!"
         }), 200
     return jsonify({"success": False, "message": msg}), 400
 
@@ -449,7 +579,7 @@ def handle_withdraw():
         return jsonify({
             "success": False,
             "code": "BELOW_MINIMUM",
-            "message": f"الحد الأدنى للسحب في {tier_name} هو {min_withdraw:g} ZNX."
+            "message": f"الحد الأدنى للسحب في {tier_name} هو {format_clean_znx(min_withdraw)} ZNX."
         }), 400
 
     user_lock = _get_user_lock(user_id)
@@ -491,7 +621,7 @@ def handle_withdraw():
                         conn.rollback()
                         return jsonify({"success": False, "message": "حسابك معطل ولا يمكنك السحب."}), 403
 
-                    # فحص الطلبات المعلقة والـ Cooldown باستعلام SQL صحيح 100%
+                    # فحص الطلبات المعلقة والـ Cooldown
                     cur.execute("""
                         SELECT tx_id FROM withdraw_requests
                         WHERE (user_id = %s OR tg_id = %s)
@@ -525,7 +655,6 @@ def handle_withdraw():
                             "message": f"يجب توفر رسوم السحب ${fixed_fee_usd:.2f} USD في رصيد الدولار."
                         }), 400
 
-                    # تحديث المحفظة تلقائياً مع طلب السحب لضمان حفظ أحدث عنوان
                     wallets_obj = _parse_json_val(user_data.get("wallets"), {})
                     if not isinstance(wallets_obj, dict):
                         wallets_obj = {}
@@ -558,7 +687,7 @@ def handle_withdraw():
                     new_znx_balance = float(updated_row.get("znx_balance", 0.0) or 0.0)
                     new_usd_balance = float(updated_row.get("usd_balance", 0.0) or 0.0)
 
-                    # 2. تسجيل الطلب في withdraw_requests (الجدول الرئيسي لطلبات السحب)
+                    # 2. تسجيل الطلب في withdraw_requests
                     cur.execute("""
                         INSERT INTO withdraw_requests (
                             tx_id, tx_hash, user_id, tg_id, coins, amount, fee, fee_usd, net_coins, net_amount,
@@ -572,7 +701,7 @@ def handle_withdraw():
                         tier_name, wallet_address, details_txt
                     ))
 
-                    # 3. تسجيل الطلب في transactions (لظهوره الفوري في تبويب السجلات History)
+                    # 3. تسجيل الطلب في transactions
                     cur.execute("SAVEPOINT sp_insert_transactions")
                     try:
                         cur.execute("""
@@ -592,7 +721,7 @@ def handle_withdraw():
                         cur.execute("ROLLBACK TO SAVEPOINT sp_insert_transactions")
                         print(f"⚠️ تنبيه إدراج transactions: {tx_err}")
 
-                    # 4. تسجيل الطلب في processed_txs (مع دعم tx_hash و id و JSON details)
+                    # 4. تسجيل الطلب في processed_txs
                     cur.execute("SAVEPOINT sp_insert_processed_txs")
                     try:
                         cur.execute("""
@@ -629,11 +758,13 @@ def handle_withdraw():
             daemon=True
         ).start()
 
+        clean_coins_str = format_clean_znx(coins)
+
         return jsonify({
             "success": True,
             "tx_id": tx_id,
             "status": "pending",
-            "message": f"✅ تم تقديم طلب سحب {coins:,.4f} ZNX بنجاح وهو قيد المراجعة لدى الإدارة!",
+            "message": f"✅ تم تقديم طلب سحب {clean_coins_str} ZNX بنجاح وهو قيد المراجعة لدى الإدارة!",
             "new_balance": new_znx_balance,
             "new_usd_balance": new_usd_balance
         }), 200
@@ -646,7 +777,7 @@ def handle_withdraw():
 
 
 def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
-    """إرسال رسالة تفاصيل السحب إلى الأدمن مع أزرار القبول والرفض والنسخ وضمان الوصول 100%"""
+    """إرسال رسالة تفاصيل السحب إلى الأدمن بتنسيق أرقام واضح ونظيف بدون .0000"""
     if not BOT_TOKEN or not ADMIN_CHAT_ID:
         print("⚠️ تنبيه: لم يتم ضبط BOT_TOKEN أو ADMIN_CHAT_ID لإرسال إشعار السحب!")
         return
@@ -663,25 +794,28 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
     upgrades_cnt = int(full_details.get("upgrades_count", 0) or 0)
     ref_cnt = int(full_details.get("ref_count", 0) or 0)
 
+    clean_coins_str = format_clean_znx(coins)
+    clean_znx_bal_str = format_clean_znx(znx_bal)
+    clean_zn_bal_str = format_clean_znx(zn_bal)
+
     text = (
         "🚀 <b>طلب سحب ZNX جديد (تحويل يدوي)</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>المستخدم:</b> <code>{html.escape(str(user_id))}</code> ({first_name} | @{username})\n"
         f"📅 <b>تاريخ الانضمام:</b> <code>{joined_at}</code>\n\n"
-        f"💰 <b>رصيد ZNX المتبقي:</b> <code>{znx_bal:,.4f} ZNX</code>\n"
-        f"💎 <b>رصيد ZN الحالي:</b> <code>{zn_bal:,.4f} ZN</code>\n\n"
+        f"💰 <b>رصيد ZNX المتبقي:</b> <code>{clean_znx_bal_str} ZNX</code>\n"
+        f"💎 <b>رصيد ZN الحالي:</b> <code>{clean_zn_bal_str} ZN</code>\n\n"
         f"⚡ <b>سرعة التعدين:</b> <code>{hourly_rate:g} ZN/h</code>\n"
         f"📦 <b>المخزن / الترقيات:</b> level <code>{storage_lvl}</code> (ترقيات: <code>{upgrades_cnt}</code>)\n"
         f"👥 <b>عدد الإحالات:</b> <code>{ref_cnt}</code> صديق\n\n"
         f"📊 <b>الشريحة:</b> {html.escape(str(tier_name))}\n"
-        f"💵 <b>المبلغ المطلوب سحبه:</b> <code>{coins:,.4f} ZNX</code>\n"
+        f"💵 <b>المبلغ المطلوب سحبه:</b> <code>{clean_coins_str} ZNX</code>\n"
         f"💸 <b>الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n\n"
         f"📥 <b>عنوان المحفظة المحول عليها:</b>\n<code>{html.escape(str(wallet))}</code>\n\n"
         f"🆔 <b>رقم المعاملة:</b> <code>{html.escape(str(tx_id))}</code>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
 
-    # لوحة الأزرار الأساسية (مع copy_text الحديث)
     reply_markup_primary = {
         "inline_keyboard": [
             [
@@ -694,7 +828,6 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
         ]
     }
 
-    # لوحة الأزرار الاحتياطية (في حال رفض تيليجرام copy_text)
     reply_markup_fallback = {
         "inline_keyboard": [
             [
@@ -707,7 +840,6 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
         ]
     }
 
-    # دعم إرسال الإشعار لأكثر من معرف أدمن إذا كانت مفصولة بفاصلة
     target_chats = [c.strip() for c in str(ADMIN_CHAT_ID).split(",") if c.strip()]
     tokens_to_try = [t for t in [ADMIN_BOT_TOKEN, USER_BOT_TOKEN] if t]
 
@@ -718,7 +850,6 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
                 break
             url = f"https://api.telegram.org/bot{token}/sendMessage"
             try:
-                # المحاولة الأولى: باستخدام زر النسخ المباشر
                 res = requests.post(
                     url,
                     json={
@@ -733,7 +864,6 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
                     sent_ok = True
                     break
 
-                # المحاولة الثانية الفورية: باستخدام زر callback_data المتوافق مع جميع الإصدارات
                 res_fb = requests.post(
                     url,
                     json={
