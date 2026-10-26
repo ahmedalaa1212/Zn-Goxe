@@ -23,7 +23,7 @@ def _build_json_response(payload: dict, status_code: int = 200):
     res = make_response(jsonify(payload), status_code)
     res.headers['Access-Control-Allow-Origin'] = '*'
     res.headers['Access-Control-Allow-Headers'] = '*'
-    res.headers['Access-Control-Allow-Methods'] = '*'
+    res.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     res.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     res.headers['Pragma'] = 'no-cache'
     res.headers['Expires'] = '0'
@@ -56,10 +56,11 @@ def _extract_user_id_from_request():
         request.headers.get('X-Telegram-Init-Data')
         or request.headers.get('X-Init-Data')
         or request.headers.get('Authorization', '')
+        or request.args.get('init_data', '')
     )
     if init_header:
         try:
-            raw_init = init_header.replace('Bearer ', '').strip()
+            raw_init = str(init_header).replace('Bearer ', '').strip()
             parsed = parse_qs(raw_init)
             user_str = parsed.get('user', [None])[0]
             if user_str:
@@ -73,6 +74,7 @@ def _extract_user_id_from_request():
     return None
 
 
+@history_bp.route('/', methods=['GET', 'POST', 'OPTIONS'])
 @history_bp.route('/transactions', methods=['GET', 'POST', 'OPTIONS'])
 def get_history_transactions():
     """
