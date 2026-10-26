@@ -2,15 +2,17 @@
 """
 database.py - النسخة الكاملة والمستقرة لإدارة قاعدة بيانات Supabase (PostgreSQL)
 مزودة بفحص تلقائي للاتصالات (Auto-Heal Pool)، نظام المعاملات الذرية (Atomic Transactions)،
-ودعم كامل للأرصدة اللحظية ونظام الأصدقاء والمهام الإعلانية ⚡
+ترقية ذاتية لكافة جداول السحب والسجلات والمحافظ، ودعم كامل للأرصدة اللحظية والإدارة ⚡
 """
 import os
 import math
+import json
 from datetime import datetime, timezone
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor, Json
 from contextlib import contextmanager
+
 
 # ==================== Helper Formatting Function ====================
 def format_iso(dt):
@@ -30,27 +32,30 @@ def format_iso(dt):
         s = s[:-6] + 'Z'
     return s
 
+
 # ==================== Supabase PostgreSQL Pool ====================
 db_pool = None
 _schema_initialized = False
+
 
 def get_database_url():
     """استخراج وتنظيف رابط DATABASE_URL مع تفعيل sslmode فوراً"""
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         raise ValueError("❌ لم يتم العثور على DATABASE_URL في متغيرات البيئة!")
-    
+
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
-    
+
     if "sslmode" not in db_url:
         separator = "&" if "?" in db_url else "?"
         db_url += f"{separator}sslmode=require"
-        
+
     return db_url
 
+
 def init_db_pool():
-    """تأسيس بركة اتصالات ذكية مقاومة لانقطاع اتصالات Supabase وإنشاء الجداول تلقائياً"""
+    """تأسيس بركة اتصالات ذكية مقاومة لانقطاع اتصالات Supabase وإنشاء وترقية الجداول تلقائياً"""
     global db_pool, _schema_initialized
     if db_pool is None or db_pool.closed:
         db_url = get_database_url()
@@ -65,7 +70,7 @@ def init_db_pool():
             keepalives_count=5
         )
         print("⚡ [Supabase Pool] تم تأسيس بركة الاتصالات بنجاح!")
-        
+
         if not _schema_initialized:
             conn = None
             try:
@@ -79,20 +84,28 @@ def init_db_pool():
                             telegram_id VARCHAR(128),
                             first_name VARCHAR(100) DEFAULT 'لاعب',
                             name VARCHAR(100) DEFAULT 'لاعب',
+                            username VARCHAR(100) DEFAULT '',
                             balance DOUBLE PRECISION DEFAULT 0.0,
                             ad_balance DOUBLE PRECISION DEFAULT 0.0,
                             usd_balance DOUBLE PRECISION DEFAULT 0.0,
                             znx_balance DOUBLE PRECISION DEFAULT 0.0,
+                            wallet_address TEXT DEFAULT '',
+                            wallets JSONB DEFAULT '{}'::jsonb,
                             ref_by VARCHAR(128),
                             referred_by VARCHAR(128),
                             referrals_count INT DEFAULT 0,
+                            ref_count INT DEFAULT 0,
+                            referral_count INT DEFAULT 0,
                             pending_ref_earnings DOUBLE PRECISION DEFAULT 0.0,
                             total_ref_earnings DOUBLE PRECISION DEFAULT 0.0,
                             claimed_ref_tasks JSONB DEFAULT '[]'::jsonb,
                             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                             last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                             interactions INT DEFAULT 1,
                             is_banned BOOLEAN DEFAULT FALSE,
+                            banned BOOLEAN DEFAULT FALSE,
+                            ban_reason TEXT,
                             farm_level INT DEFAULT 1,
                             storage_level INT DEFAULT 0,
                             device_id VARCHAR(256),
@@ -127,7 +140,9 @@ def init_db_pool():
 
                         CREATE TABLE IF NOT EXISTS banned_devices (
                             device_id VARCHAR(256) PRIMARY KEY,
+                            banned_user_id VARCHAR(128),
                             reason TEXT,
+                            banned_by VARCHAR(128),
                             banned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                         );
 
@@ -138,14 +153,82 @@ def init_db_pool():
                         );
 
                         CREATE TABLE IF NOT EXISTS processed_txs (
-                            tx_hash VARCHAR(256) PRIMARY KEY,
+                            tx_hash VARCHAR(256) PRIMARY KEY DEFAULT md5(random()::text || clock_timestamp()::text),
+                            id TEXT DEFAULT md5(random()::text || clock_timestamp()::text),
+                            tx_id TEXT,
                             tg_id VARCHAR(128),
+                            user_id VARCHAR(128),
                             package_id VARCHAR(64),
-                            type VARCHAR(64),
+                            type VARCHAR(64) DEFAULT 'withdraw',
+                            coins NUMERIC DEFAULT 0.0,
+                            amount NUMERIC DEFAULT 0.0,
+                            fee_usd NUMERIC DEFAULT 0.02,
+                            net_coins NUMERIC DEFAULT 0.0,
                             cost_zn DOUBLE PRECISION DEFAULT 0.0,
                             cost_usd DOUBLE PRECISION DEFAULT 0.0,
-                            details JSONB DEFAULT '{}'::jsonb,
-                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                            currency VARCHAR(32) DEFAULT 'ZNX',
+                            tier_name TEXT DEFAULT '',
+                            wallet_address TEXT DEFAULT '',
+                            status VARCHAR(50) DEFAULT 'pending',
+                            processed_by TEXT,
+                            details TEXT DEFAULT '',
+                            failure_reason TEXT,
+                            processing_started_at TIMESTAMPTZ,
+                            processed_at TIMESTAMPTZ,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS transactions (
+                            id SERIAL PRIMARY KEY,
+                            tx_id TEXT,
+                            tx_hash TEXT,
+                            user_id TEXT,
+                            tg_id TEXT,
+                            coins NUMERIC DEFAULT 0.0,
+                            amount NUMERIC DEFAULT 0.0,
+                            fee NUMERIC DEFAULT 0.0,
+                            fee_usd NUMERIC DEFAULT 0.0,
+                            net_coins NUMERIC DEFAULT 0.0,
+                            net_amount NUMERIC DEFAULT 0.0,
+                            currency TEXT DEFAULT 'ZNX',
+                            tier_name TEXT DEFAULT '',
+                            wallet_address TEXT DEFAULT '',
+                            network TEXT DEFAULT 'TON',
+                            type TEXT DEFAULT 'withdraw',
+                            status TEXT DEFAULT 'pending',
+                            processed_by TEXT,
+                            details TEXT DEFAULT '',
+                            failure_reason TEXT,
+                            processed_at TIMESTAMPTZ,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS withdraw_requests (
+                            id SERIAL PRIMARY KEY,
+                            tx_id TEXT,
+                            user_id VARCHAR(255) NOT NULL,
+                            tg_id VARCHAR(255),
+                            coins NUMERIC(18, 4) DEFAULT 0.0,
+                            amount NUMERIC(18, 4) DEFAULT 0.0,
+                            fee NUMERIC(18, 4) DEFAULT 0.0,
+                            fee_usd NUMERIC(18, 4) DEFAULT 0.02,
+                            net_coins NUMERIC(18, 4) DEFAULT 0.0,
+                            net_amount NUMERIC(18, 4) DEFAULT 0.0,
+                            currency VARCHAR(32) DEFAULT 'ZNX',
+                            tier_name TEXT DEFAULT '',
+                            wallet_address TEXT,
+                            network VARCHAR(32) DEFAULT 'TON',
+                            status VARCHAR(50) DEFAULT 'pending',
+                            tx_hash TEXT,
+                            processed_by TEXT,
+                            failure_reason TEXT,
+                            admin_note TEXT,
+                            details TEXT,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            processed_at TIMESTAMPTZ
                         );
 
                         CREATE TABLE IF NOT EXISTS purchase_history (
@@ -157,6 +240,37 @@ def init_db_pool():
                             cost_usd DOUBLE PRECISION DEFAULT 0.0,
                             tx_hash VARCHAR(256),
                             details JSONB DEFAULT '{}'::jsonb,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS admin_logs (
+                            id BIGSERIAL PRIMARY KEY,
+                            action TEXT NOT NULL,
+                            tx_id TEXT,
+                            user_id TEXT,
+                            admin_id TEXT,
+                            admin_name TEXT,
+                            status TEXT,
+                            amount NUMERIC DEFAULT 0.0,
+                            details TEXT,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS moderators (
+                            tg_id VARCHAR(128) PRIMARY KEY,
+                            name VARCHAR(100) NOT NULL,
+                            permissions JSONB DEFAULT '{}'::jsonb,
+                            added_by VARCHAR(100) DEFAULT 'المدير العام',
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS broadcasts (
+                            id SERIAL PRIMARY KEY,
+                            admin_name VARCHAR(100),
+                            message_snippet TEXT,
+                            total_targets INT DEFAULT 0,
+                            success_count INT DEFAULT 0,
+                            blocked_count INT DEFAULT 0,
                             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                         );
 
@@ -201,7 +315,12 @@ def init_db_pool():
                         -- ==================== ترقية أعمدة جدول المستخدمين تلقائياً ====================
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS ad_balance DOUBLE PRECISION DEFAULT 0.0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'لاعب';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100) DEFAULT '';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_address TEXT DEFAULT '';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS wallets JSONB DEFAULT '{}'::jsonb;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by VARCHAR(128);
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_count INT DEFAULT 0;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_count INT DEFAULT 0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_ref_earnings DOUBLE PRECISION DEFAULT 0.0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS total_ref_earnings DOUBLE PRECISION DEFAULT 0.0;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS claimed_ref_tasks JSONB DEFAULT '[]'::jsonb;
@@ -235,14 +354,97 @@ def init_db_pool():
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_expires TIMESTAMPTZ;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_expires_at TIMESTAMPTZ;
                         ALTER TABLE users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN DEFAULT FALSE;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
                         CREATE INDEX IF NOT EXISTS idx_users_ref_by ON users(ref_by);
                         CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);
                         CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
                         CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
                     """)
+
+                    # ترقية جداول السحب والمعاملات الموجودة مسبقاً لمنع أي خطأ في الأعمدة
+                    cur.execute("""
+                        ALTER TABLE banned_devices ADD COLUMN IF NOT EXISTS banned_user_id VARCHAR(128);
+                        ALTER TABLE banned_devices ADD COLUMN IF NOT EXISTS banned_by VARCHAR(128);
+
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS id TEXT DEFAULT md5(random()::text || clock_timestamp()::text);
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS tx_hash VARCHAR(256) DEFAULT md5(random()::text || clock_timestamp()::text);
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS tx_id TEXT;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS tg_id VARCHAR(128);
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS user_id VARCHAR(128);
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS coins NUMERIC DEFAULT 0.0;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0.0;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS fee_usd NUMERIC DEFAULT 0.02;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS net_coins NUMERIC DEFAULT 0.0;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS currency VARCHAR(32) DEFAULT 'ZNX';
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS tier_name TEXT DEFAULT '';
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS wallet_address TEXT DEFAULT '';
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS type VARCHAR(64) DEFAULT 'withdraw';
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending';
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS processed_by TEXT;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+                        ALTER TABLE processed_txs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tx_id TEXT;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id TEXT;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tg_id TEXT;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS coins NUMERIC DEFAULT 0.0;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0.0;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee NUMERIC DEFAULT 0.0;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee_usd NUMERIC DEFAULT 0.0;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_coins NUMERIC DEFAULT 0.0;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_amount NUMERIC DEFAULT 0.0;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'ZNX';
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tier_name TEXT DEFAULT '';
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS wallet_address TEXT DEFAULT '';
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network TEXT DEFAULT 'TON';
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'withdraw';
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_by TEXT;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS details TEXT DEFAULT '';
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+                        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS tx_id TEXT;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS tg_id VARCHAR(255);
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS coins NUMERIC(18, 4) DEFAULT 0.0;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS amount NUMERIC(18, 4) DEFAULT 0.0;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS fee NUMERIC(18, 4) DEFAULT 0.0;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS fee_usd NUMERIC(18, 4) DEFAULT 0.02;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS net_coins NUMERIC(18, 4) DEFAULT 0.0;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS net_amount NUMERIC(18, 4) DEFAULT 0.0;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS currency VARCHAR(32) DEFAULT 'ZNX';
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS tier_name TEXT DEFAULT '';
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS wallet_address TEXT;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS network VARCHAR(32) DEFAULT 'TON';
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending';
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS processed_by TEXT;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS admin_note TEXT;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS details TEXT;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE withdraw_requests ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+                    """)
+
+                    # ضمان وجود قيم افتراضية للأعمدة الأساسية في processed_txs وتحويل details إلى TEXT ليقبل النصوص والـ JSON معاً
+                    try:
+                        cur.execute("""
+                            ALTER TABLE processed_txs ALTER COLUMN tx_hash SET DEFAULT md5(random()::text || clock_timestamp()::text);
+                            ALTER TABLE processed_txs ALTER COLUMN id SET DEFAULT md5(random()::text || clock_timestamp()::text);
+                            ALTER TABLE processed_txs ALTER COLUMN details TYPE TEXT USING details::TEXT;
+                        """)
+                    except Exception:
+                        pass
+
                 _schema_initialized = True
-                print("⚡ [Supabase Setup] تم التحقق من الجداول والمخطط بنجاح!")
+                print("⚡ [Supabase Setup] تم التحقق من الجداول والمخطط وترقيتها بنجاح!")
             except Exception as e:
                 print(f"⚠️ خطأ أثناء إنشاء/تحديث الجداول: {e}")
             finally:
@@ -250,6 +452,7 @@ def init_db_pool():
                     db_pool.putconn(conn)
 
     return db_pool
+
 
 @contextmanager
 def get_db_connection():
@@ -289,6 +492,7 @@ def get_db_connection():
                 pool_obj.putconn(conn, close=broken or bool(conn.closed))
             except Exception:
                 pass
+
 
 @contextmanager
 def get_db_transaction():
@@ -346,15 +550,19 @@ def get_db_transaction():
             except Exception:
                 pass
 
+
 def get_db():
     return init_db_pool()
+
 
 def initialize_supabase():
     return init_db_pool()
 
+
 def initialize_firebase():
     """موجودة للتوافق الخلفي فقط حتى لا ينكسر أي استدعاء قديم"""
     return init_db_pool()
+
 
 # ==================== Core Functions ====================
 
@@ -369,6 +577,7 @@ def _sanitize_id(sid):
     if not s or s.lower() in ("none", "null", "undefined", "nan", ""):
         return None
     return s
+
 
 def get_user(telegram_id):
     """جلب بيانات المستخدم كاملة من Supabase"""
@@ -399,6 +608,7 @@ def get_user(telegram_id):
         print(f"❌ خطأ get_user: {e}")
         return None
 
+
 def get_user_balances(telegram_id):
     """دالة مخصصة وسريعة لجلب الأرصدة الأربعة من Supabase"""
     clean_id = _sanitize_id(telegram_id)
@@ -426,6 +636,7 @@ def get_user_balances(telegram_id):
         print(f"❌ خطأ get_user_balances: {e}")
         return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0, 'ad_balance': 0.0}
 
+
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
     """إنشاء مستخدم جديد أو تحديث بياناته وربط الإحالة تلقائياً في جدولي users و user_friends"""
     clean_id = _sanitize_id(telegram_id)
@@ -441,7 +652,6 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 if not existing:
-                    # منع الإحالة العكسية
                     if clean_ref:
                         cur.execute("SELECT ref_by, referred_by FROM users WHERE tg_id = %s LIMIT 1", (clean_ref,))
                         ref_row = cur.fetchone()
@@ -455,7 +665,6 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
                     """, (clean_id, clean_id, clean_id, safe_name, safe_name, clean_ref, clean_ref))
 
                     if clean_ref:
-                        # التأكد من وجود حساب الداعي وإضافة الصديق في جدول user_friends
                         cur.execute("""
                             INSERT INTO users (tg_id, user_id, telegram_id, first_name, name)
                             VALUES (%s, %s, %s, 'لاعب', 'لاعب')
@@ -476,7 +685,6 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
                             WHERE tg_id = %s;
                         """, (clean_ref, clean_ref))
                 else:
-                    # إذا كان المستخدم موجوداً مسبقاً بدون داعي وجاء عبر رابط إحالة لأول مرة
                     current_ref = existing.get("ref_by") or existing.get("referred_by")
                     if not current_ref and clean_ref:
                         cur.execute("SELECT ref_by, referred_by FROM users WHERE tg_id = %s LIMIT 1", (clean_ref,))
@@ -498,6 +706,7 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
         print(f"❌ خطأ init_user: {e}")
         return {}
 
+
 def is_user_banned(telegram_id):
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
@@ -506,7 +715,7 @@ def is_user_banned(telegram_id):
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT COALESCE(is_banned, FALSE) FROM users
+                    SELECT COALESCE(is_banned, FALSE) OR COALESCE(banned, FALSE) FROM users
                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                     LIMIT 1
                 """, (clean_id, clean_id, clean_id))
@@ -514,6 +723,7 @@ def is_user_banned(telegram_id):
                 return bool(row[0]) if row else False
     except Exception:
         return False
+
 
 def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
     clean_id = _sanitize_id(telegram_id)
@@ -524,7 +734,7 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
             with conn.cursor() as cur:
                 cur.execute("SELECT 1 FROM banned_devices WHERE device_id = %s LIMIT 1", (str(device_id),))
                 if cur.fetchone():
-                    return {"allowed": False, "reason": "هذا الجهاز محظور"}
+                    return {"allowed": False, "banned": True, "reason": "هذا الجهاز محظور"}
                 cur.execute("""
                     UPDATE users
                     SET device_id = COALESCE(device_id, %s),
@@ -535,6 +745,7 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
         return {"allowed": True}
     except Exception:
         return {"allowed": True}
+
 
 def update_user(telegram_id, updates_dict):
     """تحديث بيانات المستخدم في Supabase بشكل فعلي وآمن"""
@@ -557,7 +768,7 @@ def update_user(telegram_id, updates_dict):
         values.extend([clean_id, clean_id, clean_id])
         query = f"""
             UPDATE users
-            SET {', '.join(set_clauses)}, last_active_at = CURRENT_TIMESTAMP
+            SET {', '.join(set_clauses)}, last_active_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
             WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
         """
         with get_db_connection() as conn:
@@ -567,6 +778,7 @@ def update_user(telegram_id, updates_dict):
     except Exception as e:
         print(f"❌ خطأ update_user: {e}")
         return False
+
 
 def update_user_last_active(user_id):
     clean_id = _sanitize_id(user_id)
@@ -585,6 +797,7 @@ def update_user_last_active(user_id):
     except Exception:
         return False
 
+
 def atomic_update_balance(telegram_id, amount_change, is_usd=False, is_znx=False, is_ad=False):
     """تحديث ذري ولحظي للأرصدة في Supabase وإرجاع الرصيد الجديد الفعلي مع حماية من القيم غير الصالحة"""
     clean_id = _sanitize_id(telegram_id)
@@ -600,7 +813,8 @@ def atomic_update_balance(telegram_id, amount_change, is_usd=False, is_znx=False
                 cur.execute(f"""
                     UPDATE users
                     SET {col} = GREATEST(0.0, COALESCE({col}, 0.0) + %s),
-                        last_active_at = CURRENT_TIMESTAMP
+                        last_active_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                     RETURNING {col}
                 """, (delta, clean_id, clean_id, clean_id))
@@ -611,6 +825,7 @@ def atomic_update_balance(telegram_id, amount_change, is_usd=False, is_znx=False
     except Exception as e:
         print(f"❌ خطأ atomic_update_balance: {e}")
         return False, 0.0
+
 
 def get_leaderboard_data(limit=50, user_id=None):
     clean_id = _sanitize_id(user_id)
@@ -644,8 +859,157 @@ def get_leaderboard_data(limit=50, user_id=None):
         print(f"❌ خطأ get_leaderboard_data: {e}")
         return {"success": True, "leaderboard": [], "my_rank": "غير مصنف"}
 
+
 def get_user_data(telegram_id):
     return get_user(telegram_id)
+
+
+# ==================== دوال الإدارة والمشرفين والسجلات (Admin & Moderators) ====================
+
+def is_admin_or_mod(telegram_id):
+    """التحقق مما إذا كان المستخدم أدمن رئيسي أو مشرف معتمد في قاعدة البيانات"""
+    clean_id = _sanitize_id(telegram_id)
+    if not clean_id:
+        return False
+    admin_env = os.environ.get("ADMIN_ID", "5102387551").strip()
+    if clean_id == admin_env:
+        return True
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM moderators WHERE tg_id = %s LIMIT 1", (clean_id,))
+                if cur.fetchone():
+                    return True
+                cur.execute("SELECT value FROM settings WHERE key = 'moderators' LIMIT 1")
+                row = cur.fetchone()
+                if row and row[0]:
+                    val = row[0] if isinstance(row[0], (dict, list)) else json.loads(str(row[0]))
+                    if isinstance(val, dict) and clean_id in val:
+                        return True
+                    if isinstance(val, list) and any(str(m.get('id') or m.get('tg_id')) == clean_id for m in val if isinstance(m, dict)):
+                        return True
+    except Exception as e:
+        print(f"⚠️ خطأ فحص صلاحية المشرف is_admin_or_mod: {e}")
+    return False
+
+
+def get_moderators():
+    """جلب قائمة المشرفين المعتمدين"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT tg_id AS id, name, permissions, added_by AS \"addedBy\", created_at FROM moderators ORDER BY created_at DESC")
+                rows = [dict(r) for r in cur.fetchall()]
+                for r in rows:
+                    if isinstance(r.get("created_at"), datetime):
+                        r["created_at"] = format_iso(r["created_at"])
+                return rows
+    except Exception as e:
+        print(f"⚠️ خطأ جلب المشرفين get_moderators: {e}")
+        return []
+
+
+def add_moderator(mod_id, mod_name, permissions=None, added_by="المدير العام"):
+    """إضافة أو تحديث مشرف في جدول moderators"""
+    clean_id = _sanitize_id(mod_id)
+    if not clean_id or not mod_name:
+        return False
+    perms = permissions if isinstance(permissions, dict) else {}
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO moderators (tg_id, name, permissions, added_by)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (tg_id) DO UPDATE
+                    SET name = EXCLUDED.name,
+                        permissions = EXCLUDED.permissions,
+                        added_by = EXCLUDED.added_by;
+                """, (clean_id, str(mod_name).strip(), Json(perms), str(added_by or "المدير العام")))
+        return True
+    except Exception as e:
+        print(f"⚠️ خطأ إضافة مشرف add_moderator: {e}")
+        return False
+
+
+def delete_moderator(mod_id, deleted_by="المدير العام"):
+    """حذف مشرف من جدول moderators"""
+    clean_id = _sanitize_id(mod_id)
+    if not clean_id:
+        return False
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM moderators WHERE tg_id = %s", (clean_id,))
+        return True
+    except Exception as e:
+        print(f"⚠️ خطأ حذف مشرف delete_moderator: {e}")
+        return False
+
+
+def get_admin_logs(limit=50):
+    """جلب سجل عمليات الإدارة من جدول admin_logs"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM admin_logs
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, (int(limit),))
+                rows = [dict(r) for r in cur.fetchall()]
+                for r in rows:
+                    if isinstance(r.get("created_at"), datetime):
+                        r["created_at"] = format_iso(r["created_at"])
+                    if r.get("amount") is not None:
+                        r["amount"] = float(r["amount"] or 0.0)
+                return rows
+    except Exception as e:
+        print(f"⚠️ خطأ جلب سجلات الإدارة get_admin_logs: {e}")
+        return []
+
+
+def get_system_global_analytics():
+    """جلب إحصائيات لوحة التحكم الشاملة من Supabase"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT
+                        COUNT(*) AS total_users,
+                        COUNT(*) FILTER (WHERE COALESCE(is_banned, FALSE) = TRUE OR COALESCE(banned, FALSE) = TRUE) AS banned_users,
+                        COUNT(*) FILTER (WHERE last_active_at >= NOW() - INTERVAL '24 hours') AS active_today,
+                        COALESCE(SUM(balance), 0.0) AS total_circulating_zn,
+                        COALESCE(SUM(znx_balance), 0.0) AS total_circulating_znx,
+                        COALESCE(SUM(usd_balance), 0.0) AS total_circulating_usd
+                    FROM users;
+                """)
+                stats = dict(cur.fetchone() or {})
+                cur.execute("""
+                    SELECT tg_id, first_name, COALESCE(balance, 0.0) AS balance, COALESCE(znx_balance, 0.0) AS znx_balance, COALESCE(interactions, 0) AS interactions
+                    FROM users
+                    WHERE COALESCE(is_banned, FALSE) = FALSE
+                    ORDER BY COALESCE(interactions, 0) DESC
+                    LIMIT 10;
+                """)
+                top_users = [dict(r) for r in cur.fetchall()]
+                return {
+                    "total_users": int(stats.get("total_users") or 0),
+                    "active_today": int(stats.get("active_today") or 0),
+                    "banned_users": int(stats.get("banned_users") or 0),
+                    "total_circulating_zn": float(stats.get("total_circulating_zn") or 0.0),
+                    "total_circulating_znx": float(stats.get("total_circulating_znx") or 0.0),
+                    "total_circulating_usd": float(stats.get("total_circulating_usd") or 0.0),
+                    "top_active_users": top_users
+                }
+    except Exception as e:
+        print(f"⚠️ خطأ get_system_global_analytics: {e}")
+        return {"total_users": 0, "active_today": 0, "banned_users": 0, "total_circulating_zn": 0.0, "top_active_users": []}
+
+
+def get_admin_dashboard_stats():
+    return get_system_global_analytics()
+
 
 # تشغيل التهيئة الأولية عند الاستيراد
 try:
