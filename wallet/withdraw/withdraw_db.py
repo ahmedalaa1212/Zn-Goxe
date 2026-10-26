@@ -2,6 +2,7 @@
 import os
 import re
 import sys
+import math
 import time
 import json
 from datetime import datetime, timezone
@@ -138,10 +139,10 @@ def init_withdraw_tables():
                         tx_id TEXT,
                         user_id TEXT,
                         tg_id TEXT,
-                        coins NUMERIC DEFAULT 0.0,
-                        amount NUMERIC DEFAULT 0.0,
-                        fee_usd NUMERIC DEFAULT 0.02,
-                        net_coins NUMERIC DEFAULT 0.0,
+                        coins DOUBLE PRECISION DEFAULT 0.0,
+                        amount DOUBLE PRECISION DEFAULT 0.0,
+                        fee_usd DOUBLE PRECISION DEFAULT 0.02,
+                        net_coins DOUBLE PRECISION DEFAULT 0.0,
                         currency TEXT DEFAULT 'ZNX',
                         tier_name TEXT DEFAULT '',
                         wallet_address TEXT DEFAULT '',
@@ -162,10 +163,10 @@ def init_withdraw_tables():
                     "tx_id TEXT",
                     "user_id TEXT",
                     "tg_id TEXT",
-                    "coins NUMERIC DEFAULT 0.0",
-                    "amount NUMERIC DEFAULT 0.0",
-                    "fee_usd NUMERIC DEFAULT 0.02",
-                    "net_coins NUMERIC DEFAULT 0.0",
+                    "coins DOUBLE PRECISION DEFAULT 0.0",
+                    "amount DOUBLE PRECISION DEFAULT 0.0",
+                    "fee_usd DOUBLE PRECISION DEFAULT 0.02",
+                    "net_coins DOUBLE PRECISION DEFAULT 0.0",
                     "currency TEXT DEFAULT 'ZNX'",
                     "tier_name TEXT DEFAULT ''",
                     "wallet_address TEXT DEFAULT ''",
@@ -207,12 +208,12 @@ def init_withdraw_tables():
                         tx_id TEXT,
                         user_id VARCHAR(255) NOT NULL,
                         tg_id VARCHAR(255),
-                        coins NUMERIC(18, 4) DEFAULT 0.0,
-                        amount NUMERIC(18, 4) DEFAULT 0.0,
-                        fee NUMERIC(18, 4) DEFAULT 0.0,
-                        fee_usd NUMERIC(18, 4) DEFAULT 0.02,
-                        net_coins NUMERIC(18, 4) DEFAULT 0.0,
-                        net_amount NUMERIC(18, 4) DEFAULT 0.0,
+                        coins DOUBLE PRECISION DEFAULT 0.0,
+                        amount DOUBLE PRECISION DEFAULT 0.0,
+                        fee DOUBLE PRECISION DEFAULT 0.0,
+                        fee_usd DOUBLE PRECISION DEFAULT 0.02,
+                        net_coins DOUBLE PRECISION DEFAULT 0.0,
+                        net_amount DOUBLE PRECISION DEFAULT 0.0,
                         currency VARCHAR(32) DEFAULT 'ZNX',
                         tier_name TEXT DEFAULT '',
                         wallet_address TEXT,
@@ -231,12 +232,12 @@ def init_withdraw_tables():
                 cols = [
                     "tx_id TEXT",
                     "tg_id VARCHAR(255)",
-                    "coins NUMERIC(18, 4) DEFAULT 0.0",
-                    "amount NUMERIC(18, 4) DEFAULT 0.0",
-                    "fee NUMERIC(18, 4) DEFAULT 0.0",
-                    "fee_usd NUMERIC(18, 4) DEFAULT 0.02",
-                    "net_coins NUMERIC(18, 4) DEFAULT 0.0",
-                    "net_amount NUMERIC(18, 4) DEFAULT 0.0",
+                    "coins DOUBLE PRECISION DEFAULT 0.0",
+                    "amount DOUBLE PRECISION DEFAULT 0.0",
+                    "fee DOUBLE PRECISION DEFAULT 0.0",
+                    "fee_usd DOUBLE PRECISION DEFAULT 0.02",
+                    "net_coins DOUBLE PRECISION DEFAULT 0.0",
+                    "net_amount DOUBLE PRECISION DEFAULT 0.0",
                     "currency VARCHAR(32) DEFAULT 'ZNX'",
                     "tier_name TEXT DEFAULT ''",
                     "wallet_address TEXT",
@@ -271,12 +272,12 @@ def init_withdraw_tables():
                         tx_hash TEXT,
                         user_id TEXT,
                         tg_id TEXT,
-                        coins NUMERIC DEFAULT 0.0,
-                        amount NUMERIC DEFAULT 0.0,
-                        fee NUMERIC DEFAULT 0.0,
-                        fee_usd NUMERIC DEFAULT 0.0,
-                        net_coins NUMERIC DEFAULT 0.0,
-                        net_amount NUMERIC DEFAULT 0.0,
+                        coins DOUBLE PRECISION DEFAULT 0.0,
+                        amount DOUBLE PRECISION DEFAULT 0.0,
+                        fee DOUBLE PRECISION DEFAULT 0.0,
+                        fee_usd DOUBLE PRECISION DEFAULT 0.0,
+                        net_coins DOUBLE PRECISION DEFAULT 0.0,
+                        net_amount DOUBLE PRECISION DEFAULT 0.0,
                         currency TEXT DEFAULT 'ZNX',
                         tier_name TEXT DEFAULT '',
                         wallet_address TEXT DEFAULT '',
@@ -296,12 +297,12 @@ def init_withdraw_tables():
                     "tx_hash TEXT",
                     "user_id TEXT",
                     "tg_id TEXT",
-                    "coins NUMERIC DEFAULT 0.0",
-                    "amount NUMERIC DEFAULT 0.0",
-                    "fee NUMERIC DEFAULT 0.0",
-                    "fee_usd NUMERIC DEFAULT 0.0",
-                    "net_coins NUMERIC DEFAULT 0.0",
-                    "net_amount NUMERIC DEFAULT 0.0",
+                    "coins DOUBLE PRECISION DEFAULT 0.0",
+                    "amount DOUBLE PRECISION DEFAULT 0.0",
+                    "fee DOUBLE PRECISION DEFAULT 0.0",
+                    "fee_usd DOUBLE PRECISION DEFAULT 0.0",
+                    "net_coins DOUBLE PRECISION DEFAULT 0.0",
+                    "net_amount DOUBLE PRECISION DEFAULT 0.0",
                     "currency TEXT DEFAULT 'ZNX'",
                     "tier_name TEXT DEFAULT ''",
                     "wallet_address TEXT DEFAULT ''",
@@ -338,7 +339,7 @@ def init_withdraw_tables():
                         admin_id TEXT,
                         admin_name TEXT,
                         status TEXT,
-                        amount NUMERIC DEFAULT 0.0,
+                        amount DOUBLE PRECISION DEFAULT 0.0,
                         details TEXT,
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
@@ -347,7 +348,7 @@ def init_withdraw_tables():
                 cur.execute("ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS user_id TEXT;")
                 cur.execute("ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS admin_id TEXT;")
                 cur.execute("ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS status TEXT;")
-                cur.execute("ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0.0;")
+                cur.execute("ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS amount DOUBLE PRECISION DEFAULT 0.0;")
                 cur.execute("ALTER TABLE admin_logs ADD COLUMN IF NOT EXISTS details TEXT;")
     except Exception as e:
         print(f"⚠️ خطأ تهيئة admin_logs: {e}")
@@ -389,27 +390,33 @@ class PostgresUserRef:
                OR user_id::TEXT = %s
                OR telegram_id::TEXT = %s
         """
-        try:
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, tuple(values))
-            return True
-        except Exception as e:
-            print(f"⚠️ خطأ تحديث المستخدم في PostgresUserRef: {e}")
-            return False
+        for _ in range(2):
+            try:
+                with get_db_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(sql, tuple(values))
+                return True
+            except Exception as e:
+                print(f"⚠️ خطأ تحديث المستخدم في PostgresUserRef: {e}")
+                time.sleep(0.2)
+        return False
 
     def set(self, payload: dict, merge: bool = True):
         return self.update(payload)
 
 
 def format_crypto_display(amount):
+    """تنسيق نظيف للأرقام يمنع ظهور .0000 للأرقام الصحيحة (مثلاً 1000 -> 1,000)"""
     if amount is None:
-        return "0.0000"
+        return "0"
     try:
         val = float(amount)
-        if val <= 0:
-            return "0.0000"
-        return f"{val:,.4f}"
+        if not math.isfinite(val) or val <= 0:
+            return "0"
+        rounded = round(val, 4)
+        if abs(rounded - round(rounded)) < 1e-6:
+            return f"{int(round(rounded)):,}"
+        return f"{rounded:,.4f}".rstrip("0").rstrip(".")
     except Exception:
         return str(amount)
 
@@ -420,8 +427,8 @@ def extract_user_balance(data):
     if "znx_balance" in data and data["znx_balance"] is not None:
         try:
             val = float(data["znx_balance"])
-            if val >= 0:
-                return val
+            if math.isfinite(val) and val >= 0:
+                return round(val, 4)
         except (ValueError, TypeError):
             pass
     return 0.0
@@ -432,7 +439,7 @@ def extract_usd_balance(data):
         return 0.0
     try:
         val = float(data.get("usd_balance", 0.0) or 0.0)
-        return val if val >= 0 else 0.0
+        return round(val, 4) if (math.isfinite(val) and val >= 0) else 0.0
     except (ValueError, TypeError):
         return 0.0
 
@@ -456,7 +463,6 @@ def _resolve_tier_limits(item: dict, tier_num: int):
     """استخراج حدود الشريحة والحد الأدنى للسحب بمرونة كاملة لتتطابق مع جدول znx_global_stats"""
     fallback = TIER_DEFAULTS_BY_NUM.get(tier_num, TIER_DEFAULTS_BY_NUM[1])
 
-    # قراءة الحد الأدنى للشريحة (إن وجد بأي مسمى)
     min_raw = (
         item.get("min_pts")
         if item.get("min_pts") is not None
@@ -467,7 +473,6 @@ def _resolve_tier_limits(item: dict, tier_num: int):
     except (ValueError, TypeError):
         min_v = float(fallback["min_pts"])
 
-    # قراءة الحد الأقصى للشريحة (إن وجد بأي مسمى في znx_wallet)
     max_raw = None
     for k in ("max_pts", "max_znx", "max_converted", "end_znx", "limit", "max_limit", "target_znx", "cap"):
         if item.get(k) is not None:
@@ -485,7 +490,6 @@ def _resolve_tier_limits(item: dict, tier_num: int):
         except (ValueError, TypeError):
             max_v = float("inf") if fallback["max_pts"] == "inf" else float(fallback["max_pts"])
 
-    # قراءة الحد الأدنى للسحب والرسوم الخاصة بهذه الشريحة
     min_withdraw_raw = item.get("min_withdraw_znx", item.get("min_withdraw", fallback["min_withdraw_znx"]))
     try:
         min_withdraw_znx = float(min_withdraw_raw)
@@ -502,13 +506,16 @@ def _resolve_tier_limits(item: dict, tier_num: int):
     except (ValueError, TypeError):
         fixed_fee_usd = float(fallback["fixed_fee_usd"])
 
+    # تحويل الأرقام الصحيحة مثل 1000.0 إلى 1000 صافية في العرض
+    clean_min_w = int(min_withdraw_znx) if abs(min_withdraw_znx - round(min_withdraw_znx)) < 1e-6 else round(min_withdraw_znx, 4)
+
     return {
         "tier": tier_num,
         "name": str(item.get("name") or fallback["name"]),
         "min_pts": min_v,
         "max_pts": max_v,
-        "min_withdraw_znx": min_withdraw_znx,
-        "fixed_fee_usd": fixed_fee_usd
+        "min_withdraw_znx": clean_min_w,
+        "fixed_fee_usd": round(fixed_fee_usd, 4)
     }
 
 
@@ -521,7 +528,7 @@ def get_current_withdraw_tier():
     default_tier = {
         "tier": 1,
         "name": "الشريحة الأولى",
-        "min_withdraw_znx": 1000.0,
+        "min_withdraw_znx": 1000,
         "fixed_fee_usd": 0.02
     }
     if not get_db_connection:
@@ -568,13 +575,12 @@ def get_current_withdraw_tier():
                         }
                         break
 
-                # 2. إذا كان هناك عمود active_tier صريح في الجدول وكان أعلى، نأخذ به لضمان التطابق
+                # 2. إذا كان هناك عمود active_tier صريح في الجدول، نتحقق منه للتطابق التام
                 if active_tier_col is not None:
                     try:
                         act_num = int(active_tier_col)
                         for r_item in resolved_list:
                             if r_item["tier"] == act_num:
-                                # إذا لم تكن total_converted_znx قد حددت شريحة أعلى، اعتمد active_tier
                                 if not res_tier or act_num >= res_tier["tier"]:
                                     res_tier = {
                                         "tier": r_item["tier"],
@@ -608,20 +614,23 @@ def get_user_doc(user_id):
     clean_id = _sanitize_id(user_id)
     if not clean_id or not get_db_connection:
         return None, None
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT * FROM users
-                    WHERE tg_id::TEXT = %s OR user_id::TEXT = %s OR telegram_id::TEXT = %s
-                    LIMIT 1
-                """, (clean_id, clean_id, clean_id))
-                row = cur.fetchone()
-                if row:
-                    data = dict(row)
-                    return PostgresUserRef(clean_id, data), data
-    except Exception as e:
-        print(f"⚠️ خطأ جلب بيانات المستخدم: {e}")
+    for _ in range(2):
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT * FROM users
+                        WHERE tg_id::TEXT = %s OR user_id::TEXT = %s OR telegram_id::TEXT = %s
+                        LIMIT 1
+                    """, (clean_id, clean_id, clean_id))
+                    row = cur.fetchone()
+                    if row:
+                        data = dict(row)
+                        return PostgresUserRef(clean_id, data), data
+                    return None, None
+        except Exception as e:
+            print(f"⚠️ خطأ جلب بيانات المستخدم: {e}")
+            time.sleep(0.2)
     return None, None
 
 
@@ -653,7 +662,7 @@ def get_user_full_details(user_id):
 
         real_znx_balance = extract_user_balance(data)
         usd_balance = extract_usd_balance(data)
-        zn_balance = float(data.get("balance", 0.0) or 0.0)
+        zn_balance = round(float(data.get("balance", 0.0) or 0.0), 4)
         wallets = _parse_json_val(data.get("wallets"), {})
         wallet_addr = data.get("wallet_address") or wallets.get("ZNX", "") or ""
 
@@ -696,7 +705,7 @@ def get_user_full_details(user_id):
 
 
 def save_user_wallet(user_id, currency, wallet_address):
-    """حفظ أو تغيير عنوان المحفظة للمستخدم بحرية تامة في Supabase بدون أي تعارض"""
+    """حفظ أو تغيير عنوان المحفظة المختار عبر TON Connect بحرية تامة في Supabase مع Auto-Retry"""
     clean_id = _sanitize_id(user_id)
     clean_wallet = str(wallet_address or "").strip()
     curr_key = str(currency or "ZNX").strip().upper()
@@ -705,47 +714,49 @@ def save_user_wallet(user_id, currency, wallet_address):
         return False, "تعذر الاتصال بقاعدة البيانات."
 
     if not is_valid_ton_address(clean_wallet):
-        return False, "عنوان محفظة TON غير صالح! يجب أن يبدأ بـ EQ أو UQ."
+        return False, "عنوان محفظة TON غير صالح! يرجى اختيار محفظة TON صحيحة."
 
-    try:
-        user_ref, user_data = get_user_doc(clean_id)
+    for attempt in range(3):
+        try:
+            _, user_data = get_user_doc(clean_id)
 
-        # إذا لم يكن المستخدم مسجلاً بعد في جدول users، نقوم بإنشائه تلقائياً
-        if not user_data:
+            if not user_data:
+                with get_db_connection() as conn:
+                    with conn.cursor() as cur:
+                        wallets_init = json.dumps({curr_key: clean_wallet}, ensure_ascii=False)
+                        cur.execute("""
+                            INSERT INTO users (tg_id, user_id, telegram_id, wallet_address, wallets, updated_at)
+                            VALUES (%s, %s, %s, %s, %s::jsonb, CURRENT_TIMESTAMP)
+                            ON CONFLICT (tg_id) DO UPDATE
+                            SET wallet_address = EXCLUDED.wallet_address,
+                                wallets = EXCLUDED.wallets,
+                                updated_at = CURRENT_TIMESTAMP;
+                        """, (clean_id, clean_id, clean_id, clean_wallet, wallets_init))
+                return True, "تم ربط وحفظ المحفظة بنجاح."
+
+            wallets = _parse_json_val(user_data.get("wallets"), {})
+            if not isinstance(wallets, dict):
+                wallets = {}
+            wallets[curr_key] = clean_wallet
+
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
-                    wallets_init = json.dumps({curr_key: clean_wallet}, ensure_ascii=False)
                     cur.execute("""
-                        INSERT INTO users (tg_id, user_id, telegram_id, wallet_address, wallets, updated_at)
-                        VALUES (%s, %s, %s, %s, %s::jsonb, CURRENT_TIMESTAMP)
-                        ON CONFLICT (tg_id) DO UPDATE
-                        SET wallet_address = EXCLUDED.wallet_address,
-                            wallets = EXCLUDED.wallets,
-                            updated_at = CURRENT_TIMESTAMP;
-                    """, (clean_id, clean_id, clean_id, clean_wallet, wallets_init))
-            return True, "تم حفظ المحفظة بنجاح."
+                        UPDATE users
+                        SET wallet_address = %s,
+                            wallets = %s::jsonb,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE tg_id::TEXT = %s
+                           OR user_id::TEXT = %s
+                           OR telegram_id::TEXT = %s
+                    """, (clean_wallet, json.dumps(wallets, ensure_ascii=False), clean_id, clean_id, clean_id))
 
-        wallets = _parse_json_val(user_data.get("wallets"), {})
-        if not isinstance(wallets, dict):
-            wallets = {}
-        wallets[curr_key] = clean_wallet
+            return True, "تم ربط وتحديث عنوان المحفظة بنجاح."
+        except Exception as e:
+            print(f"⚠️ محاولة {attempt + 1} لحفظ المحفظة في Supabase: {e}")
+            time.sleep(0.3)
 
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE users
-                    SET wallet_address = %s,
-                        wallets = %s::jsonb,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE tg_id::TEXT = %s
-                       OR user_id::TEXT = %s
-                       OR telegram_id::TEXT = %s
-                """, (clean_wallet, json.dumps(wallets, ensure_ascii=False), clean_id, clean_id, clean_id))
-
-        return True, "تم حفظ وتحديث عنوان المحفظة بنجاح."
-    except Exception as e:
-        print(f"⚠️ خطأ حفظ المحفظة في Supabase: {e}")
-        return False, "حدث خطأ أثناء الاتصال بالخادم لحفظ المحفظة."
+    return False, "حدث خطأ أثناء الاتصال بالخادم لحفظ المحفظة."
 
 
 # تهيئة وترقية الجداول تلقائياً عند استيراد الملف
