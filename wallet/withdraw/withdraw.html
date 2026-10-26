@@ -58,18 +58,24 @@
   .btn-submit-withdraw:active { transform: scale(0.98); }
   .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
 
-  .btn-connect { width: 100%; background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(16, 185, 129, 0.15)); color: #38bdf8; border: 1px dashed #38bdf8; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+  .wallet-actions-row { display: flex; gap: 8px; width: 100%; }
+  .btn-connect { flex: 1; background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(16, 185, 129, 0.15)); color: #38bdf8; border: 1px dashed #38bdf8; padding: 12px 10px; border-radius: 12px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 6px; }
   .btn-connect:active { background: #38bdf8; color: #020617; }
-  .address-display { background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 13px; margin-bottom: 10px; word-break: break-all; display: none; text-align: left; direction: ltr; font-family: monospace; }
+  .btn-tonconnect-direct { background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 12px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap; }
+  .btn-tonconnect-direct:active { background: #10b981; color: #020617; }
+
+  .address-display { background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 13px; margin-bottom: 10px; word-break: break-all; display: none; text-align: left; direction: ltr; font-family: monospace; cursor: pointer; transition: border-color 0.2s; }
+  .address-display:hover { border-color: #38bdf8; }
 
   .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 99999; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(4px); box-sizing: border-box; }
   .modal-overlay.active { display: flex; }
   .modal-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 22px; width: 100%; max-width: 380px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); }
   .modal-title { color: #38bdf8; margin-top: 0; margin-bottom: 12px; font-size: 17px; font-weight: bold; text-align: center; }
-  .modal-subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 16px; text-align: center; line-height: 1.6; }
-  .modal-buttons { display: flex; gap: 12px; margin-top: 20px; }
-  .btn-save { flex: 1; background: #10b981; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
-  .btn-cancel { flex: 1; background: #ef4444; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
+  .modal-subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 14px; text-align: center; line-height: 1.6; }
+  .modal-buttons { display: flex; gap: 12px; margin-top: 16px; }
+  .btn-save { flex: 1; background: #10b981; color: #fff; border: none; padding: 13px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
+  .btn-cancel { flex: 1; background: #ef4444; color: #fff; border: none; padding: 13px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
+  .btn-ton-modal { width: 100%; margin-top: 10px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 11px; border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; }
 </style>
 
 <!-- مشغل كود المزامنة التلقائية يعمل فورياً عبر MutationObserver فقط بدون إرهاق المعالج -->
@@ -100,7 +106,7 @@
 <div id="ton-connect-hidden-root" style="display:none;"></div>
 
 <div class="withdraw-wrapper">
-  <!-- 1. ربط محفظة TON الحقيقية -->
+  <!-- 1. ربط وتغيير محفظة TON بحرية تامة -->
   <div class="w-card">
     <div class="w-title">
       <span>🪙 عملة السحب: ZNX</span>
@@ -112,10 +118,16 @@
         <span>محفظة استلام تلجرام (TON Wallet):</span>
       </div>
       
-      <div id="wallet-address-display" class="address-display"></div>
-      <button type="button" id="btn-connect-wallet" class="btn-connect" onclick="withdrawModule.connectTonWallet()">
-        🔗 ربط محفظة TON (Telegram / Tonkeeper)
-      </button>
+      <div id="wallet-address-display" class="address-display" onclick="withdrawModule.openWalletModal()"></div>
+
+      <div class="wallet-actions-row">
+        <button type="button" id="btn-connect-wallet" class="btn-connect" onclick="withdrawModule.openWalletModal()">
+          ✏️ إدخال / تغيير محفظة TON
+        </button>
+        <button type="button" class="btn-tonconnect-direct" onclick="withdrawModule.connectTonWallet()">
+          🔗 ربط تلقائي
+        </button>
+      </div>
 
       <input type="hidden" id="wallet-address-input" value="" />
     </div>
@@ -158,7 +170,7 @@
       ℹ️ <strong>معلومات وتنبيهات السحب:</strong><br/>
       • مدة معالجة وتأكيد الطلب تستغرق من <strong>1 دقيقة عمل إلى 48 ساعة</strong>.<br/>
       • يتم اقتطاع رسوم السحب الثابتة الموضحة أعلاه (<strong id="notice-fee-display" style="color:#fbbf24;">$0.02 USD</strong>) من رصيد الدولار لديك، وتصلك عملات ZNX بالكامل دون أي خصم.<br/>
-      • تأكد دائماً من صحة المحفظة المربوطة قبل تأكيد عملية السحب.
+      • يمكنك تغيير عنوان محفظة TON الخاصة بك في أي وقت قبل تأكيد عملية السحب.
     </div>
 
     <button type="button" id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal(event)">
@@ -166,16 +178,19 @@
     </button>
   </div>
 
-  <!-- 3. نافذة إدخال المحفظة الاحتياطية -->
+  <!-- 3. نافذة إدخال وتغيير المحفظة بمرونة كاملة -->
   <div id="wallet-modal" class="modal-overlay">
     <div class="modal-card">
-      <div class="modal-title">🔗 ربط محفظة TON</div>
+      <div class="modal-title">🔗 إعداد / تغيير محفظة TON</div>
       <div class="modal-subtitle">
-        أدخل عنوان محفظة TON / Telegram لاستلام عملات <strong>ZNX</strong> عليها:
+        أدخل أو الصق عنوان محفظة TON (Telegram / Tonkeeper) لاستلام عملات <strong>ZNX</strong> عليها:
       </div>
-      <input type="text" id="modal-wallet-input" class="w-input" style="padding: 12px; text-align: left;" placeholder="أدخل عنوان محفظة TON (e.g. UQ... / EQ...)" />
+      <input type="text" id="modal-wallet-input" class="w-input" style="padding: 12px; text-align: left;" placeholder="UQ... أو EQ..." />
+      <button type="button" class="btn-ton-modal" onclick="withdrawModule.connectTonWallet()">
+        ⚡ أو اختر المحفظة تلقائياً عبر TON Connect
+      </button>
       <div class="modal-buttons">
-        <button type="button" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ المحفظة</button>
+        <button type="button" id="btn-save-wallet-modal" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ المحفظة</button>
         <button type="button" class="btn-cancel" onclick="withdrawModule.closeWalletModal()">إلغاء</button>
       </div>
     </div>
