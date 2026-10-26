@@ -1,10 +1,25 @@
+# -*- coding: utf-8 -*-
 """
 ملف admin_database.py
 يعمل كوسيط (Facade Router) يربط بين ملفات قاعدة البيانات الفرعية للموديولات
-(مثل addons_db، admin_chat_db، super_admin_db إلخ) وقاعدة البيانات الرئيسية لتنظيم الكود ومنع كثرة الأسطر.
+(مثل addons_db، admin_chat_db، super_admin_db إلخ) وقاعدة البيانات الرئيسية (Supabase PostgreSQL)
+بدون أي اعتماد على Firebase.
 """
 
-from database import get_db
+from datetime import datetime
+from psycopg2.extras import RealDictCursor, Json
+from database import (
+    get_db,
+    get_db_connection,
+    _sanitize_id,
+    format_iso,
+    get_moderators,
+    add_moderator,
+    delete_moderator,
+    get_admin_logs as _db_get_admin_logs,
+    get_system_global_analytics as _db_get_system_global_analytics
+)
+
 
 def _get_db():
     """جلب كائن قاعدة البيانات من الملف الرئيسي"""
@@ -42,206 +57,263 @@ try:
         get_latest_broadcast_stats
     )
 except ImportError as e:
-    print(f"⚠️ Note: super_admin_db module import warning: {e}")
+    print(f"⚠️ Note: super_admin_db module import warning, using Supabase SQL fallbacks: {e}")
 
-    # 🚫 دالة fallback لحظر مستخدم وحجب جهازه
+    # 🚫 دالة حظر مستخدم وحجب جهازه في Supabase PostgreSQL
     def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة العليا", admin_name="السوبر أدمن"):
+        clean_id = _sanitize_id(tg_id)
+        if not clean_id:
+            return False, "معرف المستخدم غير صالح"
         try:
-            db = _get_db()
-            if not db:
-                return False, "قاعدة البيانات غير متوفرة"
-            
-            tg_id_str = str(tg_id).strip()
-            user_ref = db.collection("users").document(tg_id_str)
-            user_doc = user_ref.get()
-            
-            # 1. تحديث حقول الحظر بالتوازي (banned و is_banned)
-            user_ref.update({
-                "banned": True,
-                "is_banned": True,
-                "ban_reason": reason
-            })
+            with get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        UPDATE users
+                        SET is_banned = TRUE,
+                            banned = TRUE,
+                            ban_reason = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        RETURNING device_id
+                    """, (str(reason), clean_id, clean_id, clean_id))
+                    rows = cur.fetchall()
 
-            # 2. البحث عن معرف الجهاز المرتبط بالمستخدم وحفظه في banned_devices
-            import time
-            device_ids = set()
-            
-            if user_doc.exists:
-                u_data = user_doc.to_dict() or {}
-                if u_data.get("device_id"):
-                    device_ids.add(str(u_data.get("device_id")).strip())
+                    device_ids = set()
+                    for r in rows:
+                        if r.get("device_id"):
+                            device_ids.add(str(r["device_id"]).strip())
 
-            # البحث في مجموعة الأجهزة (devices)
-            try:
-                dev_docs = db.collection("devices").where("primary_user_id", "==", tg_id_str).stream()
-                for d in dev_docs:
-                    device_ids.add(str(d.id).strip())
-            except Exception as d_err:
-                print(f"⚠️ Warning searching devices collection: {d_err}")
+                    cur.execute("SELECT device_id FROM devices WHERE primary_user_id = %s", (clean_id,))
+                    for d in cur.fetchall():
+                        if d.get("device_id"):
+                            device_ids.add(str(d["device_id"]).strip())
 
-            # إدراج كل معرّف جهاز في مجموعة banned_devices
-            for dev_id in device_ids:
-                if dev_id:
-                    db.collection("banned_devices").document(dev_id).set({
-                        "device_id": dev_id,
-                        "banned_user_id": tg_id_str,
-                        "reason": reason,
-                        "banned_by": admin_name,
-                        "timestamp": time.time()
-                    }, merge=True)
+                    for dev_id in device_ids:
+                        if dev_id:
+                            cur.execute("""
+                                INSERT INTO banned_devices (device_id, banned_user_id, reason, banned_by, banned_at)
+                                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                                ON CONFLICT (device_id) DO UPDATE
+                                SET banned_user_id = EXCLUDED.banned_user_id,
+                                    reason = EXCLUDED.reason,
+                                    banned_by = EXCLUDED.banned_by,
+                                    banned_at = CURRENT_TIMESTAMP
+                            """, (dev_id, clean_id, str(reason), str(admin_name)))
 
-            return True, f"تم حظر المستخدم {tg_id_str} وحظر الأجهزة المرتبطة به بنجاح"
+                    cur.execute("""
+                        INSERT INTO admin_logs (action, user_id, admin_id, status, details, created_at)
+                        VALUES ('ban_user', %s, %s, 'completed', %s, CURRENT_TIMESTAMP)
+                    """, (clean_id, str(admin_name), str(reason)))
+
+            return True, f"تم حظر المستخدم {clean_id} وحظر الأجهزة المرتبطة به بنجاح"
         except Exception as err:
-            return False, f"خطأ في الحظر الاحتياطي: {err}"
+            return False, f"خطأ أثناء حظر المستخدم في Supabase: {err}"
 
-    # 🟢 دالة fallback لفك الحظر عن المستخدم وجهازه
+    # 🟢 دالة فك الحظر عن المستخدم وجهازه في Supabase PostgreSQL
     def unban_user_db(tg_id, admin_name="السوبر أدمن"):
+        clean_id = _sanitize_id(tg_id)
+        if not clean_id:
+            return False, "معرف المستخدم غير صالح"
         try:
-            db = _get_db()
-            if not db:
-                return False, "قاعدة البيانات غير متوفرة"
-            
-            tg_id_str = str(tg_id).strip()
-            user_ref = db.collection("users").document(tg_id_str)
-            user_doc = user_ref.get()
+            with get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        UPDATE users
+                        SET is_banned = FALSE,
+                            banned = FALSE,
+                            ban_reason = NULL,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        RETURNING device_id
+                    """, (clean_id, clean_id, clean_id))
+                    rows = cur.fetchall()
 
-            # 1. إرجاع حقول الحظر إلى False وإلغاء السبب
-            user_ref.update({
-                "banned": False,
-                "is_banned": False,
-                "ban_reason": None
-            })
+                    device_ids = set()
+                    for r in rows:
+                        if r.get("device_id"):
+                            device_ids.add(str(r["device_id"]).strip())
 
-            # 2. جلب جميع الأجهزة المرتبطة بهذا المستخدم لمسحها من banned_devices
-            device_ids = set()
-            if user_doc.exists:
-                u_data = user_doc.to_dict() or {}
-                if u_data.get("device_id"):
-                    device_ids.add(str(u_data.get("device_id")).strip())
+                    cur.execute("SELECT device_id FROM devices WHERE primary_user_id = %s", (clean_id,))
+                    for d in cur.fetchall():
+                        if d.get("device_id"):
+                            device_ids.add(str(d["device_id"]).strip())
 
-            try:
-                dev_docs = db.collection("devices").where("primary_user_id", "==", tg_id_str).stream()
-                for d in dev_docs:
-                    device_ids.add(str(d.id).strip())
-            except Exception as d_err:
-                print(f"⚠️ Warning searching devices for unban: {d_err}")
+                    for dev_id in device_ids:
+                        if dev_id:
+                            cur.execute("DELETE FROM banned_devices WHERE device_id = %s", (dev_id,))
 
-            # مسح الأجهزة من قائمة الأجهزة المحظورة
-            for dev_id in device_ids:
-                if dev_id:
-                    db.collection("banned_devices").document(dev_id).delete()
+                    cur.execute("DELETE FROM banned_devices WHERE banned_user_id = %s", (clean_id,))
 
-            # مسح أي قيود حظر إضافية مسجلة بـ Telegram ID في banned_devices
-            try:
-                bd_docs = db.collection("banned_devices").where("banned_user_id", "==", tg_id_str).stream()
-                for bd in bd_docs:
-                    db.collection("banned_devices").document(bd.id).delete()
-            except Exception as bd_err:
-                print(f"⚠️ Warning cleaning banned_devices by user id: {bd_err}")
+                    cur.execute("""
+                        INSERT INTO admin_logs (action, user_id, admin_id, status, details, created_at)
+                        VALUES ('unban_user', %s, %s, 'completed', 'فك الحظر عن المستخدم', CURRENT_TIMESTAMP)
+                    """, (clean_id, str(admin_name)))
 
-            return True, f"تم فك الحظر عن المستخدم {tg_id_str} وجميع الأجهزة المربوطة به بنجاح"
+            return True, f"تم فك الحظر عن المستخدم {clean_id} وجميع الأجهزة المربوطة به بنجاح"
         except Exception as err:
-            return False, f"خطأ في فك الحظر الاحتياطي: {err}"
+            return False, f"خطأ أثناء فك الحظر في Supabase: {err}"
 
-    # 📊 دالة fallback للتحليلات الكلية
+    # 📊 دالة التحليلات الكلية من Supabase
     def get_system_global_analytics():
-        try:
-            db = _get_db()
-            if not db:
-                return {"total_users": 0, "active_today": 0, "banned_users": 0, "top_active_users": []}
-            users = list(db.collection("users").stream())
-            total_users = len(users)
-            banned_count = sum(1 for u in users if (u.to_dict() or {}).get("banned") or (u.to_dict() or {}).get("is_banned"))
-            return {
-                "total_users": total_users,
-                "active_today": max(0, total_users - banned_count),
-                "banned_users": banned_count,
-                "total_circulating_zn": 0.0,
-                "top_active_users": []
-            }
-        except Exception as err:
-            print(f"❌ Error getting analytics fallback: {err}")
-            return {"total_users": 0, "active_today": 0, "banned_users": 0, "top_active_users": []}
+        return _db_get_system_global_analytics()
 
-    # 👤 دوال fallback للمشرفين والسجلات
+    # 👤 دوال المشرفين والسجلات
     def add_moderator_db(tg_id, name, permissions=None, admin_name="السوبر أدمن"):
-        return False, "غير مدعوم في الوضع الاحتياطي"
+        ok = add_moderator(tg_id, name, permissions, added_by=admin_name)
+        return (True, "تمت إضافة المشرف بنجاح") if ok else (False, "تعذر إضافة المشرف")
 
     def list_moderators_db():
-        return []
+        return get_moderators()
 
     def remove_moderator_db(tg_id, admin_name="السوبر أدمن"):
-        return False, "غير مدعوم في الوضع الاحتياطي"
+        ok = delete_moderator(tg_id, deleted_by=admin_name)
+        return (True, "تم حذف المشرف بنجاح") if ok else (False, "تعذر حذف المشرف")
 
     def get_admin_logs(limit=50):
-        return []
+        return _db_get_admin_logs(limit=limit)
 
     def modify_user_balance_admin(tg_id, amount, balance_type="balance", operation="add", admin_name="السوبر أدمن"):
-        return False, "غير مدعوم في الوضع الاحتياطي", 0.0
+        clean_id = _sanitize_id(tg_id)
+        if not clean_id:
+            return False, "معرف المستخدم غير صالح", 0.0
+        col_map = {
+            "balance": "balance",
+            "zn": "balance",
+            "znx": "znx_balance",
+            "znx_balance": "znx_balance",
+            "usd": "usd_balance",
+            "usdt": "usd_balance",
+            "usd_balance": "usd_balance",
+            "ad": "ad_balance",
+            "ad_balance": "ad_balance"
+        }
+        col = col_map.get(str(balance_type).lower(), "balance")
+        try:
+            val = float(amount)
+            delta = -abs(val) if str(operation).lower() in ("sub", "subtract", "minus") else abs(val)
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    if str(operation).lower() == "set":
+                        cur.execute(f"""
+                            UPDATE users
+                            SET {col} = GREATEST(0.0, %s), updated_at = CURRENT_TIMESTAMP
+                            WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                            RETURNING {col}
+                        """, (max(0.0, val), clean_id, clean_id, clean_id))
+                    else:
+                        cur.execute(f"""
+                            UPDATE users
+                            SET {col} = GREATEST(0.0, COALESCE({col}, 0.0) + %s), updated_at = CURRENT_TIMESTAMP
+                            WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                            RETURNING {col}
+                        """, (delta, clean_id, clean_id, clean_id))
+                    row = cur.fetchone()
+                    if not row:
+                        return False, "المستخدم غير موجود", 0.0
+                    new_bal = float(row[0] or 0.0)
+                    cur.execute("""
+                        INSERT INTO admin_logs (action, user_id, admin_id, status, amount, details, created_at)
+                        VALUES (%s, %s, %s, 'completed', %s, %s, CURRENT_TIMESTAMP)
+                    """, (f"modify_{col}_{operation}", clean_id, str(admin_name), val, f"رصيد جديد: {new_bal}"))
+                    return True, "تم تحديث الرصيد بنجاح", new_bal
+        except Exception as err:
+            return False, f"خطأ تعديل الرصيد: {err}", 0.0
 
     def reset_user_account_admin(tg_id, admin_name="السوبر أدمن"):
-        return False, "غير مدعوم في الوضع الاحتياطي"
+        clean_id = _sanitize_id(tg_id)
+        if not clean_id:
+            return False, "معرف المستخدم غير صالح"
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE users
+                        SET balance = 0.0,
+                            znx_balance = 0.0,
+                            usd_balance = 0.0,
+                            ad_balance = 0.0,
+                            farm_level = 1,
+                            storage_level = 0,
+                            upgrades_count = 0,
+                            upgrades = '{}'::jsonb,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                    """, (clean_id, clean_id, clean_id))
+                    cur.execute("""
+                        INSERT INTO admin_logs (action, user_id, admin_id, status, details, created_at)
+                        VALUES ('reset_account', %s, %s, 'completed', 'تصفير الحساب', CURRENT_TIMESTAMP)
+                    """, (clean_id, str(admin_name)))
+            return True, f"تم تصفير حساب المستخدم {clean_id} بنجاح"
+        except Exception as err:
+            return False, f"خطأ تصفير الحساب: {err}"
 
-    # 📢 دوال fallback للإشعارات والبث الجماعي
+    # 📢 دوال الإشعارات والبث الجماعي في Supabase
     def get_all_user_ids():
         try:
-            db = _get_db()
-            if not db:
-                return []
-            users_ref = db.collection('users').stream()
-            user_ids = []
-            for doc in users_ref:
-                data = doc.to_dict() or {}
-                if not (data.get('banned', False) or data.get('is_banned', False)):
-                    user_ids.append(str(doc.id))
-            return user_ids
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT tg_id FROM users
+                        WHERE COALESCE(is_banned, FALSE) = FALSE
+                          AND COALESCE(banned, FALSE) = FALSE
+                          AND tg_id IS NOT NULL
+                    """)
+                    return [str(r[0]) for r in cur.fetchall() if r and r[0]]
         except Exception as err:
-            print(f"❌ Error fetching user ids fallback: {err}")
+            print(f"❌ Error fetching user ids from Supabase: {err}")
             return []
 
     def log_broadcast_campaign(admin_name, message, total_targets, success_count, blocked_count):
         try:
-            db = _get_db()
-            if not db:
-                return False
-            import time
-            doc_ref = db.collection('broadcasts').document()
-            doc_ref.set({
-                'id': doc_ref.id,
-                'admin_name': admin_name,
-                'message_snippet': message[:100],
-                'total_targets': total_targets,
-                'success_count': success_count,
-                'blocked_count': blocked_count,
-                'created_at': time.time()
-            })
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO broadcasts (admin_name, message_snippet, total_targets, success_count, blocked_count, created_at)
+                        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    """, (str(admin_name), str(message or "")[:100], int(total_targets or 0), int(success_count or 0), int(blocked_count or 0)))
             return True
         except Exception as err:
-            print(f"❌ Error logging campaign fallback: {err}")
+            print(f"❌ Error logging broadcast in Supabase: {err}")
             return False
 
     def get_user_by_id(user_id):
+        clean_id = _sanitize_id(user_id)
+        if not clean_id:
+            return False, None
         try:
-            db = _get_db()
-            if not db:
-                return False, None
-            doc = db.collection('users').document(str(user_id)).get()
-            return (True, doc.to_dict()) if doc.exists else (False, None)
+            with get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT * FROM users
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        LIMIT 1
+                    """, (clean_id, clean_id, clean_id))
+                    row = cur.fetchone()
+                    if row:
+                        d = dict(row)
+                        for k, v in list(d.items()):
+                            if isinstance(v, datetime):
+                                d[k] = format_iso(v)
+                        return True, d
+                    return False, None
         except Exception as err:
-            print(f"❌ Error fetching user fallback: {err}")
+            print(f"❌ Error fetching user in Supabase: {err}")
             return False, None
 
     def get_latest_broadcast_stats():
         try:
-            db = _get_db()
-            if not db:
-                return None
-            docs = db.collection('broadcasts').order_by('created_at', direction='DESCENDING').limit(1).get()
-            for doc in docs:
-                return doc.to_dict()
-            return None
+            with get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT * FROM broadcasts ORDER BY created_at DESC LIMIT 1")
+                    row = cur.fetchone()
+                    if row:
+                        d = dict(row)
+                        if isinstance(d.get("created_at"), datetime):
+                            d["created_at"] = format_iso(d["created_at"])
+                        return d
+                    return None
         except Exception as err:
-            print(f"❌ Error getting latest campaign fallback: {err}")
+            print(f"❌ Error getting latest campaign from Supabase: {err}")
             return None
 
 
