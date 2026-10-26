@@ -130,13 +130,14 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
             return False
 
 
-def make_copy_text_button(text, copy_value):
-    """إنشاء زر نسخ مباشر للحافظة"""
+def make_copy_text_button(text, copy_value, tx_id=""):
+    """إنشاء زر نسخ مباشر للحافظة مع حماية من تجاوز حد 64 بايت لـ callback_data"""
     try:
         from telebot.types import CopyTextButton
-        return InlineKeyboardButton(text, copy_text=CopyTextButton(text=copy_value))
+        return InlineKeyboardButton(text, copy_text=CopyTextButton(text=str(copy_value)))
     except Exception:
-        return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
+        safe_cb = f"copy_addr_{tx_id or str(copy_value)[:32]}"
+        return InlineKeyboardButton(text, callback_data=safe_cb[:64])
 
 
 # ==========================================
@@ -148,13 +149,11 @@ def make_copy_text_button(text, copy_value):
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    # إجابة تلجرام فوراً لإلغاء دائرة التحميل في أجزاء من المليثانية
     try:
         bot.answer_callback_query(call.id)
     except Exception:
         pass
 
-    # تحويل كافة العمليات الأخرى (فحص داتابيز + قفل + تنفيذ) إلى خيط خلفي مستقل فوراً
     _executor.submit(_process_callback_async, call)
 
 
@@ -166,16 +165,16 @@ def _process_callback_async(call):
     message_id = call.message.message_id
     orig_text = call.message.text or call.message.caption or ""
 
-    # 1. معالجة زر النسخ
+    # 1. معالجة زر النسخ باستخراج العنوان الكامل من نص الرسالة
     if cb_data.startswith("copy_addr_"):
-        addr_part = cb_data.replace("copy_addr_", "").strip()
-        if not addr_part or len(addr_part) < 20:
-            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', orig_text)
-            addr_part = match.group(0) if match else "غير متوفر"
+        match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', orig_text)
+        addr_part = match.group(0) if match else cb_data.replace("copy_addr_", "").strip()
+        if not addr_part:
+            addr_part = "غير متوفر"
         try:
             bot.send_message(
                 chat_id,
-                f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{html.escape(addr_part)}</code>",
+                f"📋 <b>عنوان المحفظة للنسخ المباشر:</b>\n<code>{html.escape(addr_part)}</code>",
                 parse_mode="HTML"
             )
         except Exception:
@@ -236,7 +235,7 @@ def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action
                 InlineKeyboardButton("رفض 🔴", callback_data=f"reject_tx_{tx_id}")
             )
             if wallet_addr:
-                markup.row(make_copy_text_button("📋 نسخ عنوان المحفظة", wallet_addr))
+                markup.row(make_copy_text_button("📋 نسخ عنوان المحفظة", wallet_addr, tx_id=tx_id))
 
             safe_edit_message(chat_id, message_id, base_clean + error_notice, reply_markup=markup)
     except Exception as err:
@@ -274,7 +273,7 @@ def send_welcome(message):
             f"الرتبة: {role_label}\n"
             f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل</b>\n\n"
             f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>\n"
-            f"يمكنك الآن التحكم بجميع إعدادات الألعاب، العمولات، الأرباح والمشرفين عبر فتح لوحة التحكم المرفقة."
+            f"يمكنك الآن التحكم بجميع إعدادات الألعاب، العمولات، الأرباح، وقبول أو رفض طلبات السحب والمشرفين عبر فتح لوحة التحكم المرفقة."
         )
 
         markup = InlineKeyboardMarkup()
