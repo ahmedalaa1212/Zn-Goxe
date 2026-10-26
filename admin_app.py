@@ -1,4 +1,4 @@
-# admin_app.py
+# -*- coding: utf-8 -*-
 import os
 import sys
 import re
@@ -118,12 +118,13 @@ if ADMIN_BOT_TOKEN:
             except Exception:
                 return False
 
-    def _make_copy_button(text, copy_value):
+    def _make_copy_button(text, copy_value, tx_id=""):
         try:
             from telebot.types import CopyTextButton
-            return InlineKeyboardButton(text, copy_text=CopyTextButton(text=copy_value))
+            return InlineKeyboardButton(text, copy_text=CopyTextButton(text=str(copy_value)))
         except Exception:
-            return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
+            safe_cb = f"copy_addr_{tx_id or str(copy_value)[:32]}"
+            return InlineKeyboardButton(text, callback_data=safe_cb[:64])
 
     @admin_bot.callback_query_handler(func=lambda call: call.data and (
         call.data.startswith('approve_tx_') or
@@ -146,14 +147,14 @@ if ADMIN_BOT_TOKEN:
         orig_text = call.message.text or call.message.caption or ""
 
         if cb_data.startswith("copy_addr_"):
-            addr_part = cb_data.replace("copy_addr_", "").strip()
-            if not addr_part or len(addr_part) < 20:
-                match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', orig_text)
-                addr_part = match.group(0) if match else "غير متوفر"
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,66}', orig_text)
+            addr_part = match.group(0) if match else cb_data.replace("copy_addr_", "").strip()
+            if not addr_part:
+                addr_part = "غير متوفر"
             try:
                 admin_bot.send_message(
                     chat_id,
-                    f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{html.escape(addr_part)}</code>",
+                    f"📋 <b>عنوان المحفظة للنسخ المباشر:</b>\n<code>{html.escape(addr_part)}</code>",
                     parse_mode="HTML"
                 )
             except Exception:
@@ -202,7 +203,7 @@ if ADMIN_BOT_TOKEN:
                     InlineKeyboardButton("رفض 🔴", callback_data=f"reject_tx_{tx_id}")
                 )
                 if wallet_addr:
-                    markup.row(_make_copy_button("📋 نسخ عنوان المحفظة", wallet_addr))
+                    markup.row(_make_copy_button("📋 نسخ عنوان المحفظة", wallet_addr, tx_id=tx_id))
 
                 _safe_edit_bot_message(chat_id, message_id, clean_text + error_notice, reply_markup=markup)
         except Exception as err:
