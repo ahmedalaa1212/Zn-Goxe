@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import hashlib
 import hmac
@@ -8,14 +9,13 @@ import logging
 
 from flask import jsonify
 
-# إعداد الـ Logger الخاص بالنظام الأمنية
 logger = logging.getLogger("security")
 
 
 def _get_bot_tokens():
-    """جلب كافة التوكينات المحتملة للتحقق من التوقيع الرقمي لمنع الرفض"""
+    """جلب كافة التوكينات المحتملة للتحقق من التوقيع الرقمي لبيانات Telegram WebApp"""
     tokens = []
-    for key in ["ADMIN_BOT_TOKEN", "WEBAPP_BOT_TOKEN", "BOT_TOKEN"]:
+    for key in ["BOT_TOKEN", "WEBAPP_BOT_TOKEN", "ADMIN_BOT_TOKEN"]:
         val = os.environ.get(key, "").strip()
         if val and val not in tokens:
             tokens.append(val)
@@ -23,14 +23,16 @@ def _get_bot_tokens():
 
 
 def validate_telegram_data(init_data: str):
-    """Validate Telegram Web App initData and return the Telegram user dict."""
+    """التحقق الجنائي عبر HMAC-SHA256 من صحة بيانات Telegram WebApp initData"""
     if not init_data or not isinstance(init_data, str):
-        logger.warning("[Security] init_data فارغ أو ليس نصاً")
         return None
 
     init_data = init_data.strip()
     if init_data.startswith("Bearer "):
         init_data = init_data[7:].strip()
+
+    if not init_data:
+        return None
 
     bot_tokens = _get_bot_tokens()
     if not bot_tokens:
@@ -57,7 +59,6 @@ def validate_telegram_data(init_data: str):
 
         validated_user = None
 
-        # فحص التوقيع الرقمي بجميع التوكينات المتاحة
         for bot_token in bot_tokens:
             secret_key = hmac.new(
                 b"WebAppData",
@@ -80,33 +81,30 @@ def validate_telegram_data(init_data: str):
                     pass
 
         if not validated_user or not isinstance(validated_user, dict):
-            logger.error("[Security] فشل التحقق من Hash مع كافة التوكينات المتاحة")
+            logger.warning("[Security] فشل التحقق من التوقيع الرقمي Hash لـ initData")
             return None
 
         auth_date = parsed_data.get("auth_date")
         if not auth_date:
-            logger.error("[Security] auth_date غير موجود")
             return None
 
         try:
             auth_timestamp = int(auth_date)
         except (TypeError, ValueError):
-            logger.error("[Security] auth_date غير صالح")
             return None
 
         now = int(time.time())
         max_age = int(os.environ.get("TELEGRAM_INITDATA_MAX_AGE", "86400"))
 
-        if auth_timestamp > now + 60:
-            logger.error("[Security] auth_date في المستقبل")
+        if auth_timestamp > now + 120:
+            logger.error("[Security] auth_date في المستقبل (تلاعب بالوقت)")
             return None
 
-        if max_age > 0 and now - auth_timestamp > max_age:
-            logger.error("[Security] initData منتهي الصلاحية")
+        if max_age > 0 and (now - auth_timestamp) > max_age:
+            logger.warning("[Security] انتهت صلاحية جلسة initData، يرجى إعادة فتح التطبيق")
             return None
 
         if not validated_user.get("id"):
-            logger.error("[Security] بيانات المستخدم غير صالحة")
             return None
 
         if parsed_data.get("start_param") is not None:
@@ -119,62 +117,84 @@ def validate_telegram_data(init_data: str):
         return None
 
 
+def _extract_init_data_from_request(request):
+    """استخراج initData المشفر من الهيدرز أو الرابط أو جسم الطلب"""
+    init_data = (
+        request.headers.get("X-Telegram-Init-Data")
+        or request.headers.get("X-Init-Data")
+        or request.headers.get("Authorization")
+    )
+
+    if not init_data and request.args:
+        init_data = request.args.get("initData") or request.args.get("init_data")
+
+    if not init_data and request.is_json:
+        req_data = request.get_json(silent=True) or {}
+        if isinstance(req_data, dict):
+            init_data = req_data.get("initData") or req_data.get("init_data")
+
+    return init_data
+
+
+def _extract_device_credentials(request):
+    """استخراج معرف الجهاز وبصمة المتصفح من الطلب"""
+    req_json = request.get_json(silent=True) if request.is_json else {}
+    if not isinstance(req_json, dict):
+        req_json = {}
+
+    device_id = (
+        request.headers.get("X-Device-Id")
+        or (request.args.get("device_id") if request.args else None)
+        or (request.args.get("deviceId") if request.args else None)
+        or req_json.get("device_id")
+        or req_json.get("deviceId")
+    )
+
+    fingerprint = (
+        request.headers.get("X-Device-Fingerprint")
+        or (request.args.get("device_fingerprint") if request.args else None)
+        or (request.args.get("fingerprint") if request.args else None)
+        or (request.args.get("fingerprint_hash") if request.args else None)
+        or req_json.get("device_fingerprint")
+        or req_json.get("fingerprint")
+        or req_json.get("fingerprint_hash")
+    )
+
+    clean_dev = str(device_id).strip() if device_id and str(device_id).strip().lower() not in ("none", "null", "undefined", "") else None
+    clean_fp = str(fingerprint).strip() if fingerprint and str(fingerprint).strip().lower() not in ("none", "null", "undefined", "") else None
+    return clean_dev, clean_fp
+
+
 def check_banned_safely(telegram_id: str) -> tuple[bool, bool]:
-    """
-    Check the ban state safely.
-    Returns: (is_banned: bool, check_successful: bool)
-    """
+    """فحص حالة الحظر للمستخدم بأمان"""
     admin_id = os.environ.get("ADMIN_ID", "5102387551").strip()
-    if str(telegram_id).strip() == admin_id:
+    super_admin_id = os.environ.get("SUPER_ADMIN_ID", "").strip()
+    if str(telegram_id).strip() in (admin_id, super_admin_id, "5102387551"):
         return False, True
 
     try:
-        try:
-            from database import is_user_banned
-            return bool(is_user_banned(str(telegram_id))), True
-        except (ImportError, AttributeError):
-            try:
-                from users.users_db import is_user_banned
-                return bool(is_user_banned(str(telegram_id))), True
-            except (ImportError, AttributeError):
-                return False, True
+        from database import is_user_banned
+        return bool(is_user_banned(str(telegram_id))), True
     except Exception as exc:
         logger.error(f"[Security] Error checking ban status for {telegram_id}: {exc}")
         return False, True
 
 
-def get_authenticated_user(request, is_post=None):
+def get_authenticated_user(request, is_post=None, enforce_device_check=True):
     """
-    Authenticate only from Telegram initData or safe Header fallback.
+    توثيق صارم للمستخدم يعتمد حصرياً على التوقيع الرقمي لـ Telegram initData،
+    ويفحص حالة الحظر وبصمة الجهاز لمنع تعدد الحسابات والاختراق.
     """
     try:
-        init_data = None
+        # إذا تم التوثيق مسبقاً في نفس دورة الطلب عبر before_request، نعيد النتيجة فوراً لتسريع الأداء
+        if getattr(request, "_auth_verified", False) and getattr(request, "telegram_id", None):
+            return True, request.telegram_id, getattr(request, "telegram_user", {}), None
 
-        if request.is_json:
-            req_data = request.get_json(silent=True) or {}
-            if isinstance(req_data, dict):
-                init_data = req_data.get("initData")
-
-        if not init_data:
-            init_data = request.headers.get("X-Telegram-Init-Data")
-        if not init_data:
-            init_data = request.headers.get("Authorization")
-
+        init_data = _extract_init_data_from_request(request)
         user_info = validate_telegram_data(init_data)
-        telegram_id = None
 
-        if isinstance(user_info, dict) and user_info.get("id"):
-            telegram_id = str(user_info["id"]).strip()
-
-        # الاحتياط الآمن عبر الهيدر عند التواجد داخل بيئة البوت
-        if not telegram_id:
-            telegram_id = request.headers.get("X-Telegram-User-Id")
-            if telegram_id:
-                telegram_id = str(telegram_id).strip()
-                user_info = {"id": telegram_id, "first_name": "User"}
-
-        if not telegram_id:
-            logger.warning("[Security Auth Failed] تعذر استخراج telegram_id من initData أو Header")
+        if not isinstance(user_info, dict) or not user_info.get("id"):
+            logger.warning("[Security Auth Rejected] محاولة وصول بدون توقيع Telegram initData صالح")
             return (
                 False,
                 None,
@@ -183,17 +203,68 @@ def get_authenticated_user(request, is_post=None):
                     jsonify(
                         {
                             "success": False,
-                            "error": "غير مصرح: بيانات Telegram غير صالحة",
+                            "error": "غير مصرح: يرجى فتح التطبيق من داخل بوت تليجرام الرسمي فقط.",
                         }
                     ),
                     401,
                 ),
             )
 
+        telegram_id = str(user_info["id"]).strip()
+
+        # فحص عدم تطابق الهيدر (كشف محاولات التلاعب بالـ ID)
+        claimed_header_id = request.headers.get("X-Telegram-User-Id")
+        if claimed_header_id and str(claimed_header_id).strip() not in ("", "null", "None", "undefined"):
+            if str(claimed_header_id).strip() != telegram_id:
+                logger.error(f"🚨 [Spoofing Attempt] المستخدم {telegram_id} حاول انتحال المعرف {claimed_header_id}")
+                return (
+                    False,
+                    None,
+                    None,
+                    (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "تم رصد محاولة تلاعب بهوية الحساب!",
+                            }
+                        ),
+                        403,
+                    ),
+                )
+
+        # 1. فحص بصمة الجهاز وتعدد الحسابات
+        if enforce_device_check:
+            device_id, fingerprint = _extract_device_credentials(request)
+            if device_id or fingerprint:
+                try:
+                    import database
+                    if hasattr(database, "check_and_bind_device"):
+                        dev_res = database.check_and_bind_device(telegram_id, device_id, fingerprint)
+                        if isinstance(dev_res, dict) and (dev_res.get("banned") or dev_res.get("allowed") is False):
+                            reason = dev_res.get("reason") or "تم حظر الحساب والجهاز بسبب تعدد الحسابات على نفس الجهاز."
+                            return (
+                                False,
+                                telegram_id,
+                                user_info,
+                                (
+                                    jsonify(
+                                        {
+                                            "success": False,
+                                            "banned": True,
+                                            "is_banned": True,
+                                            "error": reason,
+                                            "message": reason,
+                                        }
+                                    ),
+                                    403,
+                                ),
+                            )
+                except Exception as dev_err:
+                    logger.error(f"[Security] خطأ أثناء فحص الجهاز للمستخدم {telegram_id}: {dev_err}")
+
+        # 2. فحص حالة الحظر المباشرة في قاعدة البيانات
         is_banned, check_success = check_banned_safely(telegram_id)
-        
         if not check_success:
-            logger.error(f"❌ [Security Error] متعذر التحقق من حالة حظر المستخدم {telegram_id}")
             return (
                 False,
                 None,
@@ -210,7 +281,7 @@ def get_authenticated_user(request, is_post=None):
             )
 
         if is_banned:
-            logger.warning(f"🚫 [Security Banned] المستخدم {telegram_id} محظور")
+            logger.warning(f"🚫 [Security Banned] منع وصول المستخدم المحظور {telegram_id}")
             return (
                 False,
                 telegram_id,
@@ -219,7 +290,10 @@ def get_authenticated_user(request, is_post=None):
                     jsonify(
                         {
                             "success": False,
-                            "error": "تم حظر حسابك لمخالفة القوانين",
+                            "banned": True,
+                            "is_banned": True,
+                            "error": "تم حظر هذا الحساب والجهاز لمخالفة القوانين أو تعدد الحسابات.",
+                            "message": "تم حظر هذا الحساب والجهاز لمخالفة القوانين أو تعدد الحسابات.",
                         }
                     ),
                     403,
@@ -228,6 +302,7 @@ def get_authenticated_user(request, is_post=None):
 
         request.telegram_user = user_info
         request.telegram_id = telegram_id
+        request._auth_verified = True
 
         return True, telegram_id, user_info, None
 
@@ -241,7 +316,7 @@ def get_authenticated_user(request, is_post=None):
                 jsonify(
                     {
                         "success": False,
-                        "error": "حدث خطأ في عملية المصادقة",
+                        "error": "حدث خطأ في عملية المصادقة الأمنية",
                     }
                 ),
                 500,
