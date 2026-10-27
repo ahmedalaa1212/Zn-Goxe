@@ -4,7 +4,11 @@ import sys
 import uuid
 import time
 import json
+import base64
 import hashlib
+import urllib.request
+from datetime import datetime
+from psycopg2.extras import RealDictCursor, Json
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../"))
@@ -12,14 +16,23 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 try:
-    from database import get_db_connection, _sanitize_id, atomic_update_balance, get_user_balances
+    from database import (
+        get_db_connection,
+        get_db_transaction,
+        _sanitize_id,
+        atomic_update_balance,
+        get_user_balances,
+    )
 except ImportError as e:
     print(f"⚠️ خطأ في الاستيراد من database.py: {e}")
+
     def _sanitize_id(val):
         if val is None:
             return None
         s = str(val).strip()
         return s[:-2] if s.endswith('.0') else s
+
+    get_db_transaction = None
 
 SEED_PACKAGES = [
     {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
@@ -33,7 +46,7 @@ _tables_initialized = False
 
 
 def get_official_ton_wallet():
-    """جلب عنوان محفظة TON للاستلام من متغيرات البيئة فقط"""
+    """جلب عنوان محفظة TON للاستلام من متغيرات البيئة"""
     env_wallet = (
         os.getenv('TON_WALLET_ADDRESS')
         or os.getenv('OFFICIAL_TON_WALLET')
@@ -45,7 +58,7 @@ def get_official_ton_wallet():
 
 
 def _exec_safe(conn, cur, sql, params=None):
-    """تنفيذ أمر SQL بأمان تام بدون SAVEPOINT مع دعم autocommit أو rollback"""
+    """تنفيذ أمر SQL بأمان تام مع دعم autocommit أو rollback"""
     try:
         if params is not None:
             cur.execute(sql, params)
@@ -143,7 +156,6 @@ def init_deposit_tables():
                     )
                 ''')
 
-                # إضافة الأعمدة الناقصة إن وجدت
                 alter_queries = [
                     "ALTER TABLE deposit_packages ADD COLUMN IF NOT EXISTS name_ar VARCHAR(255);",
                     "ALTER TABLE deposit_packages ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
@@ -180,7 +192,6 @@ def init_deposit_tables():
                 for q in alter_queries:
                     _exec_safe(conn, cur, q)
 
-                # إدخال الباقات الافتراضية فقط إذا كان الجدول فارغاً
                 if _exec_safe(conn, cur, "SELECT COUNT(*) FROM deposit_packages"):
                     row = cur.fetchone()
                     count = row[0] if row else 0
@@ -195,6 +206,138 @@ def init_deposit_tables():
     except Exception as e:
         print(f"⚠️ خطأ في تهيئة جداول الإيداع في Supabase: {e}")
 
+
+# ==================== دوال حفظ واسترجاع المحفظة المربوطة في Supabase ====================
+
+def get_user_bound_wallet(user_id):
+    """جلب المحفظة المربوطة للمستخدم من جدول users في Supabase لضمان بقائها مربوطة دائماً"""
+    clean_id = _sanitize_id(user_id)
+    if not clean_id or clean_id == "0":
+        return {"wallet_address": "", "wallet_name": ""}
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT wallet_address, wallets
+                    FROM users
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                    LIMIT 1
+                """, (clean_id, clean_id, clean_id))
+                row = cur.fetchone()
+                if not row:
+                    return {"wallet_address": "", "wallet_name": ""}
+
+                wallets_obj = row.get("wallets")
+                if isinstance(wallets_obj, str):
+                    try:
+                        wallets_obj = json.loads(wallets_obj)
+                    except Exception:
+                        wallets_obj = {}
+                if not isinstance(wallets_obj, dict):
+                    wallets_obj = {}
+
+                deposit_addr = (
+                    str(wallets_obj.get("deposit_wallet") or row.get("wallet_address") or "").strip()
+                )
+                deposit_name = str(wallets_obj.get("deposit_wallet_name") or "محفظة TON").strip()
+                return {
+                    "wallet_address": deposit_addr,
+                    "wallet_name": deposit_name if deposit_addr else "",
+                }
+    except Exception as e:
+        print(f"⚠️ خطأ جلب المحفظة المربوطة من Supabase: {e}")
+        return {"wallet_address": "", "wallet_name": ""}
+
+
+def save_user_bound_wallet(user_id, wallet_address: str, wallet_name: str = "محفظة TON") -> bool:
+    """حفظ عنوان واسم المحفظة المربوطة في Supabase لتظل مربوطة دائماً حتى يغيرها المستخدم"""
+    clean_id = _sanitize_id(user_id)
+    clean_addr = str(wallet_address or "").strip()
+    clean_name = str(wallet_name or "محفظة TON").strip()[:64]
+    if not clean_id or clean_id == "0" or not clean_addr:
+        return False
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT wallets, wallet_address
+                    FROM users
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                    LIMIT 1
+                """, (clean_id, clean_id, clean_id))
+                row = cur.fetchone()
+                wallets_obj = {}
+                if row and row.get("wallets"):
+                    raw_w = row.get("wallets")
+                    if isinstance(raw_w, dict):
+                        wallets_obj = dict(raw_w)
+                    elif isinstance(raw_w, str):
+                        try:
+                            wallets_obj = json.loads(raw_w)
+                        except Exception:
+                            wallets_obj = {}
+
+                wallets_obj["deposit_wallet"] = clean_addr
+                wallets_obj["deposit_wallet_name"] = clean_name
+                wallets_obj["updated_at"] = int(time.time())
+
+                cur.execute("""
+                    UPDATE users
+                    SET wallet_address = COALESCE(NULLIF(wallet_address, ''), %s),
+                        wallets = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                """, (clean_addr, Json(wallets_obj), clean_id, clean_id, clean_id))
+        return True
+    except Exception as e:
+        print(f"⚠️ خطأ حفظ المحفظة المربوطة في Supabase: {e}")
+        return False
+
+
+def clear_user_bound_wallet(user_id) -> bool:
+    """إلغاء ربط محفظة الإيداع في Supabase فقط عندما يضغط المستخدم يدوياً على إلغاء الربط"""
+    clean_id = _sanitize_id(user_id)
+    if not clean_id or clean_id == "0":
+        return False
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT wallets
+                    FROM users
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                    LIMIT 1
+                """, (clean_id, clean_id, clean_id))
+                row = cur.fetchone()
+                wallets_obj = {}
+                if row and row.get("wallets"):
+                    raw_w = row.get("wallets")
+                    if isinstance(raw_w, dict):
+                        wallets_obj = dict(raw_w)
+                    elif isinstance(raw_w, str):
+                        try:
+                            wallets_obj = json.loads(raw_w)
+                        except Exception:
+                            wallets_obj = {}
+
+                wallets_obj.pop("deposit_wallet", None)
+                wallets_obj.pop("deposit_wallet_name", None)
+
+                cur.execute("""
+                    UPDATE users
+                    SET wallets = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                """, (Json(wallets_obj), clean_id, clean_id, clean_id))
+        return True
+    except Exception as e:
+        print(f"⚠️ خطأ إلغاء ربط المحفظة في Supabase: {e}")
+        return False
+
+
+# ==================== دوال الباقات والفواتير ====================
 
 def get_active_deposit_packages():
     """جلب الباقات النشطة مباشرة من جدول deposit_packages في Supabase"""
@@ -212,14 +355,14 @@ def get_active_deposit_packages():
                 rows = cur.fetchall()
                 for row in rows:
                     pkg_id = row[0]
-                    usdt_val = float(row[1])
+                    usdt_val = float(row[1] or 0.0)
                     custom_name = row[4] if len(row) > 4 and row[4] else f"باقة ${usdt_val:g} USDT"
                     packages.append({
                         'id': pkg_id,
                         'usdt_amount': usdt_val,
                         'name_ar': custom_name,
                         'is_active': bool(row[2]),
-                        'sort_order': int(row[3])
+                        'sort_order': int(row[3] or 0)
                     })
         if packages:
             return packages
@@ -239,13 +382,47 @@ def get_package_by_id(pkg_id):
     return None
 
 
+def get_deposit_invoice_by_memo(memo: str, user_id: str = None):
+    """جلب الفاتورة من قاعدة البيانات للتحقق من ملكيتها وقيمتها الفعلية"""
+    if not memo:
+        return None
+    init_deposit_tables()
+    clean_memo = str(memo).strip()
+    clean_uid = _sanitize_id(user_id) if user_id else None
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if clean_uid:
+                    cur.execute("""
+                        SELECT * FROM deposit_invoices
+                        WHERE memo = %s AND user_id = %s
+                        LIMIT 1
+                    """, (clean_memo, clean_uid))
+                else:
+                    cur.execute("""
+                        SELECT * FROM deposit_invoices
+                        WHERE memo = %s
+                        LIMIT 1
+                    """, (clean_memo,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+    except Exception as e:
+        print(f"⚠️ خطأ جلب الفاتورة get_deposit_invoice_by_memo: {e}")
+        return None
+
+
 def create_deposit_invoice(user_id, usdt_amount: float, ton_amount: float, sender_wallet: str = None) -> dict:
     """إنشاء فاتورة إيداع مبدئية في Supabase بحالة قيد المراجعة (pending)"""
     init_deposit_tables()
-    user_id_clean = _sanitize_id(user_id) or "0"
-    memo = f"DEP-{user_id_clean}-{uuid.uuid4().hex[:6].upper()}"
+    user_id_clean = _sanitize_id(user_id)
+    if not user_id_clean or user_id_clean == "0":
+        raise ValueError("معرف المستخدم غير صالح لإنشاء فاتورة الإيداع")
+
+    if sender_wallet:
+        save_user_bound_wallet(user_id_clean, sender_wallet)
+
+    memo = f"DEP-{user_id_clean}-{uuid.uuid4().hex[:8].upper()}"
     details_text = f"إيداع باقة ${usdt_amount:g} USDT (~{ton_amount:.4f} TON) عبر شبكة TON"
-    # صيغة JSON صالحة تعمل سواء كان العمود JSONB أو TEXT
     details_payload = json.dumps({"text": details_text, "memo": memo, "usdt": usdt_amount}, ensure_ascii=False)
 
     try:
@@ -279,167 +456,291 @@ def create_deposit_invoice(user_id, usdt_amount: float, ton_amount: float, sende
         }
     except Exception as e:
         print(f"⚠️ خطأ إنشاء الفاتورة في Supabase: {e}")
-        return {
-            'memo': memo,
-            'invoice_id': 0,
-            'user_id': user_id_clean,
-            'usdt_amount': usdt_amount,
-            'ton_amount': ton_amount
-        }
+        raise Exception("تعذر تسجيل فاتورة الإيداع في قاعدة البيانات")
 
 
-def update_deposit_invoice_status(memo: str, status: str = 'cancelled', failure_reason: str = None, delete_if_cancelled: bool = True) -> bool:
-    """تحديث حالة الفاتورة عند الإلغاء أو الفشل"""
+def update_deposit_invoice_status(memo: str, status: str = 'cancelled', failure_reason: str = None, delete_if_cancelled: bool = True, user_id: str = None) -> bool:
+    """تحديث حالة الفاتورة عند الإلغاء أو الفشل مع التحقق من ملكية المستخدم للفاتورة"""
     if not memo:
         return False
     init_deposit_tables()
+    clean_memo = str(memo).strip()
+    clean_uid = _sanitize_id(user_id) if user_id else None
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 if status in ['cancelled', 'canceled'] and delete_if_cancelled:
-                    _exec_safe(conn, cur, "DELETE FROM deposit_invoices WHERE memo = %s AND status = 'pending'", (memo,))
+                    if clean_uid:
+                        _exec_safe(conn, cur, "DELETE FROM deposit_invoices WHERE memo = %s AND user_id = %s AND status = 'pending'", (clean_memo, clean_uid))
+                    else:
+                        _exec_safe(conn, cur, "DELETE FROM deposit_invoices WHERE memo = %s AND status = 'pending'", (clean_memo,))
                 else:
-                    _exec_safe(conn, cur, """
-                        UPDATE deposit_invoices 
-                        SET status = %s,
-                            failure_reason = COALESCE(%s, failure_reason),
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE memo = %s AND status != 'completed'
-                    """, (status, failure_reason, memo))
+                    if clean_uid:
+                        _exec_safe(conn, cur, """
+                            UPDATE deposit_invoices 
+                            SET status = %s,
+                                failure_reason = COALESCE(%s, failure_reason),
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE memo = %s AND user_id = %s AND status != 'completed'
+                        """, (status, failure_reason, clean_memo, clean_uid))
+                    else:
+                        _exec_safe(conn, cur, """
+                            UPDATE deposit_invoices 
+                            SET status = %s,
+                                failure_reason = COALESCE(%s, failure_reason),
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE memo = %s AND status != 'completed'
+                        """, (status, failure_reason, clean_memo))
         return True
     except Exception as e:
         print(f"⚠️ خطأ تحديث حالة الفاتورة: {e}")
         return False
 
 
-def verify_and_process_ton_boc(user_id, usdt_amount: float, memo: str, boc: str, ton_amount: float = 0.0, sender_wallet: str = None) -> float:
-    """معالجة معاملة الإيداع وتوثيقها في جداول السجلات وتحديث الرصيد ذرياً في Supabase"""
-    init_deposit_tables()
-    user_id_clean = _sanitize_id(user_id)
-    if not user_id_clean or usdt_amount <= 0:
-        raise ValueError("بيانات المستخدم أو قيمة الباقة غير صحيحة")
+# ==================== التحقق الجنائي من معاملات TON على البلوكشين ====================
 
-    tx_identifier = boc or memo or str(uuid.uuid4())
-    tx_hash = hashlib.sha256(tx_identifier.encode('utf-8')).hexdigest()
+def is_valid_ton_boc(boc_str: str) -> bool:
+    """فحص أمني صارم للتأكد من أن الـ BOC المرسل هو خلية BOC حقيقية من محفظة TON وليس نصاً مزوراً"""
+    if not boc_str or not isinstance(boc_str, str):
+        return False
+    clean_boc = boc_str.strip()
+    if len(clean_boc) < 32 or clean_boc.startswith("BOC-MANUAL") or clean_boc.startswith("TX_"):
+        return False
+    try:
+        padded = clean_boc + "=" * (-len(clean_boc) % 4)
+        raw_bytes = base64.b64decode(padded)
+        if len(raw_bytes) < 12:
+            return False
+        magic = raw_bytes[:4].hex().lower()
+        return magic in ("b5ee9c72", "68ff65f3", "acc3a728")
+    except Exception:
+        return False
 
-    details_text = f"إيداع ناجح بقيمة ${usdt_amount:g} USDT"
-    if ton_amount and float(ton_amount) > 0:
-        details_text += f" ({float(ton_amount):.4f} TON)"
-    if memo:
-        details_text += f" | الفاتورة: {memo}"
 
-    # صيغة JSON متوافقة 100% مع كل من أعمدة JSON/JSONB وأعمدة TEXT
-    details_payload = json.dumps({"text": details_text, "memo": memo, "usdt": usdt_amount}, ensure_ascii=False)
-
+def _is_tx_hash_already_used(tx_hash: str) -> bool:
+    if not tx_hash:
+        return False
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # 1. التأكد من عدم تكرار المعاملة
-                cur.execute("SELECT tx_hash FROM processed_txs WHERE tx_hash = %s", (tx_hash,))
+                cur.execute("SELECT 1 FROM processed_txs WHERE tx_hash = %s LIMIT 1", (str(tx_hash).strip(),))
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def verify_ton_deposit_onchain(min_nano_ton: int, expected_memo: str, boc: str = None, created_after_ts: int = None) -> tuple[bool, str | None]:
+    """
+    التحقق الفعلي الصارم عبر TonCenter API من وصول مبلغ TON المطلوب إلى محفظة المشروع الرسمية
+    وتطابق الـ Memo الفريد للفاتورة لمنع أي إيداع وهمي أو تزوير.
+    """
+    official_wallet = get_official_ton_wallet()
+    if not official_wallet or min_nano_ton <= 0 or not expected_memo:
+        return False, None
+
+    if not is_valid_ton_boc(boc):
+        return False, None
+
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    now_ts = int(time.time())
+    min_utime = int(created_after_ts - 90) if created_after_ts else (now_ts - 1800)
+
+    try:
+        url = f"https://toncenter.com/api/v2/getTransactions?address={official_wallet}&limit=35"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get('ok') and 'result' in data:
+                for tx in data['result']:
+                    in_msg = tx.get('in_msg', {})
+                    val = int(in_msg.get('value', 0))
+                    tx_utime = int(tx.get('utime', 0))
+                    msg_hash = str(tx.get('transaction_id', {}).get('hash', '')).strip()
+
+                    if not msg_hash or val <= 0 or tx_utime < min_utime:
+                        continue
+
+                    # التحقق من القيمة المالية المستلمة (مع هامش سماح 4% لكسور التحويل)
+                    if val < int(min_nano_ton * 0.96):
+                        continue
+
+                    decoded_body = in_msg.get('decoded_body') if isinstance(in_msg.get('decoded_body'), dict) else {}
+                    msg_memo = str(in_msg.get('message', '') or decoded_body.get('text', '') or '').strip()
+
+                    # شرط صارم: تطابق الميمو الفريد الخاص بالفاتورة وعدم صرف المعاملة مسبقاً
+                    if expected_memo in msg_memo:
+                        if not _is_tx_hash_already_used(msg_hash):
+                            return True, msg_hash
+    except Exception as e:
+        print(f"⚠️ [Deposit TonCenter Verification Warning]: {e}")
+
+    return False, None
+
+
+def verify_and_process_ton_boc(user_id, usdt_amount: float, memo: str, boc: str, ton_amount: float = 0.0, sender_wallet: str = None) -> float:
+    """
+    معالجة معاملة الإيداع بأمان فائق:
+    1. التحقق من صحة الـ BOC والفاتورة المسجلة في deposit_invoices وملكيتها للمستخدم.
+    2. التحقق الفعلي من وصول الأموال على شبكة TON (TonCenter API) بمطابقة الـ Memo والمبلغ.
+    3. قفل الفاتورة ذرياً عبر get_db_transaction (FOR UPDATE) لمنع التكرار (Double-Spending).
+    """
+    init_deposit_tables()
+    user_id_clean = _sanitize_id(user_id)
+    clean_memo = str(memo or "").strip()
+    clean_boc = str(boc or "").strip()
+
+    if not user_id_clean or user_id_clean == "0":
+        raise ValueError("معرف المستخدم غير صالح")
+
+    if not clean_memo:
+        raise ValueError("رقم الفاتورة (Memo) مفقود")
+
+    if not is_valid_ton_boc(clean_boc):
+        raise ValueError("كود تأكيد المعاملة (BOC) غير صالح أو غير حقيقي")
+
+    # 1. جلب الفاتورة من قاعدة البيانات للتأكد من وجودها وملكيتها للمستخدم وأخذ المبالغ الحقيقية منها
+    invoice_row = get_deposit_invoice_by_memo(clean_memo, user_id=user_id_clean)
+    if not invoice_row:
+        raise ValueError("الفاتورة غير موجودة أو لا تخص هذا الحساب")
+
+    if str(invoice_row.get("status")) == "completed":
+        raise ValueError("تم تأكيد وشحن هذه الفاتورة مسبقاً!")
+
+    db_usdt_amount = float(invoice_row.get("usdt_amount") or 0.0)
+    db_ton_amount = float(invoice_row.get("ton_amount") or 0.0)
+    if db_usdt_amount <= 0 or db_ton_amount <= 0:
+        raise ValueError("بيانات قيمة الفاتورة المسجلة غير صالحة")
+
+    expected_nano_ton = int(round(db_ton_amount * 1e9))
+    created_dt = invoice_row.get("created_at")
+    created_ts = int(created_dt.timestamp()) if isinstance(created_dt, datetime) else (int(time.time()) - 600)
+
+    # 2. فحص البلوكشين الفعلي (حتى 4 محاولات بفاصل 3 ثوانٍ لإعطاء الشبكة وقتاً لتأكيد الكتلة)
+    verified_onchain = False
+    confirmed_chain_hash = None
+    for attempt in range(4):
+        verified_onchain, confirmed_chain_hash = verify_ton_deposit_onchain(
+            min_nano_ton=expected_nano_ton,
+            expected_memo=clean_memo,
+            boc=clean_boc,
+            created_after_ts=created_ts,
+        )
+        if verified_onchain and confirmed_chain_hash:
+            break
+        if attempt < 3:
+            time.sleep(3)
+
+    if not verified_onchain or not confirmed_chain_hash:
+        raise ValueError("لم يتم رصد وصول المعاملة على شبكة TON بعد، يرجى التأكد من إتمام التحويل والمحاولة بعد لحظات.")
+
+    boc_hash = hashlib.sha256(clean_boc.encode('utf-8')).hexdigest()
+    tx_hash = str(confirmed_chain_hash).strip()
+
+    details_text = f"إيداع ناجح بقيمة ${db_usdt_amount:g} USDT ({db_ton_amount:.4f} TON) | الفاتورة: {clean_memo}"
+    details_payload = json.dumps(
+        {"text": details_text, "memo": clean_memo, "usdt": db_usdt_amount, "chain_hash": tx_hash},
+        ensure_ascii=False,
+    )
+
+    tx_ctx = get_db_transaction() if callable(get_db_transaction) else get_db_connection()
+
+    try:
+        with tx_ctx as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 3. قفل صف الفاتورة ذرياً لمنع Race Condition
+                cur.execute("""
+                    SELECT id, user_id, status, usdt_amount, ton_amount
+                    FROM deposit_invoices
+                    WHERE memo = %s AND user_id = %s
+                    FOR UPDATE
+                """, (clean_memo, user_id_clean))
+                locked_inv = cur.fetchone()
+                if not locked_inv:
+                    raise ValueError("الفاتورة غير موجودة")
+                if str(locked_inv.get("status")) == "completed":
+                    raise ValueError("تم تأكيد وشحن هذه الفاتورة مسبقاً!")
+
+                # 4. فحص عدم تكرار هاش البلوكشين أو هاش الـ BOC أو الميمو في processed_txs
+                cur.execute("""
+                    SELECT tx_hash FROM processed_txs
+                    WHERE tx_hash IN (%s, %s) OR (memo = %s AND status = 'completed')
+                    LIMIT 1
+                """, (tx_hash, boc_hash, clean_memo))
                 if cur.fetchone():
                     raise ValueError("هذه المعاملة تم استخدامها وشحنها سابقاً!")
 
-                if memo:
-                    cur.execute("SELECT tx_hash FROM processed_txs WHERE memo = %s AND status = 'completed'", (memo,))
-                    if cur.fetchone():
-                        raise ValueError("تم تأكيد وشحن هذه الفاتورة مسبقاً!")
-
-                # 2. تسجيل الإيداع المكتمل في جدول processed_txs
-                inserted = _exec_safe(conn, cur, """
+                # 5. إدراج المعاملة في processed_txs
+                cur.execute("""
                     INSERT INTO processed_txs 
                     (tx_hash, user_id, usdt_amount, amount, ton_amount, currency, memo, boc, wallet_address, type, status, details, created_at, processed_at)
                     VALUES (%s, %s, %s, %s, %s, 'USDT', %s, %s, %s, 'deposit', 'completed', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, (tx_hash, user_id_clean, usdt_amount, usdt_amount, float(ton_amount or 0.0), memo, boc, sender_wallet, details_payload))
+                """, (
+                    tx_hash,
+                    user_id_clean,
+                    db_usdt_amount,
+                    db_usdt_amount,
+                    db_ton_amount,
+                    clean_memo,
+                    boc_hash,
+                    sender_wallet,
+                    details_payload,
+                ))
 
-                if not inserted:
-                    inserted = _exec_safe(conn, cur, """
-                        INSERT INTO processed_txs 
-                        (tx_hash, user_id, usdt_amount, memo, boc, type, status, details)
-                        VALUES (%s, %s, %s, %s, %s, 'deposit', 'completed', %s)
-                    """, (tx_hash, user_id_clean, usdt_amount, memo, boc, details_payload))
+                # 6. تحديث حالة الفاتورة إلى مكتملة (completed)
+                cur.execute("""
+                    UPDATE deposit_invoices 
+                    SET status = 'completed',
+                        tx_hash = %s,
+                        wallet_address = COALESCE(%s, wallet_address),
+                        details = %s,
+                        failure_reason = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE memo = %s AND user_id = %s
+                """, (tx_hash, sender_wallet, details_payload, clean_memo, user_id_clean))
 
-                if not inserted:
-                    _exec_safe(conn, cur, """
-                        INSERT INTO processed_txs 
-                        (tx_hash, user_id, usdt_amount, memo, boc, type, status)
-                        VALUES (%s, %s, %s, %s, %s, 'deposit', 'completed')
-                    """, (tx_hash, user_id_clean, usdt_amount, memo, boc))
-
-                # 3. تحديث الفاتورة في deposit_invoices لتصبح مكتملة (completed)
-                if memo:
-                    updated_inv = _exec_safe(conn, cur, """
-                        UPDATE deposit_invoices 
-                        SET status = 'completed',
-                            tx_hash = %s,
-                            wallet_address = COALESCE(%s, wallet_address),
-                            details = %s,
-                            failure_reason = NULL,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE memo = %s
-                    """, (tx_hash, sender_wallet, details_payload, memo))
-                    if not updated_inv:
-                        _exec_safe(conn, cur, "UPDATE deposit_invoices SET status = 'completed', failure_reason = NULL WHERE memo = %s", (memo,))
-
-                # 4. تسجيل العملية في جدول السجلات الموحد (transactions)
-                _exec_safe(conn, cur, """
+                # 7. تسجيل العملية في جدول السجلات الموحد (transactions)
+                cur.execute("""
                     INSERT INTO transactions
-                    (tx_id, user_id, type, amount, currency, status, wallet_address, memo, details, created_at, updated_at)
-                    VALUES (%s, %s, 'deposit', %s, 'USDT', 'completed', %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, (tx_hash, user_id_clean, usdt_amount, sender_wallet, memo, details_payload))
+                    (tx_id, tx_hash, user_id, tg_id, type, amount, currency, status, wallet_address, memo, details, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, 'deposit', %s, 'USDT', 'completed', %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (tx_hash, tx_hash, user_id_clean, user_id_clean, db_usdt_amount, sender_wallet, clean_memo, details_payload))
 
-        # 5. تحديث رصيد المستخدم ذرياً وإرجاع الرصيد الجديد
-        new_balance_val = None
-        try:
-            from wallet.wallet_db import update_user_balance, get_user_wallet_balances
-            success = update_user_balance(user_id_clean, usdt_amount, currency='usd_balance', operation='add')
-            if success:
-                balances = get_user_wallet_balances(user_id_clean)
-                new_balance_val = float(balances.get('usdt_balance', 0.0))
-        except Exception as e:
-            print(f"⚠️ Notice in wallet_db balance update: {e}")
+                # 8. تحديث رصيد المستخدم من الدولار ذرياً داخل نفس المعاملة المغلقة
+                cur.execute("""
+                    UPDATE users 
+                    SET usd_balance = COALESCE(usd_balance, 0.0) + %s,
+                        last_active_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE (tg_id = %s OR user_id = %s OR telegram_id = %s)
+                      AND COALESCE(is_banned, FALSE) = FALSE
+                      AND COALESCE(banned, FALSE) = FALSE
+                    RETURNING usd_balance
+                """, (db_usdt_amount, user_id_clean, user_id_clean, user_id_clean))
+                bal_row = cur.fetchone()
+                if not bal_row:
+                    raise ValueError("تعذر العثور على حساب المستخدم أو الحساب محظور")
 
-        if new_balance_val is None:
-            try:
-                ok, new_bal = atomic_update_balance(user_id_clean, usdt_amount, is_usd=True)
-                if ok:
-                    new_balance_val = float(new_bal)
-            except Exception as e:
-                print(f"⚠️ Notice in atomic_update_balance: {e}")
+                new_balance_val = float(bal_row.get("usd_balance") or 0.0)
 
-        if new_balance_val is None:
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        UPDATE users 
-                        SET usd_balance = COALESCE(usd_balance, 0.0) + %s
-                        WHERE CAST(tg_id AS TEXT) = %s OR CAST(user_id AS TEXT) = %s
-                        RETURNING usd_balance
-                    """, (float(usdt_amount), user_id_clean, user_id_clean))
-                    row = cur.fetchone()
-                    if not getattr(conn, 'autocommit', False):
-                        conn.commit()
-                    if row:
-                        new_balance_val = float(row[0])
+        if sender_wallet:
+            save_user_bound_wallet(user_id_clean, sender_wallet)
 
-        if new_balance_val is None:
-            raise Exception("تعذر العثور على حساب المستخدم لتحديث الرصيد.")
-
-        return float(new_balance_val)
+        return new_balance_val
 
     except ValueError as ve:
         raise ve
     except Exception as e:
-        if memo:
-            update_deposit_invoice_status(memo, status='failed', failure_reason=str(e), delete_if_cancelled=False)
         print(f"⚠️ خطأ أثناء معالجة الشحن في Supabase: {e}")
         raise Exception(f"حدث خطأ أثناء معالجة المعاملة: {str(e)}")
 
 
 def credit_user_balance(user_id, usdt_amount: float) -> float:
-    """دالة احتياطية للشحن اليدوي المباشر"""
-    if not user_id:
+    """دالة مخصصة للشحن الإداري المباشر فقط عبر atomic_update_balance"""
+    clean_id = _sanitize_id(user_id)
+    if not clean_id or float(usdt_amount or 0.0) <= 0:
         return 0.0
-    return verify_and_process_ton_boc(user_id, usdt_amount, f"MANUAL-{int(time.time())}", f"BOC-MANUAL-{uuid.uuid4().hex}")
+    ok, new_bal = atomic_update_balance(clean_id, float(usdt_amount), is_usd=True)
+    return float(new_bal) if ok else 0.0
 
 
 init_deposit_tables()
