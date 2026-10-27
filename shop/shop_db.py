@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from database import format_iso, get_db_connection
+from database import format_iso, get_db_connection, get_db_transaction
 from psycopg2.extras import Json, RealDictCursor
 
 logger = logging.getLogger(__name__)
@@ -147,10 +147,6 @@ DEFAULT_STORAGE_CONFIG = {
 
 
 def _normalize_tx_identifier(tx_hash=None, boc=None):
-    """
-    توليد معرف معاملة آمن وموحد لا يتخطى 64 حرفاً أبداً
-    لمنع خطأ PostgreSQL: value too long for type character varying(256)
-    """
     if tx_hash:
         clean_tx = str(tx_hash).strip()
         if len(clean_tx) > 128:
@@ -166,7 +162,6 @@ def _normalize_tx_identifier(tx_hash=None, boc=None):
 
 
 def _parse_json_field(field_val, default=None):
-    """تحليل حقول JSONB بأمان تام مع معالجة التشفير المزدوج (Double-Encoded JSON)"""
     if default is None:
         default = {}
     if field_val is None:
@@ -188,7 +183,6 @@ def _parse_json_field(field_val, default=None):
 
 
 def ensure_pending_payments_table():
-    """إنشاء جدول المعاملات المعلقة (Pending) تلقائياً في حال عدم وجوده لضمان عمل النظام الخلفي بأمان"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -214,7 +208,6 @@ def ensure_pending_payments_table():
 
 
 def create_pending_ton_payment(tg_id, package_id, usdt_price, expected_nano_ton, payload_memo):
-    """حفظ طلب الدفع في قاعدة البيانات بحالة Pending قبل فتح المحفظة لمنع التلاعب بالأسعار أو الميمو"""
     try:
         ensure_pending_payments_table()
         with get_db_connection() as conn:
@@ -228,8 +221,8 @@ def create_pending_ton_payment(tg_id, package_id, usdt_price, expected_nano_ton,
                     (
                         str(tg_id),
                         str(package_id),
-                        float(usdt_price),
-                        int(expected_nano_ton),
+                        float(usdt_price or 0.0),
+                        int(expected_nano_ton or 0),
                         str(payload_memo).strip(),
                     ),
                 )
@@ -240,7 +233,6 @@ def create_pending_ton_payment(tg_id, package_id, usdt_price, expected_nano_ton,
 
 
 def attach_boc_to_pending_payment(tg_id, package_id, boc, payload_memo=None):
-    """ربط هاش الـ BOC بالمعاملة المعلقة عند إرسال المستخدم للمعاملة من المحفظة"""
     try:
         ensure_pending_payments_table()
         boc_hash = _normalize_tx_identifier(boc=boc)
@@ -281,7 +273,6 @@ def attach_boc_to_pending_payment(tg_id, package_id, boc, payload_memo=None):
 
 
 def get_pending_ton_payments(tg_id=None, limit=25):
-    """جلب المعاملات المعلقة لفحصها في الخلفية أو عند طلب المستخدم"""
     try:
         ensure_pending_payments_table()
         with get_db_connection() as conn:
@@ -313,7 +304,7 @@ def get_pending_ton_payments(tg_id=None, limit=25):
 
 
 def get_shop_catalog(tg_id=None):
-    """جلب بيانات المتجر وبيانات اللاعب الحية في اتصال واحد من Supabase لضمان التحديث اللحظي"""
+    """جلب بيانات المتجر وبيانات اللاعب الحية مع تحويل آمن للقيم الفارغة وتواريخ user_state"""
     try:
         farm_settings = {}
         shop_settings = {}
@@ -321,7 +312,6 @@ def get_shop_catalog(tg_id=None):
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 1. جلب إعدادات المتجر
                 cur.execute(
                     "SELECT key, value FROM settings WHERE key IN ('farm_settings', 'shop_settings')"
                 )
@@ -332,21 +322,25 @@ def get_shop_catalog(tg_id=None):
                     elif row["key"] == "shop_settings":
                         shop_settings = _parse_json_field(row["value"], {})
 
-                # 2. جلب بيانات اللاعب الحية في نفس الاتصال
                 if tg_id:
                     cur.execute("SELECT * FROM users WHERE tg_id = %s LIMIT 1", (str(tg_id),))
                     u_row = cur.fetchone()
                     if u_row:
                         user_state = dict(u_row)
+                        for k, v in list(user_state.items()):
+                            if isinstance(v, datetime):
+                                user_state[k] = format_iso(v)
+                        user_state['balance'] = float(user_state.get('balance') or 0.0)
+                        user_state['ad_balance'] = float(user_state.get('ad_balance') or 0.0)
+                        user_state['usd_balance'] = float(user_state.get('usd_balance') or 0.0)
+                        user_state['znx_balance'] = float(user_state.get('znx_balance') or 0.0)
 
         mining_cfg = farm_settings.get("mining_config") or shop_settings.get("mining_config") or {}
         if not isinstance(mining_cfg, dict):
             mining_cfg = {}
 
-        # قراءة الحد الأقصى للترقيات من mining_config لتطبيقه على جميع المستويات
-        global_max_upgrades = int(mining_cfg.get("max_upgrades_per_level", 15))
+        global_max_upgrades = int(mining_cfg.get("max_upgrades_per_level") or 15)
 
-        # 1. جلب وتوحيد ترقيات السرعة (upgrade_config)
         raw_upgrade_cfg = (
             farm_settings.get("upgrade_config")
             or shop_settings.get("upgrade_config")
@@ -357,10 +351,10 @@ def get_shop_catalog(tg_id=None):
         normalized_upgrades = {}
         for k, v in raw_upgrade_cfg.items():
             if isinstance(v, dict):
-                c_zn = float(v.get("cost_zn", v.get("price", v.get("cost", 0.0))))
-                c_usd = float(v.get("cost_usd", v.get("usd_cost", v.get("usd", 0.0))))
-                r_bonus = float(v.get("rate_bonus", v.get("rate", v.get("speed", 0.0))))
-                max_lim = int(v.get("max", v.get("max_limit", global_max_upgrades)))
+                c_zn = float(v.get("cost_zn") or v.get("price") or v.get("cost") or 0.0)
+                c_usd = float(v.get("cost_usd") or v.get("usd_cost") or v.get("usd") or 0.0)
+                r_bonus = float(v.get("rate_bonus") or v.get("rate") or v.get("speed") or 0.0)
+                max_lim = int(v.get("max") or v.get("max_limit") or global_max_upgrades)
                 normalized_upgrades[str(k)] = {
                     **v,
                     "cost_zn": c_zn,
@@ -373,7 +367,6 @@ def get_shop_catalog(tg_id=None):
                     "max_limit": max_lim,
                 }
 
-        # 2. جلب وتوحيد ترقيات المخزن (الأولوية لـ storage_config الموحد)
         raw_storage_caps = (
             farm_settings.get("storage_config")
             or shop_settings.get("storage_config")
@@ -386,9 +379,9 @@ def get_shop_catalog(tg_id=None):
         normalized_storage = {}
         for k, v in raw_storage_caps.items():
             if isinstance(v, dict):
-                cap = float(v.get("capacity", v.get("cap", v.get("max_cap", 0.5))))
-                c_zn = float(v.get("cost_zn", v.get("price", v.get("cost", 0.0))))
-                c_usd = float(v.get("cost_usd", v.get("usd_cost", v.get("usd", 0.0))))
+                cap = float(v.get("capacity") or v.get("cap") or v.get("max_cap") or 0.5)
+                c_zn = float(v.get("cost_zn") or v.get("price") or v.get("cost") or 0.0)
+                c_usd = float(v.get("cost_usd") or v.get("usd_cost") or v.get("usd") or 0.0)
                 normalized_storage[str(k)] = {
                     **v,
                     "capacity": cap,
@@ -399,7 +392,6 @@ def get_shop_catalog(tg_id=None):
                     "usd_cost": c_usd,
                 }
 
-        # 3. جلب وتوحيد باقات الـ VIP (الأولوية لـ packages الموحد)
         db_packages = (
             shop_settings.get("packages")
             or farm_settings.get("packages")
@@ -414,7 +406,7 @@ def get_shop_catalog(tg_id=None):
         usdt_pkgs = {}
         for k, v in raw_pkgs.items():
             if isinstance(v, dict):
-                u_price = float(v.get("usdt", v.get("cost_usd", v.get("price", 0.0))))
+                u_price = float(v.get("usdt") or v.get("cost_usd") or v.get("price") or 0.0)
                 usdt_pkgs[str(k)] = {
                     **v,
                     "usdt": u_price,
@@ -430,7 +422,7 @@ def get_shop_catalog(tg_id=None):
         )
         try:
             ton_usdt_rate = float(
-                shop_settings.get("ton_usdt_rate", farm_settings.get("ton_usdt_rate", 5.5))
+                shop_settings.get("ton_usdt_rate") or farm_settings.get("ton_usdt_rate") or 5.5
             )
         except (ValueError, TypeError):
             ton_usdt_rate = 5.5
@@ -462,12 +454,10 @@ def get_shop_catalog(tg_id=None):
 
 
 def get_shop_settings(tg_id=None):
-    """جلب إعدادات المتجر الكاملة لتظهر فوراً في الواجهة"""
     return get_shop_catalog(tg_id)
 
 
 def get_user_vip_status(user_id):
-    """التحقق من حالة اشتراك VIP للمستخدم وتاريخ انتهائه ودقة الميزات المفعّلة من قاعدة البيانات"""
     try:
         if not user_id:
             return {"is_active": False, "package_id": None, "remaining_seconds": 0}
@@ -479,32 +469,18 @@ def get_user_vip_status(user_id):
                 row = cur.fetchone()
 
                 if not row or not row.get("vip_status"):
-                    return {
-                        "is_active": False,
-                        "package_id": None,
-                        "remaining_seconds": 0,
-                    }
+                    return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
                 vip_status = _parse_json_field(row["vip_status"], {})
                 if not isinstance(vip_status, dict) or not vip_status:
-                    return {
-                        "is_active": False,
-                        "package_id": None,
-                        "remaining_seconds": 0,
-                    }
+                    return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
                 expires_at_str = vip_status.get("expires_at")
                 if not expires_at_str:
-                    return {
-                        "is_active": False,
-                        "package_id": None,
-                        "remaining_seconds": 0,
-                    }
+                    return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
                 now_dt = datetime.now(timezone.utc)
-                clean_exp_str = (
-                    str(expires_at_str).replace(" ", "T").replace("Z", "+00:00")
-                )
+                clean_exp_str = str(expires_at_str).replace(" ", "T").replace("Z", "+00:00")
                 expires_dt = datetime.fromisoformat(clean_exp_str)
                 if expires_dt.tzinfo is None:
                     expires_dt = expires_dt.replace(tzinfo=timezone.utc)
@@ -517,43 +493,18 @@ def get_user_vip_status(user_id):
                     "package_id": vip_status.get("package_id"),
                     "expires_at": format_iso(expires_dt),
                     "remaining_seconds": remaining_seconds,
-                    "auto_bot": (
-                        bool(vip_status.get("auto_bot", False)) if is_active else False
-                    ),
-                    "double_storage": (
-                        bool(vip_status.get("double_storage", False))
-                        if is_active
-                        else False
-                    ),
-                    "referral_rate": (
-                        float(vip_status.get("referral_rate", 0.0))
-                        if is_active
-                        else 0.0
-                    ),
-                    "ref_min_upgrades": (
-                        int(vip_status.get("ref_min_upgrades", 3)) if is_active else 3
-                    ),
-                    "ref_withdraw_fee": (
-                        float(vip_status.get("ref_withdraw_fee", 0.0))
-                        if is_active
-                        else 0.0
-                    ),
+                    "auto_bot": bool(vip_status.get("auto_bot", False)) if is_active else False,
+                    "double_storage": bool(vip_status.get("double_storage", False)) if is_active else False,
+                    "referral_rate": float(vip_status.get("referral_rate") or 0.0) if is_active else 0.0,
+                    "ref_min_upgrades": int(vip_status.get("ref_min_upgrades") or 3) if is_active else 3,
+                    "ref_withdraw_fee": float(vip_status.get("ref_withdraw_fee") or 0.0) if is_active else 0.0,
                 }
     except Exception as e:
         logger.error(f"❌ Error in get_user_vip_status: {e}")
         return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
 
-def log_purchase_transaction(
-    tg_id,
-    tx_type,
-    item_id,
-    cost_zn=0.0,
-    cost_usd=0.0,
-    tx_hash=None,
-    details=None,
-):
-    """تسجيل المعاملة المالية في جدول purchase_history و processed_txs لمنع التكرار وبحجم هاش آمن"""
+def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0, tx_hash=None, details=None):
     try:
         str_uid = str(tg_id)
         safe_tx_h = _normalize_tx_identifier(tx_hash=tx_hash) or None
@@ -566,15 +517,7 @@ def log_purchase_transaction(
                     INSERT INTO purchase_history (tg_id, type, item_id, cost_zn, cost_usd, tx_hash, details)
                     VALUES (%s, %s, %s, %s, %s, %s, %s);
                     """,
-                    (
-                        str_uid,
-                        str(tx_type),
-                        str(item_id),
-                        float(cost_zn),
-                        float(cost_usd),
-                        safe_tx_h,
-                        Json(details_obj),
-                    ),
+                    (str_uid, str(tx_type), str(item_id), float(cost_zn or 0.0), float(cost_usd or 0.0), safe_tx_h, Json(details_obj)),
                 )
 
                 if safe_tx_h:
@@ -584,16 +527,8 @@ def log_purchase_transaction(
                         VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (tx_hash) DO NOTHING;
                         """,
-                        (
-                            safe_tx_h,
-                            str_uid,
-                            str(tx_type),
-                            float(cost_zn),
-                            float(cost_usd),
-                            Json(details_obj),
-                        ),
+                        (safe_tx_h, str_uid, str(tx_type), float(cost_zn or 0.0), float(cost_usd or 0.0), Json(details_obj)),
                     )
-
         return True
     except Exception as e:
         logger.error(f"⚠️ Failed to log purchase transaction: {e}")
@@ -601,32 +536,29 @@ def log_purchase_transaction(
 
 
 def buy_mining_upgrade(tg_id, upgrade_level):
-    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن وتحديث جدول الأصدقاء مباشرة"""
+    """شراء ترقية سرعة التعدين باستخدام get_db_transaction لضمان القفل الذري الحقيقي (FOR UPDATE)"""
     try:
         if not tg_id or upgrade_level is None:
             return False, "بيانات الترقية غير صالحة", {}
 
         catalog = get_shop_catalog()
         mining_cfg = catalog.get("upgrade_config", {})
-        global_max = int(
-            catalog.get("mining_config", {}).get("max_upgrades_per_level", 15)
-        )
+        global_max = int(catalog.get("mining_config", {}).get("max_upgrades_per_level") or 15)
         lvl_str = str(upgrade_level)
 
         if lvl_str not in mining_cfg:
             return False, "مستوى الترقية غير موجود في المتجر", {}
 
         item_info = mining_cfg[lvl_str]
-        cost_zn = float(item_info.get("cost_zn", item_info.get("price", 0.0)))
-        cost_usd = float(item_info.get("cost_usd", item_info.get("usd_cost", 0.0)))
-        rate_bonus = float(item_info.get("rate_bonus", item_info.get("rate", 0.0)))
-        max_purchases = int(
-            item_info.get("max", item_info.get("max_limit", global_max))
-        )
+        cost_zn = float(item_info.get("cost_zn") or item_info.get("price") or 0.0)
+        cost_usd = float(item_info.get("cost_usd") or item_info.get("usd_cost") or 0.0)
+        rate_bonus = float(item_info.get("rate_bonus") or item_info.get("rate") or 0.0)
+        max_purchases = int(item_info.get("max") or item_info.get("max_limit") or global_max)
 
         str_uid = str(tg_id)
+        tx_ctx = get_db_transaction() if callable(get_db_transaction) else get_db_connection()
 
-        with get_db_connection() as conn:
+        with tx_ctx as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
                 user_data = cur.fetchone()
@@ -637,15 +569,12 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                 user_data = dict(user_data)
                 user_upgrades = _parse_json_field(user_data.get("upgrades"), {})
 
-                current_owned = int(
-                    user_upgrades.get(f"lvl{lvl_str}", user_upgrades.get(lvl_str, 0))
-                )
-
+                current_owned = int(user_upgrades.get(f"lvl{lvl_str}") ?? user_upgrades.get(lvl_str) ?? 0)
                 if current_owned >= max_purchases:
                     return False, "وصلت للحد الأقصى لشراء هذه الترقية", {}
 
-                current_balance = float(user_data.get("balance", 0.0) or 0.0)
-                current_usd_balance = float(user_data.get("usd_balance", 0.0) or 0.0)
+                current_balance = float(user_data.get("balance") or 0.0)
+                current_usd_balance = float(user_data.get("usd_balance") or 0.0)
 
                 if current_balance < cost_zn:
                     return False, f"رصيد ZN غير كافٍ! تحتاج {cost_zn:g} ZN", {}
@@ -655,15 +584,13 @@ def buy_mining_upgrade(tg_id, upgrade_level):
 
                 last_claim_raw = user_data.get("last_claim_time")
                 now_dt = datetime.now(timezone.utc)
-                old_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
-                old_cap = float(user_data.get("max_cap", 100.0) or 100.0)
+                old_rate = float(user_data.get("hourly_rate") or 0.0)
+                old_cap = float(user_data.get("max_cap") or 100.0)
 
                 pending_mined = 0.0
                 if last_claim_raw:
                     try:
-                        clean_str = (
-                            str(last_claim_raw).replace(" ", "T").replace("Z", "+00:00")
-                        )
+                        clean_str = str(last_claim_raw).replace(" ", "T").replace("Z", "+00:00")
                         last_claim_dt = datetime.fromisoformat(clean_str)
                         if last_claim_dt.tzinfo is None:
                             last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
@@ -683,11 +610,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                     new_last_claim_dt = now_dt
 
                 user_upgrades[f"lvl{lvl_str}"] = current_owned + 1
-                total_upgrades_cnt = sum(
-                    int(v)
-                    for v in user_upgrades.values()
-                    if isinstance(v, (int, float))
-                )
+                total_upgrades_cnt = sum(int(v) for v in user_upgrades.values() if isinstance(v, (int, float)))
 
                 cur.execute(
                     """
@@ -697,18 +620,12 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                         hourly_rate = %s,
                         upgrades = %s,
                         upgrades_count = %s,
-                        last_claim_time = %s
+                        last_claim_time = %s,
+                        last_active_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE tg_id = %s
                     """,
-                    (
-                        new_balance,
-                        new_usd_balance,
-                        new_hourly_rate,
-                        Json(user_upgrades),
-                        total_upgrades_cnt,
-                        new_last_claim_dt,
-                        str_uid,
-                    ),
+                    (new_balance, new_usd_balance, new_hourly_rate, Json(user_upgrades), total_upgrades_cnt, new_last_claim_dt, str_uid),
                 )
 
                 u_name = user_data.get("first_name") or user_data.get("name") or "صديق"
@@ -733,9 +650,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                     "last_claim_time": format_iso(new_last_claim_dt),
                 }
 
-        log_purchase_transaction(
-            tg_id, "mining_upgrade", lvl_str, cost_zn, cost_usd
-        )
+        log_purchase_transaction(tg_id, "mining_upgrade", lvl_str, cost_zn, cost_usd)
         return True, f"تم شراء الترقية مستوى {lvl_str} بنجاح!", updated_fields
 
     except Exception as e:
@@ -744,7 +659,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
 
 
 def upgrade_storage_capacity(tg_id):
-    """ترقية المخزن وزيادة السعة بنظام معاملات آمن"""
+    """ترقية سعة المخزن باستخدام get_db_transaction لضمان القفل الذري الحقيقي (FOR UPDATE)"""
     try:
         if not tg_id:
             return False, "معرف غير صالح", {}
@@ -752,8 +667,9 @@ def upgrade_storage_capacity(tg_id):
         catalog = get_shop_catalog()
         storage_cfg = catalog.get("storage_config", {})
         str_uid = str(tg_id)
+        tx_ctx = get_db_transaction() if callable(get_db_transaction) else get_db_connection()
 
-        with get_db_connection() as conn:
+        with tx_ctx as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
                 user_data = cur.fetchone()
@@ -762,50 +678,36 @@ def upgrade_storage_capacity(tg_id):
                     return False, "المستخدم غير موجود", {}
 
                 user_data = dict(user_data)
-                current_lvl = int(user_data.get("storage_level", 0))
+                current_lvl = int(user_data.get("storage_level") or 0)
                 next_lvl_str = str(current_lvl + 1)
 
                 if next_lvl_str not in storage_cfg:
                     return False, "وصلت لأعلى مستوى مخزن حالياً!", {}
 
                 next_info = storage_cfg[next_lvl_str]
-                cost_zn = float(next_info.get("cost_zn", next_info.get("price", 0.0)))
-                cost_usd = float(
-                    next_info.get("cost_usd", next_info.get("usd_cost", 0.0))
-                )
-                new_base_capacity = float(
-                    next_info.get("capacity", next_info.get("cap", 100.0))
-                )
-                extra_storage = float(user_data.get("extra_storage", 0.0) or 0.0)
+                cost_zn = float(next_info.get("cost_zn") or next_info.get("price") or 0.0)
+                cost_usd = float(next_info.get("cost_usd") or next_info.get("usd_cost") or 0.0)
+                new_base_capacity = float(next_info.get("capacity") or next_info.get("cap") or 100.0)
+                extra_storage = float(user_data.get("extra_storage") or 0.0)
 
-                current_balance = float(user_data.get("balance", 0.0) or 0.0)
-                current_usd_balance = float(user_data.get("usd_balance", 0.0) or 0.0)
+                current_balance = float(user_data.get("balance") or 0.0)
+                current_usd_balance = float(user_data.get("usd_balance") or 0.0)
 
                 if current_balance < cost_zn:
-                    return (
-                        False,
-                        f"رصيدك من ZN غير كافٍ لترقية المخزن! تحتاج {cost_zn:g} ZN",
-                        {},
-                    )
+                    return False, f"رصيدك من ZN غير كافٍ لترقية المخزن! تحتاج {cost_zn:g} ZN", {}
 
                 if current_usd_balance < cost_usd:
-                    return (
-                        False,
-                        f"رصيدك من الدولار غير كافٍ لترقية المخزن! تحتاج ${cost_usd:g}",
-                        {},
-                    )
+                    return False, f"رصيدك من الدولار غير كافٍ لترقية المخزن! تحتاج ${cost_usd:g}", {}
 
                 last_claim_raw = user_data.get("last_claim_time")
                 now_dt = datetime.now(timezone.utc)
-                hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
-                old_cap = float(user_data.get("max_cap", 100.0) or 100.0)
+                hourly_rate = float(user_data.get("hourly_rate") or 0.0)
+                old_cap = float(user_data.get("max_cap") or 100.0)
 
                 pending_mined = 0.0
                 if last_claim_raw:
                     try:
-                        clean_str = (
-                            str(last_claim_raw).replace(" ", "T").replace("Z", "+00:00")
-                        )
+                        clean_str = str(last_claim_raw).replace(" ", "T").replace("Z", "+00:00")
                         last_claim_dt = datetime.fromisoformat(clean_str)
                         if last_claim_dt.tzinfo is None:
                             last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
@@ -833,9 +735,7 @@ def upgrade_storage_capacity(tg_id):
                             pass
 
                 raw_cap = new_base_capacity + extra_storage
-                new_max_cap = round(
-                    raw_cap * 2.0 if is_double_active else raw_cap, 4
-                )
+                new_max_cap = round(raw_cap * 2.0 if is_double_active else raw_cap, 4)
 
                 if hourly_rate > 0:
                     time_needed = pending_mined / (hourly_rate / 3600.0)
@@ -850,17 +750,12 @@ def upgrade_storage_capacity(tg_id):
                         usd_balance = %s,
                         storage_level = %s,
                         max_cap = %s,
-                        last_claim_time = %s
+                        last_claim_time = %s,
+                        last_active_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE tg_id = %s
                     """,
-                    (
-                        new_balance,
-                        new_usd_balance,
-                        int(next_lvl_str),
-                        new_max_cap,
-                        new_last_claim_dt,
-                        str_uid,
-                    ),
+                    (new_balance, new_usd_balance, int(next_lvl_str), new_max_cap, new_last_claim_dt, str_uid),
                 )
 
                 updated_fields = {
@@ -871,14 +766,8 @@ def upgrade_storage_capacity(tg_id):
                     "last_claim_time": format_iso(new_last_claim_dt),
                 }
 
-        log_purchase_transaction(
-            tg_id, "storage_upgrade", next_lvl_str, cost_zn, cost_usd
-        )
-        return (
-            True,
-            f"تم ترقية المخزن إلى المستوى {next_lvl_str} (سعة: {new_max_cap:g}) بنجاح!",
-            updated_fields,
-        )
+        log_purchase_transaction(tg_id, "storage_upgrade", next_lvl_str, cost_zn, cost_usd)
+        return True, f"تم ترقية المخزن إلى المستوى {next_lvl_str} (سعة: {new_max_cap:g}) بنجاح!", updated_fields
 
     except Exception as e:
         logger.error(f"❌ Error upgrading storage: {e}")
@@ -886,7 +775,6 @@ def upgrade_storage_capacity(tg_id):
 
 
 def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
-    """دالة عامة موحدة لمعالجة شراء الترقيات"""
     if str(upgrade_type).lower() in ["mining", "card"]:
         return buy_mining_upgrade(tg_id, upgrade_id)
     elif str(upgrade_type).lower() in ["storage", "capacity"]:
@@ -896,12 +784,11 @@ def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
 
 
 def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_memo=None):
-    """تفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها في Supabase مع منع التكرار والغش"""
+    """تفعيل باقات VIP عبر get_db_transaction لتوفير القفل الذري الحقيقي ومنع Race Condition"""
     try:
         if not tg_id or not package_id:
             return False, "بيانات غير صالحة", {}
 
-        # الحل الجذري والأمني: إعطاء الأولوية لـ tx_hash، وتشفير الـ boc إلى 64 حرفاً لمنع خطأ character varying(256)
         tx_identifier = _normalize_tx_identifier(tx_hash=tx_hash, boc=boc)
         boc_hash = _normalize_tx_identifier(boc=boc) if boc else ""
 
@@ -916,33 +803,27 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
             return False, "الباقة غير موجودة في المتجر", {}
 
         pkg_info = pkgs[pkg_key]
-        duration_days = int(pkg_info.get("duration_days", 30))
-        features = (
-            pkg_info.get("features", {})
-            if isinstance(pkg_info.get("features"), dict)
-            else {}
-        )
+        duration_days = int(pkg_info.get("duration_days") or 30)
+        features = pkg_info.get("features", {}) if isinstance(pkg_info.get("features"), dict) else {}
 
         auto_bot = bool(features.get("auto_bot", False))
         double_storage = bool(features.get("double_storage", False))
-        referral_rate = float(features.get("referral_rate", 0.0))
-        ref_min_upgrades = int(features.get("ref_min_upgrades", 3))
-        ref_withdraw_fee = float(features.get("ref_withdraw_fee", 0.0))
+        referral_rate = float(features.get("referral_rate") or 0.0)
+        ref_min_upgrades = int(features.get("ref_min_upgrades") or 3)
+        ref_withdraw_fee = float(features.get("ref_withdraw_fee") or 0.0)
 
-        zn_add = float(pkg_info.get("zn_add", 0.0))
-        rate_add = float(pkg_info.get("rate_add", 0.0))
-        storage_add = float(pkg_info.get("storage_add", 0.0))
-        usd_add = float(pkg_info.get("usd_add", 0.0))
-        pkg_price_usd = float(
-            pkg_info.get("usdt", pkg_info.get("cost_usd", pkg_info.get("price", 0.0)))
-        )
+        zn_add = float(pkg_info.get("zn_add") or 0.0)
+        rate_add = float(pkg_info.get("rate_add") or 0.0)
+        storage_add = float(pkg_info.get("storage_add") or 0.0)
+        usd_add = float(pkg_info.get("usd_add") or 0.0)
+        pkg_price_usd = float(pkg_info.get("usdt") or pkg_info.get("cost_usd") or pkg_info.get("price") or 0.0)
 
         str_uid = str(tg_id)
         ensure_pending_payments_table()
+        tx_ctx = get_db_transaction() if callable(get_db_transaction) else get_db_connection()
 
-        with get_db_connection() as conn:
+        with tx_ctx as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 1. فحص صارم لمنع الصرف المزدوج (Double Spending) سواء عبر tx_hash أو boc_hash
                 check_hashes = [h for h in {tx_identifier, boc_hash} if h]
                 cur.execute(
                     "SELECT 1 FROM processed_txs WHERE tx_hash = ANY(%s)",
@@ -951,7 +832,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                 if cur.fetchone():
                     return False, "تمت معالجة هذه العملية سابقاً!", {}
 
-                # 2. حجز المعاملة فوراً في processed_txs لمنع ثغرة Race Condition بين الحسابات المتعددة
                 cur.execute(
                     """
                     INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd)
@@ -964,7 +844,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                 if not cur.fetchone():
                     return False, "تمت معالجة هذه العملية سابقاً!", {}
 
-                # إذا كان هناك boc_hash مختلف عن tx_identifier نحجزه أيضاً لمنع إعادة استخدامه
                 if boc_hash and boc_hash != tx_identifier:
                     cur.execute(
                         """
@@ -975,7 +854,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                         (boc_hash, str_uid, pkg_key, pkg_price_usd),
                     )
 
-                # 3. قفل صف المستخدم للتحديث الآمن
                 cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
                 user_data = cur.fetchone()
 
@@ -984,13 +862,11 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
 
                 user_data = dict(user_data)
 
-                current_balance = float(user_data.get("balance", 0.0) or 0.0)
-                current_usd = float(user_data.get("usd_balance", 0.0) or 0.0)
-                current_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
-                current_extra_storage = float(
-                    user_data.get("extra_storage", 0.0) or 0.0
-                )
-                current_max_cap = float(user_data.get("max_cap", 100.0) or 100.0)
+                current_balance = float(user_data.get("balance") or 0.0)
+                current_usd = float(user_data.get("usd_balance") or 0.0)
+                current_rate = float(user_data.get("hourly_rate") or 0.0)
+                current_extra_storage = float(user_data.get("extra_storage") or 0.0)
+                current_max_cap = float(user_data.get("max_cap") or 100.0)
                 last_claim_raw = user_data.get("last_claim_time")
 
                 now_dt = datetime.now(timezone.utc)
@@ -1002,16 +878,10 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
 
                 if existing_expires_str:
                     try:
-                        clean_exp = (
-                            str(existing_expires_str)
-                            .replace(" ", "T")
-                            .replace("Z", "+00:00")
-                        )
+                        clean_exp = str(existing_expires_str).replace(" ", "T").replace("Z", "+00:00")
                         existing_expires_dt = datetime.fromisoformat(clean_exp)
                         if existing_expires_dt.tzinfo is None:
-                            existing_expires_dt = existing_expires_dt.replace(
-                                tzinfo=timezone.utc
-                            )
+                            existing_expires_dt = existing_expires_dt.replace(tzinfo=timezone.utc)
                         if existing_expires_dt > now_dt:
                             is_currently_active = True
                     except Exception:
@@ -1025,22 +895,16 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                 pending_mined = 0.0
                 if last_claim_raw:
                     try:
-                        clean_str = (
-                            str(last_claim_raw).replace(" ", "T").replace("Z", "+00:00")
-                        )
+                        clean_str = str(last_claim_raw).replace(" ", "T").replace("Z", "+00:00")
                         last_claim_dt = datetime.fromisoformat(clean_str)
                         if last_claim_dt.tzinfo is None:
                             last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
                         time_elapsed = max(0.0, (now_dt - last_claim_dt).total_seconds())
-                        pending_mined = min(
-                            time_elapsed * (current_rate / 3600.0), current_max_cap
-                        )
+                        pending_mined = min(time_elapsed * (current_rate / 3600.0), current_max_cap)
                     except Exception:
                         pending_mined = 0.0
 
-                was_double_active = is_currently_active and bool(
-                    existing_vip.get("double_storage", False)
-                )
+                was_double_active = is_currently_active and bool(existing_vip.get("double_storage", False))
                 new_max_cap = current_max_cap
                 if double_storage and not was_double_active:
                     new_max_cap = current_max_cap * 2.0
@@ -1070,7 +934,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                     "updated_at": format_iso(now_dt),
                 }
 
-                # 4. التحديث في قاعدة البيانات مع تعديل is_vip و vip_active
                 cur.execute(
                     """
                     UPDATE users SET
@@ -1084,24 +947,14 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                         bot_active = %s,
                         bot_expires_at = %s,
                         is_vip = TRUE,
-                        vip_active = TRUE
+                        vip_active = TRUE,
+                        last_active_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE tg_id = %s
                     """,
-                    (
-                        new_balance,
-                        new_usd,
-                        new_rate,
-                        new_extra_storage,
-                        new_max_cap,
-                        new_last_claim_dt,
-                        Json(new_vip_status),
-                        auto_bot,
-                        new_expires_dt,
-                        str_uid,
-                    ),
+                    (new_balance, new_usd, new_rate, new_extra_storage, new_max_cap, new_last_claim_dt, Json(new_vip_status), auto_bot, new_expires_dt, str_uid),
                 )
 
-                # 5. تحديث حالة المعاملة في جدول المعاملات المعلقة إلى completed
                 if payload_memo:
                     cur.execute(
                         """
@@ -1133,15 +986,7 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                     "vip_active": True
                 }
 
-        log_purchase_transaction(
-            tg_id,
-            "vip_package",
-            pkg_key,
-            0.0,
-            pkg_price_usd,
-            tx_identifier,
-            details={"payload_memo": payload_memo, "boc_hash": boc_hash},
-        )
+        log_purchase_transaction(tg_id, "vip_package", pkg_key, 0.0, pkg_price_usd, tx_identifier, details={"payload_memo": payload_memo, "boc_hash": boc_hash})
         return True, "تم تفعيل الباقة بنجاح!", updated_fields
 
     except Exception as e:
@@ -1150,7 +995,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
 
 
 def get_user_purchase_history(tg_id, limit=20):
-    """جلب سجل المشتريات للمستخدم من Supabase"""
     try:
         if not tg_id:
             return []
