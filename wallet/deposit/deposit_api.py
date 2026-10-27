@@ -321,7 +321,6 @@ def verify_and_apply():
         if not memo or not boc:
             return _no_cache_json({'success': False, 'error': 'بيانات تأكيد الفاتورة أو المعاملة غير مكتملة'}, 400)
 
-        # جلب الفاتورة من قاعدة البيانات مباشرة لمنع أي تلاعب بقيمة الباقة من جهة العميل
         invoice_row = get_deposit_invoice_by_memo(memo, user_id=user_id)
         if not invoice_row:
             return _no_cache_json({'success': False, 'error': 'الفاتورة غير موجودة أو لا تخص حسابك'}, 400)
@@ -352,7 +351,7 @@ def verify_and_apply():
             return _no_cache_json({'success': False, 'error': str(val_err)}, 400)
         except Exception as proc_err:
             err_msg = str(proc_err)
-            if "سابقاً" in err_msg or "مسبقاً" in err_msg or "used" in err_msg.lower():
+            if "سابقاً" in err_msg || "مسبقاً" in err_msg || "used" in err_msg.lower():
                 return _no_cache_json({'success': False, 'error': err_msg}, 400)
             raise proc_err
 
