@@ -1,5 +1,5 @@
 // ==========================================
-// 0. نظام حظر تعدد الحسابات وبصمة الجهاز (Multi-Accounting & Device Fingerprint Engine)
+// 0. نظام حظر تعدد الحسابات وبصمة الجهاز الصلبة (Multi-Accounting & Hardware Fingerprint Engine)
 // ==========================================
 const DB_NAME = 'ZN_Device_DB';
 const STORE_NAME = 'device_store';
@@ -80,8 +80,8 @@ function getCookie(name) {
 function generateCanvasFingerprint() {
     try {
         const canvas = document.createElement('canvas');
-        canvas.width = 200;
-        canvas.height = 50;
+        canvas.width = 220;
+        canvas.height = 60;
         const ctx = canvas.getContext('2d');
         if (!ctx) return 'no-canvas-ctx';
         ctx.textBaseline = 'top';
@@ -90,12 +90,33 @@ function generateCanvasFingerprint() {
         ctx.fillStyle = '#f60';
         ctx.fillRect(125, 1, 62, 20);
         ctx.fillStyle = '#069';
-        ctx.fillText('ZN-GOXE-FP-2026', 2, 15);
+        ctx.fillText('ZN-GOXE-HW-FP-2026', 2, 15);
         ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-        ctx.fillText('ZN-GOXE-FP-2026', 4, 17);
+        ctx.fillText('ZN-GOXE-HW-FP-2026', 4, 17);
+        ctx.beginPath();
+        ctx.arc(50, 35, 15, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
         return canvas.toDataURL();
     } catch (e) {
         return 'canvas-error';
+    }
+}
+
+function getWebGLHardwareSignature() {
+    try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) return 'no-webgl';
+        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+        const vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+        const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+        const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
+        const maxCube = gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE) || 0;
+        const maxRender = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 0;
+        return `${vendor || ''}::${renderer || ''}::${maxTex}::${maxCube}::${maxRender}`;
+    } catch (e) {
+        return 'webgl-error';
     }
 }
 
@@ -132,6 +153,10 @@ window.getOrCreateDeviceId = async function() {
         deviceId = await getIDBValue('device_uuid');
     }
 
+    if (!deviceId && window.name && window.name.startsWith('zn_dev_')) {
+        deviceId = window.name.replace('zn_dev_', '');
+    }
+
     if (!deviceId) {
         if (window.crypto && window.crypto.randomUUID) {
             deviceId = window.crypto.randomUUID();
@@ -143,6 +168,7 @@ window.getOrCreateDeviceId = async function() {
     try { localStorage.setItem('device_uuid', deviceId); } catch (e) {}
     setCookie('device_uuid', deviceId);
     await setIDBValue('device_uuid', deviceId);
+    try { window.name = 'zn_dev_' + deviceId; } catch (e) {}
 
     cachedDeviceId = deviceId;
     return deviceId;
@@ -152,24 +178,36 @@ let cachedFingerprint = null;
 window.getDeviceFingerprint = async function() {
     if (cachedFingerprint) return cachedFingerprint;
 
-    const components = [
-        navigator.userAgent || '',
-        navigator.language || '',
-        screen.width + 'x' + screen.height + 'x' + (screen.colorDepth || 24),
-        new Date().getTimezoneOffset(),
-        Intl?.DateTimeFormat()?.resolvedOptions()?.timeZone || '',
+    // استخدام خصائص العتاد الفيزيائية الثابتة عبر جميع المتصفحات والنوافذ الخفية على نفس الجهاز
+    const sw = Math.min(screen.width || 0, screen.height || 0);
+    const sh = Math.max(screen.width || 0, screen.height || 0);
+    const dpr = Number(window.devicePixelRatio || 1).toFixed(2);
+
+    const hardwareComponents = [
+        getWebGLHardwareSignature(),
+        `${sw}x${sh}x${screen.colorDepth || 24}@${dpr}`,
         navigator.hardwareConcurrency || 0,
         navigator.deviceMemory || 0,
         navigator.maxTouchPoints || 0,
+        navigator.platform || '',
+        new Date().getTimezoneOffset(),
+        Intl?.DateTimeFormat()?.resolvedOptions()?.timeZone || '',
         generateCanvasFingerprint()
     ];
 
-    const rawString = components.join('||');
+    const rawString = hardwareComponents.join('||');
     cachedFingerprint = await hashString(rawString);
     return cachedFingerprint;
 };
 
-window.showBannedScreen = function(reasonMessage) {
+let isAppTerminatedBySecurity = false;
+
+window.showBannedScreen = function(reasonMessage, titleText = 'تم حظر الحساب والجهاز') {
+    isAppTerminatedBySecurity = true;
+    if (typeof animationFrameId !== 'undefined' && animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+    }
+
     const appEl = document.getElementById('app');
     const navEl = document.getElementById('main-nav');
     const loaders = document.querySelectorAll('#loading-screen, .loading-screen, #loader');
@@ -204,16 +242,17 @@ window.showBannedScreen = function(reasonMessage) {
     }
 
     const safeMessage = window.escapeHTML(reasonMessage || 'تم حظر هذا الحساب والجهاز بسبب استخدام أكثر من حساب على نفس الجهاز.');
+    const safeTitle = window.escapeHTML(titleText);
 
     bannedEl.innerHTML = `
         <div style="background: rgba(255, 77, 77, 0.1); border: 2px solid #ff4d4d; border-radius: 20px; padding: 30px 20px; max-width: 420px; width: 100%; box-shadow: 0 10px 30px rgba(255, 77, 77, 0.2);">
             <div style="font-size: 64px; margin-bottom: 15px;">🚫</div>
-            <h2 style="color: #ff4d4d; margin-bottom: 15px; font-size: 24px; font-weight: bold;">تم حظر الحساب والجهاز</h2>
+            <h2 style="color: #ff4d4d; margin-bottom: 15px; font-size: 24px; font-weight: bold;">${safeTitle}</h2>
             <p style="color: #e6e6e6; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
                 ${safeMessage}
             </p>
             <div style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 10px; font-size: 12px; color: #888; margin-bottom: 20px; text-align: right;">
-                ⚠️ <b>تنبيه حظر تعدد الحسابات:</b> يمنع استخدام أكثر من حساب تليجرام واحد على نفس الجهاز. تم حظر جميع الحسابات المرتبطة بهذا الجهاز بشكل نهائي.
+                ⚠️ <b>تنبيه الحماية الصارم:</b> يمنع استخدام أكثر من حساب تليجرام واحد على نفس الجهاز أو المتصفح. يتم حظر جميع الحسابات المرتبطة بنفس الجهاز تلقائياً.
             </div>
             <button onclick="window.Telegram?.WebApp?.close()" style="background: #ff4d4d; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: bold; font-size: 15px; cursor: pointer; width: 100%;">
                 إغلاق التطبيق
@@ -228,7 +267,7 @@ window.showBannedScreen = function(reasonMessage) {
 // ==========================================
 const tg = window.Telegram?.WebApp;
 if (tg) {
-    tg.ready(); 
+    tg.ready();
     tg.expand();
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
 }
@@ -253,13 +292,14 @@ window.formatTime = function(seconds) {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    
+
     if (h > 0) return `${h}h ${m}m`;
     if (m > 0) return `${m}m ${s}s`;
     return `${s}s`;
 };
 
 function hideLoadingScreen() {
+    if (isAppTerminatedBySecurity) return;
     const appEl = document.getElementById('app');
     const navEl = document.getElementById('main-nav');
     if (appEl) {
@@ -291,38 +331,41 @@ function getSavedState() {
         tg_id: user?.id || null,
         first_name: user?.first_name || (user?.username ? `@${user.username}` : "لاعب"),
         referred_by_param: startParam,
-        balance: 0.00, 
-        usd_balance: 0.00, 
-        ad_balance: 0.00, 
-        hourly_rate: 0.00, 
-        energy: 100, 
-        storage_level: 0, 
-        extra_storage: 0.00, 
-        max_cap: 100.00, 
+        balance: 0.00,
+        usd_balance: 0.00,
+        ad_balance: 0.00,
+        hourly_rate: 0.00,
+        energy: 100,
+        storage_level: 0,
+        extra_storage: 0.00,
+        max_cap: 100.00,
         unclaimed: 0.00,
-        daily_streak: 1, 
-        daily_day: 1, 
-        last_daily_claim_date: null, 
-        upgrades: {}, 
-        wallet_address: null, 
-        boost_multiplier: 1, 
-        boost_active: false, 
+        daily_streak: 1,
+        daily_day: 1,
+        last_daily_claim_date: null,
+        upgrades: {},
+        wallet_address: null,
+        boost_multiplier: 1,
+        boost_active: false,
         boost_expires_at: null,
-        vip_storage_multiplier: 1, // تمت إضافتها لحفظ حالة باقة الـ VIP
-        last_claim_time: null, 
+        vip_storage_multiplier: 1,
+        last_claim_time: null,
         last_sync_time: Date.now()
     };
-    try { 
+    try {
         const saved = localStorage.getItem('app_user_state');
         if (saved) {
             const parsed = JSON.parse(saved);
-            return { ...base, ...parsed };
+            if (user?.id && parsed.tg_id && String(parsed.tg_id) !== String(user.id)) {
+                return base;
+            }
+            return { ...base, ...parsed, tg_id: user?.id || parsed.tg_id };
         }
-        return base; 
+        return base;
     } catch { return base; }
 }
 
-let isServerSyncing = false; // تم تغييرها بدلاً من isFirebaseUpdating
+let isServerSyncing = false;
 let saveDebounceTimer = null;
 
 function persistUserStateToLocalStorage(state) {
@@ -345,12 +388,12 @@ window.userState = new Proxy(getSavedState(), {
         }
 
         target[prop] = value;
-        
+
         if (!window.PlayerData) window.PlayerData = {};
         window.PlayerData[prop] = target[prop];
 
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at', 'wallet_address', 'vip_storage_multiplier'].includes(prop)) {
-            
+
             if (!isServerSyncing) {
                 if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
                 saveDebounceTimer = setTimeout(() => {
@@ -358,10 +401,9 @@ window.userState = new Proxy(getSavedState(), {
                 }, 400);
             }
 
-            // تم فصل التحديث العشوائي، الـ max_cap الحقيقي سيفرض نفسه
             if (typeof window.updateUI === 'function') window.updateUI();
             if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
-            
+
             window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: target }));
         }
         return true;
@@ -373,10 +415,9 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ==========================================
-// 1.5 الدالة الموحدة لحساب سعة المخزن الحقيقية (الجديدة)
+// 1.5 الدالة الموحدة لحساب سعة المخزن الحقيقية
 // ==========================================
 window.calculateTrueMaxCap = function(state) {
-    // جدول مستويات المخزن المحدث (المستوى 8 = 400)
     const baseCaps = [100, 120, 150, 180, 220, 260, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000];
     const level = parseInt(state.storage_level) || 0;
     let cap = baseCaps[0];
@@ -384,21 +425,23 @@ window.calculateTrueMaxCap = function(state) {
     if (level >= 0 && level < baseCaps.length) {
         cap = baseCaps[level];
     } else if (level >= baseCaps.length) {
-        cap = baseCaps[baseCaps.length - 1]; 
+        cap = baseCaps[baseCaps.length - 1];
     }
 
-    // إضافة سعة إضافية إن وجدت
     cap += (parseFloat(state.extra_storage) || 0);
 
-    // ضرب السعة في مضاعف باقة VIP (إذا كان 2x تصبح 800)
     const multiplier = parseFloat(state.vip_storage_multiplier) || 1;
     return cap * multiplier;
 };
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
+// 2. الاتصال المؤمن بالسيرفر ومعالجة الاستجابة المباشرة
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
+    if (isAppTerminatedBySecurity) {
+        throw new Error("تم إيقاف الجلسة لأسباب أمنية.");
+    }
+
     const headers = { 'Content-Type': 'application/json' };
 
     let deviceId = null;
@@ -411,15 +454,16 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     } catch (e) {
         console.warn("⚠️ خطأ في معالجة بصمة الجهاز:", e);
     }
-    
-    const currentTgId = window.userState?.tg_id || tg?.initDataUnsafe?.user?.id;
-    if (currentTgId) {
-        if (!window.userState.tg_id) window.userState.tg_id = currentTgId;
-        headers['X-Telegram-User-Id'] = String(currentTgId);
+
+    const verifiedTgId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id;
+    if (verifiedTgId) {
+        if (!window.userState.tg_id) window.userState.tg_id = verifiedTgId;
+        headers['X-Telegram-User-Id'] = String(verifiedTgId);
     }
 
     if (tg?.initData) {
         headers['X-Telegram-Init-Data'] = tg.initData;
+        headers['X-Init-Data'] = tg.initData;
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
@@ -432,7 +476,6 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     try {
         const urlObj = new URL(targetUrl, window.location.href);
         if (tg?.initData) urlObj.searchParams.set('initData', tg.initData);
-        if (currentTgId) urlObj.searchParams.set('tg_id', String(currentTgId));
         if (deviceId) urlObj.searchParams.set('device_id', deviceId);
         if (fingerprint) urlObj.searchParams.set('device_fingerprint', fingerprint);
         targetUrl = urlObj.toString();
@@ -441,18 +484,22 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     try {
         const fetchOptions = { method, headers };
         if (method !== 'GET' && method !== 'HEAD' && bodyData) {
-            fetchOptions.body = JSON.stringify(bodyData);
+            fetchOptions.body = JSON.stringify({
+                ...bodyData,
+                device_id: deviceId,
+                device_fingerprint: fingerprint
+            });
         }
 
         const res = await fetch(targetUrl, fetchOptions);
         const data = await res.json();
-        
+
         if (!res.ok) {
-            if (res.status === 403 || data.banned === true || data.is_banned === true) { 
+            if (res.status === 403 || data.banned === true || data.is_banned === true) {
                 const banReason = data.error || data.message || "حسابك وجهازك محظوران بسبب كشف تعدد الحسابات.";
                 window.showBannedScreen(banReason);
                 if (tg && typeof tg.close === 'function') {
-                    setTimeout(() => tg.close(), 3000);
+                    setTimeout(() => tg.close(), 3500);
                 }
             }
             throw new Error(data.error || data.message || `HTTP ${res.status}`);
@@ -472,7 +519,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         }
 
         const targetObj = data.player || data.user || data.data || (data.balance !== undefined ? data : null);
-        
+
         if (targetObj) {
             isServerSyncing = true;
             try {
@@ -496,10 +543,9 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
                 if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level) || 0;
                 if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage) || 0;
                 if (targetObj.vip_storage_multiplier !== undefined) window.userState.vip_storage_multiplier = parseFloat(targetObj.vip_storage_multiplier) || 1;
-                
-                // 🔥 التعديل الأهم: منع السيرفر من فرض القيمة الخاطئة وحسابها محلياً فوراً
+
                 window.userState.max_cap = window.calculateTrueMaxCap(window.userState);
-                
+
                 if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak) || 1;
                 if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day) || 1;
                 if (targetObj.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
@@ -529,22 +575,10 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 async function sendUserPing() {
     try {
         const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-        const userId = tgUser?.id || window.userState?.tg_id || localStorage.getItem('user_id');
+        const userId = tgUser?.id || window.userState?.tg_id;
+        if (!userId || !tg?.initData) return;
 
-        if (!userId) return;
-
-        if (typeof window.fetchAPI === 'function') {
-            await window.fetchAPI('/api/ping', 'POST', { user_id: userId });
-        } else {
-            await fetch('/api/ping', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || ''
-                },
-                body: JSON.stringify({ user_id: userId })
-            });
-        }
+        await window.fetchAPI('/api/ping', 'POST', { user_id: userId });
     } catch (error) {
         console.error("Failed to send activity ping:", error);
     }
@@ -644,11 +678,6 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 5. تم حذف نظام الاستماع اللحظي القديم Firebase (Firestore)
-// والانتقال بالكامل لنظام Supabase عبر الـ API
-// ==========================================
-
-// ==========================================
 // 6. دالة إدارة عداد التجميع
 // ==========================================
 let claimCooldownTimer = null;
@@ -736,12 +765,12 @@ window.updateClaimButtonState = function() {
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
     let num = parseFloat(val);
-    
+
     if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(2) + 'K';
-    
-    return num.toFixed(2); 
+
+    return num.toFixed(2);
 };
 
 window.formatNumberHTML = function(val) {
@@ -752,20 +781,20 @@ window.formatNumberHTML = function(val) {
     let suffix = '';
     let formattedStr = '';
 
-    if (num >= 1000000000) { 
-        formattedStr = (num / 1000000000).toFixed(2); 
-        suffix = 'B'; 
+    if (num >= 1000000000) {
+        formattedStr = (num / 1000000000).toFixed(2);
+        suffix = 'B';
     }
-    else if (num >= 1000000) { 
-        formattedStr = (num / 1000000).toFixed(2); 
-        suffix = 'M'; 
+    else if (num >= 1000000) {
+        formattedStr = (num / 1000000).toFixed(2);
+        suffix = 'M';
     }
-    else if (num >= 1000) { 
-        formattedStr = (num / 1000).toFixed(2); 
-        suffix = 'K'; 
+    else if (num >= 1000) {
+        formattedStr = (num / 1000).toFixed(2);
+        suffix = 'K';
     }
     else {
-        formattedStr = num.toFixed(2); 
+        formattedStr = num.toFixed(2);
     }
 
     const parts = formattedStr.split('.');
@@ -781,6 +810,7 @@ let animationFrameId = null;
 function startLocalMiningSimulator() {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     function tick() {
+        if (isAppTerminatedBySecurity) return;
         if (!document.hidden) {
             const targetVal = parseFloat(window.userState?.balance || 0);
             renderSmoothBalance(targetVal);
@@ -811,9 +841,9 @@ function renderSmoothBalance(targetVal) {
 function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
     const rawFormatted = window.formatBalance(val);
-    
+
     const selectors = '[data-bind="balance"], [data-bind="znx_balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
-    
+
     document.querySelectorAll(selectors).forEach(el => {
         if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
 
@@ -835,9 +865,8 @@ window.updateUI = function() {
     window.updateClaimButtonState();
     window.updateTonPriceUI();
 
-    // 🔥 التعديل الأهم: قراءة السعة من الدالة الصحيحة دائماً
     const currentMaxCap = window.calculateTrueMaxCap(window.userState);
-    window.userState.max_cap = currentMaxCap; // تثبيت القيمة بشكل صامت
+    window.userState.max_cap = currentMaxCap;
 
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
         if (el.tagName === 'INPUT') {
@@ -908,8 +937,7 @@ window.saveWalletAddress = async function() {
                 alert(res?.error || 'فشل حفظ العنوان في السيرفر');
             }
         } catch (err) {
-            window.userState.wallet_address = addr;
-            alert('تم حفظ العنوان محلياً');
+            alert(err?.message || 'تعذر حفظ العنوان حالياً');
         }
     }
 };
@@ -994,7 +1022,7 @@ window.loadZnxWalletData = async function() {
                 const rank = index + 1;
                 const safeName = window.escapeHTML(item.first_name || item.username || `لاعب ${item.telegram_id || rank}`);
                 const bal = parseFloat(item.balance || 0);
-                const isMe = String(item.telegram_id) === String(window.userState?.tg_id);
+                const isMe = String(item.telegram_id || item.tg_id) === String(window.userState?.tg_id);
 
                 let rankBadge = `#${rank}`;
                 if (rank === 1) rankBadge = '🥇';
@@ -1007,7 +1035,7 @@ window.loadZnxWalletData = async function() {
                             <span style="font-weight: bold; font-size: 14px; min-width: 28px; text-align: center; color: ${rank <= 3 ? '#ffb703' : '#a0a0a0'};">${rankBadge}</span>
                             <div style="text-align: right;">
                                 <div style="font-weight: bold; font-size: 13px; color: #fff;">${safeName} ${isMe ? ' <span style="font-size:10px; color:#0088cc;">(أنت)</span>' : ''}</div>
-                                <div style="font-size: 10px; color: #888;">ID: ${window.escapeHTML(item.telegram_id || '---')}</div>
+                                <div style="font-size: 10px; color: #888;">ID: ${window.escapeHTML(item.telegram_id || item.tg_id || '---')}</div>
                             </div>
                         </div>
                         <div style="font-weight: bold; font-size: 13px; color: #2ec4b6;">
@@ -1036,7 +1064,7 @@ if (typeof window.initZnxWallet !== 'function') {
 }
 
 // ==========================================
-// 10. محرك التنقل والتحميل الديناميكي المدمج (loadZnxWalletView)
+// 10. محرك التنقل والتحميل الديناميكي المدمج
 // ==========================================
 window.loadZnxWalletView = async function() {
     const container = document.getElementById('view-znx_wallet') || document.getElementById('view-leaderboard');
@@ -1055,8 +1083,8 @@ window.loadZnxWalletView = async function() {
             script.id = 'znx-wallet-script';
             script.src = './znx_wallet/znx_wallet.js?v=4.2';
             script.onload = () => {
-                setTimeout(() => { 
-                    if (typeof window.initZnxWallet === 'function') window.initZnxWallet(); 
+                setTimeout(() => {
+                    if (typeof window.initZnxWallet === 'function') window.initZnxWallet();
                 }, 100);
             };
             document.body.appendChild(script);
@@ -1173,7 +1201,7 @@ async function loadModuleScript(jsPath) {
 }
 
 window.switchView = async function(viewName) {
-    if (!viewName) return;
+    if (!viewName || isAppTerminatedBySecurity) return;
 
     let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
     if (cleanViewName === 'wallets' || cleanViewName === 'tools') cleanViewName = 'wallet';
@@ -1181,7 +1209,7 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'task') cleanViewName = 'tasks';
     if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
     if (cleanViewName === 'offer' || cleanViewName === 'أرباح العروض' || cleanViewName === 'ارباح العروض') cleanViewName = 'offers';
-    
+
     if (cleanViewName === 'leaderboard' || cleanViewName === 'znx_wallet' || cleanViewName === 'znx-wallet' || cleanViewName === 'znxwallet') {
         cleanViewName = 'znx_wallet';
     }
@@ -1189,7 +1217,7 @@ window.switchView = async function(viewName) {
     hideLoadingScreen();
 
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
-    const targetNav = document.getElementById(`nav-${cleanViewName}`) || 
+    const targetNav = document.getElementById(`nav-${cleanViewName}`) ||
                       document.getElementById(`nav-leaderboard`) ||
                       document.querySelector(`[data-view="${cleanViewName}"]`) ||
                       document.querySelector(`[data-view="${viewName}"]`);
@@ -1199,7 +1227,7 @@ window.switchView = async function(viewName) {
         v.classList.remove('active');
         v.style.display = 'none';
     });
-    
+
     let targetView = document.getElementById(`view-${cleanViewName}`);
     if (!targetView && cleanViewName === 'znx_wallet') {
         targetView = document.getElementById('view-leaderboard');
@@ -1212,7 +1240,7 @@ window.switchView = async function(viewName) {
         targetView.className = 'game-view';
         appContainer.appendChild(targetView);
     }
-    
+
     targetView.classList.add('active');
     targetView.style.display = 'block';
     targetView.style.width = '100%';
@@ -1240,7 +1268,7 @@ window.switchView = async function(viewName) {
                         `/${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
                         `./${cleanViewName}.html${cacheBuster}`
                     ];
-                    
+
                     let htmlContent = null;
                     for (const p of pathsToTry) {
                         try {
@@ -1257,7 +1285,7 @@ window.switchView = async function(viewName) {
 
                     if (htmlContent) {
                         targetView.innerHTML = htmlContent;
-                        
+
                         const inlineScripts = targetView.querySelectorAll('script');
                         inlineScripts.forEach(s => {
                             const newScript = document.createElement('script');
@@ -1321,31 +1349,41 @@ window.switchView = async function(viewName) {
 };
 
 // ==========================================
-// 11. التشغيل المباشر عند الإقلاع
+// 11. التشغيل المباشر والفحص الأمني عند الإقلاع
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
-    hideLoadingScreen();
-
-    sendUserPing();
-
     try {
         await window.getOrCreateDeviceId();
         await window.getDeviceFingerprint();
     } catch(e) {}
 
-    startLocalMiningSimulator();
-    window.fetchTonPrice();
-
-    if (!window.userState.tg_id && tg?.initDataUnsafe?.user?.id) {
-        window.userState.tg_id = tg.initDataUnsafe.user.id;
+    // منع فتح التطبيق من متصفح خارجي غير موثق بتوقيع تليجرام
+    if (!tg || !tg.initData || !tg.initDataUnsafe?.user?.id) {
+        window.showBannedScreen(
+            'عذراً، لا يُسمح بفتح التطبيق من متصفح خارجي. يرجى الدخول حصرياً من داخل بوت تليجرام الرسمي.',
+            'بيئة تشغيل غير مصرح بها 🔒'
+        );
+        return;
     }
-    if ((!window.userState.first_name || window.userState.first_name === "لاعب") && tg?.initDataUnsafe?.user?.first_name) {
+
+    hideLoadingScreen();
+
+    window.userState.tg_id = tg.initDataUnsafe.user.id;
+    if (tg.initDataUnsafe.user.first_name) {
         window.userState.first_name = tg.initDataUnsafe.user.first_name;
     }
 
     try {
         await window.fetchAPI('/api/user/info');
-    } catch (e) {}
+    } catch (e) {
+        if (isAppTerminatedBySecurity) return;
+    }
+
+    if (isAppTerminatedBySecurity) return;
+
+    sendUserPing();
+    startLocalMiningSimulator();
+    window.fetchTonPrice();
 
     document.querySelectorAll('.nav-item, [data-view]').forEach(btn => {
         btn.addEventListener('click', (e) => {
