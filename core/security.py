@@ -22,15 +22,20 @@ def _get_bot_tokens():
     return tokens
 
 
+def _clean_init_data_prefix(raw_init_data: str) -> str:
+    """تنظيف نص initData من أي بادئة مثل Bearer أو twa قبل فحص التوقيع الرقمي"""
+    if not raw_init_data or not isinstance(raw_init_data, str):
+        return ""
+    cleaned = raw_init_data.strip()
+    for prefix in ("bearer ", "twa "):
+        if cleaned.lower().startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+    return cleaned
+
+
 def validate_telegram_data(init_data: str):
     """التحقق الجنائي عبر HMAC-SHA256 من صحة بيانات Telegram WebApp initData"""
-    if not init_data or not isinstance(init_data, str):
-        return None
-
-    init_data = init_data.strip()
-    if init_data.startswith("Bearer "):
-        init_data = init_data[7:].strip()
-
+    init_data = _clean_init_data_prefix(init_data)
     if not init_data:
         return None
 
@@ -118,22 +123,24 @@ def validate_telegram_data(init_data: str):
 
 
 def _extract_init_data_from_request(request):
-    """استخراج initData المشفر من الهيدرز أو الرابط أو جسم الطلب"""
+    """استخراج initData المشفر بأولوية للهيدرز الصريحة ثم جسم الطلب أو الرابط وأخيراً Authorization"""
     init_data = (
         request.headers.get("X-Telegram-Init-Data")
         or request.headers.get("X-Init-Data")
-        or request.headers.get("Authorization")
     )
-
-    if not init_data and request.args:
-        init_data = request.args.get("initData") or request.args.get("init_data")
 
     if not init_data and request.is_json:
         req_data = request.get_json(silent=True) or {}
         if isinstance(req_data, dict):
             init_data = req_data.get("initData") or req_data.get("init_data")
 
-    return init_data
+    if not init_data and request.args:
+        init_data = request.args.get("initData") or request.args.get("init_data")
+
+    if not init_data:
+        init_data = request.headers.get("Authorization")
+
+    return _clean_init_data_prefix(init_data) if init_data else None
 
 
 def _extract_device_credentials(request):
