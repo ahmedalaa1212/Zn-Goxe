@@ -1,21 +1,30 @@
 # -*- coding: utf-8 -*-
 """
 ملف admin_database.py
-يعمل كوسيط موحد (Facade Router) يربط بين جميع موديولات الإدارة وبوت الأدمن
-وقاعدة البيانات الرئيسية (Supabase PostgreSQL).
+يعمل كوسيط موحد (Facade Router) يربط بين ملفات قاعدة البيانات الفرعية للموديولات
+(مثل super_admin_db، addons_db، admin_chat_db) وقاعدة البيانات الرئيسية (Supabase PostgreSQL).
 """
 
 from database import (
     get_db,
     get_db_connection,
+    get_db_transaction,
     _sanitize_id,
     format_iso,
+    is_admin_or_mod,
+    is_admin_exempt,
+    is_user_banned,
+    check_and_bind_device,
+    log_admin_action,
+    get_user,
+    get_user_balances,
+    init_user,
+    update_user,
+    atomic_update_balance,
     get_moderators,
     add_moderator,
     delete_moderator,
-    is_admin_or_mod,
-    is_admin_exempt,
-    log_admin_action
+    get_admin_dashboard_stats
 )
 
 from super_admin.super_admin_db import (
@@ -52,7 +61,7 @@ try:
         toggle_promo_code_status
     )
 except ImportError as e:
-    print(f"⚠️ Error importing addons_db in admin_database: {e}")
+    print(f"⚠️ Warning importing addons_db in admin_database: {e}")
 
 
 # ==================== إعادة توجيه وظائف محادثات الدعم والإدارة (Admin Chat) ====================
