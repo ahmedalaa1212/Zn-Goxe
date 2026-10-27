@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+from datetime import datetime, timezone
 from flask import Flask, jsonify, send_from_directory, request, redirect
 from flask_cors import CORS
 
@@ -21,41 +22,40 @@ CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
 
+
 # ==========================================
 # 🔌 دالة استدعاء الموديولات الموحدة والآمنة
 # ==========================================
 def safe_import_blueprint(module_path, blueprint_name):
-    """
-    استدعاء آمن لـ Blueprint سواء كان في مجلد رئيسي أو فرعي دون إيقاف السيرفر.
-    """
+    """استدعاء آمن لـ Blueprint سواء كان في مجلد رئيسي أو فرعي دون إيقاف السيرفر."""
     try:
         mod = __import__(module_path, fromlist=[blueprint_name])
         if hasattr(mod, blueprint_name):
             return getattr(mod, blueprint_name)
     except Exception:
         pass
-        
+
     try:
         mod = __import__(f"{module_path}.{module_path}_api", fromlist=[blueprint_name])
         if hasattr(mod, blueprint_name):
             return getattr(mod, blueprint_name)
     except Exception:
         pass
-        
+
     try:
         mod = __import__(f"{module_path}_api", fromlist=[blueprint_name])
         if hasattr(mod, blueprint_name):
             return getattr(mod, blueprint_name)
     except Exception:
         pass
-        
+
     return None
+
 
 # ==========================================
 # 🔌 قائمة تسجيل الموديولات (Blueprints)
 # ==========================================
 blueprints_config = [
-    # (مسار الموديول/المجلد, اسم الـ Blueprint, بادئة المسار)
     ('farm', 'farm_bp', '/api/farm'),
     ('settings', 'settings_bp', '/api/settings'),
     ('friends', 'friends_bp', '/api/friends'),
@@ -66,26 +66,25 @@ blueprints_config = [
     ('users', 'users_bp', '/api/users'),
     ('super_admin', 'super_admin_bp', '/api/super-admin'),
     ('ads', 'ads_bp', '/api/ads'),
-    
+
     # 💳 موديولات المحفظة
     ('wallet', 'wallet_bp', '/api/wallet'),
     ('wallet.deposit.deposit_api', 'deposit_bp', '/api/wallet/deposit'),
     ('wallet.withdraw.withdraw_api', 'withdraw_bp', '/api/wallet/withdraw'),
     ('wallet.history.history_api', 'history_bp', '/api/wallet/history'),
     ('wallet.exchange.exchange_api', 'exchange_bp', '/api/wallet/exchange'),
-    
-    # 💎 موديول محفظة ZNX والمتصدرين الجديد
+
+    # 💎 موديول محفظة ZNX والمتصدرين
     ('znx_wallet', 'znx_wallet_bp', '/api/znx-wallet'),
-    
+
     # ⚡ موديولات الألعاب
     ('games', 'games_bp', '/api/games'),
     ('games.card_api', 'card_bp', '/api/games/card'),
-    
+
     # 🏆 أرباح العروض
     ('offers', 'offers_bp', '/api/offers'),
 ]
 
-# تنفيذ التسجيل التلقائي للموديولات
 for mod_path, bp_name, prefix in blueprints_config:
     bp = safe_import_blueprint(mod_path, bp_name)
     if bp:
@@ -97,85 +96,58 @@ for mod_path, bp_name, prefix in blueprints_config:
     else:
         print(f"ℹ️ لم يتم العثور على الموديول: {bp_name} في المسار {mod_path}")
 
+
 # ==========================================
-# 🔍 دالة استخراج وتوثيق معرف تليجرام الشاملة
+# 🛡️ الحارس الأمني الشامل لكل طلبات الـ API
+# ==========================================
+@app.before_request
+def global_api_security_guard():
+    """
+    حماية مركزية شاملة لجميع نقاط الاتصال (/api/*):
+    تمنع أي طلب غير موثق بتوقيع تليجرام، وتفحص بصمة الجهاز وحالة الحظر قبل الوصول لأي موديول فرعي.
+    """
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+
+    path = request.path or ""
+    if not path.startswith('/api/'):
+        return None
+
+    # استثناء مسار فحص نبض السيرفر
+    if path in ('/api/health', '/api/health/'):
+        return None
+
+    # مسارات السوبر أدمن لها التحقق الإداري الخاص بها أيضاً، ولكن نوثق هوية التليجرام أولاً
+    is_super_admin_route = path.startswith('/api/super-admin')
+    success, tg_id, user_info, error_res = get_authenticated_user(
+        request,
+        is_post=(request.method == 'POST'),
+        enforce_device_check=(not is_super_admin_route)
+    )
+
+    if not success or not tg_id:
+        return error_res
+
+    return None
+
+
+# ==========================================
+# 🔍 دالة استخراج وتوثيق معرف تليجرام الآمنة
 # ==========================================
 def extract_telegram_user_from_request(req):
     """
-    استخراج بيانات مستخدم تليجرام الموثقة أو الممررة من مختلف المصادر (Headers, Query String, JSON Body)
-    لمنع فشل طلبات GET وحل مشكلة الشاشة الفارغة وعدم إنشاء حسابات Firebase.
+    استخراج بيانات مستخدم تليجرام الموثقة حصرياً عبر التوقيع الرقمي (core.security).
+    تم إغلاق كافة الثغرات التي كانت تسمح بتمرير tg_id مزيف عبر الرابط أو JSON.
     """
     is_post = (req.method == 'POST')
-    
-    # 1. محاولة التوثيق عبر التوقيع الرقمي (core.security)
-    try:
-        success, tg_id, user_info, error_res = get_authenticated_user(req, is_post=is_post)
-        if success and tg_id and str(tg_id).strip() not in ("None", "null", "", "undefined"):
-            return True, str(tg_id).strip(), user_info or {}, None
-    except Exception as e:
-        print(f"⚠️ Security Auth Check Exception: {e}")
-
-    # 2. الاستخراج الاحتياطي من Query Parameters أو Headers أو JSON Body
-    req_json = req.get_json(silent=True) if req.is_json else {}
-    if not isinstance(req_json, dict):
-        req_json = {}
-
-    direct_id = (
-        req.args.get('tg_id') or 
-        req.args.get('telegram_id') or 
-        req.args.get('user_id') or 
-        req_json.get('tg_id') or 
-        req_json.get('telegram_id') or 
-        req_json.get('user_id') or 
-        req.headers.get('X-Telegram-User-Id')
-    )
-
-    init_data_str = (
-        req.args.get('initData') or 
-        req.args.get('init_data') or 
-        req_json.get('initData') or 
-        req.headers.get('X-Telegram-Init-Data') or 
-        req.headers.get('Authorization')
-    )
-
-    extracted_user_info = {}
-    if init_data_str:
-        try:
-            from urllib.parse import parse_qs
-            import json
-            
-            clean_init = str(init_data_str)
-            if clean_init.startswith('Bearer '):
-                clean_init = clean_init[7:]
-            
-            parsed_params = parse_qs(clean_init)
-            if 'user' in parsed_params:
-                user_json_str = parsed_params['user'][0]
-                user_data = json.loads(user_json_str)
-                if isinstance(user_data, dict):
-                    if 'id' in user_data and user_data['id']:
-                        direct_id = str(user_data['id'])
-                    extracted_user_info = {
-                        'first_name': user_data.get('first_name', 'لاعب'),
-                        'last_name': user_data.get('last_name', ''),
-                        'username': user_data.get('username', ''),
-                        'language_code': user_data.get('language_code', 'ar')
-                    }
-            if 'start_param' in parsed_params:
-                extracted_user_info['start_param'] = parsed_params['start_param'][0]
-        except Exception as e:
-            print(f"⚠️ Parsing initData fallback failed: {e}")
-
-    if direct_id and str(direct_id).strip() not in ("None", "null", "", "undefined"):
-        return True, str(direct_id).strip(), extracted_user_info, None
-
-    return False, None, {}, (jsonify({"success": False, "error": "لم يتم تقديم معرف تليجرام صالح"}), 401)
+    success, tg_id, user_info, error_res = get_authenticated_user(req, is_post=is_post)
+    if success and tg_id:
+        return True, str(tg_id).strip(), user_info or {}, None
+    return False, None, {}, error_res
 
 
 def extract_device_info_from_request(req):
-    """
-    استخراج معرّف الجهاز والبصمة الممررة في Request Headers أو Query Params أو JSON Body.
-    """
+    """استخراج معرّف الجهاز والبصمة الممررة في الطلب"""
     req_json = req.get_json(silent=True) if req.is_json else {}
     if not isinstance(req_json, dict):
         req_json = {}
@@ -190,9 +162,11 @@ def extract_device_info_from_request(req):
 
     fingerprint = (
         req.headers.get('X-Device-Fingerprint') or
+        req.args.get('device_fingerprint') or
         req.args.get('fingerprint') or
         req.args.get('fingerprint_hash') or
         req.args.get('deviceFingerprint') or
+        req_json.get('device_fingerprint') or
         req_json.get('fingerprint') or
         req_json.get('fingerprint_hash') or
         req_json.get('deviceFingerprint')
@@ -216,7 +190,7 @@ def health_check():
 
 @app.route('/')
 def serve_index():
-    """تقديم الواجهة الرئيسية للـ Telegram Mini App وإصلاح خطأ 404"""
+    """تقديم الواجهة الرئيسية للـ Telegram Mini App"""
     try:
         return send_from_directory(BASE_DIR, 'index.html')
     except Exception as e:
@@ -226,7 +200,7 @@ def serve_index():
 
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
-    """تقديم ملف بيانات TON Connect لمنع مشاكل الـ CORS في المحافظ"""
+    """تقديم ملف بيانات TON Connect"""
     try:
         response = send_from_directory(BASE_DIR, 'tonconnect-manifest.json', mimetype='application/json')
         response.headers['Access-Control-Allow-Origin'] = '*'
@@ -239,12 +213,21 @@ def serve_tonconnect_manifest():
 
 @app.route('/<path:filename>')
 def serve_static_files(filename):
-    """خدمة كافة الملفات الثابتة والأقسام الفرعية بشكل آمن ومحمي من ثغرات Directory Traversal"""
+    """خدمة الملفات الثابتة للواجهة فقط ومنع الوصول لملفات السيرفر البرمجية (.py, .env)"""
     try:
+        clean_name = filename.strip('/').lower()
+        if '..' in clean_name or clean_name.startswith('.'):
+            return jsonify({"success": False, "error": "Access Denied"}), 403
+
+        # منع قراءة أي ملفات برمجية أو إعدادات حساسة
+        forbidden_extensions = ('.py', '.pyc', '.env', '.sh', '.sql', '.db', '.sqlite', '.log', '.txt')
+        forbidden_files = ('firebase-adminsdk.json', 'config.json', 'credentials.json', 'package.json', 'package-lock.json')
+        if clean_name.endswith(forbidden_extensions) or any(f in clean_name for f in forbidden_files):
+            return jsonify({"success": False, "error": "Access Denied"}), 403
+
         safe_base = os.path.abspath(BASE_DIR)
         file_path = os.path.abspath(os.path.join(BASE_DIR, filename))
-        
-        # منع ثغرات Directory Traversal
+
         if not file_path.startswith(safe_base):
             return jsonify({"success": False, "error": "غير مسموح بالوصول لهذا المسار"}), 403
 
@@ -256,7 +239,7 @@ def serve_static_files(filename):
             if os.path.exists(index_in_dir):
                 rel_index = os.path.relpath(index_in_dir, safe_base)
                 return send_from_directory(BASE_DIR, rel_index)
-        
+
         return jsonify({"success": False, "error": f"File {filename} not found"}), 404
     except Exception as e:
         print(f"❌ Static File Error: {e}")
@@ -269,121 +252,93 @@ def serve_static_files(filename):
 
 @app.route('/api/ping', methods=['POST', 'OPTIONS'])
 def sync_user_activity():
-    """استقبال طلب إشارة النشاط (Ping) وتحديث حقل last_active_at في قاعدة البيانات"""
+    """استقبال طلب إشارة النشاط (Ping) وتحديث حقل last_active_at للمستخدم الموثق"""
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
 
     try:
-        data = request.get_json(silent=True) or {}
-        
-        # استخراج user_id من الجسم أو الـ Headers أو عبر دالة التوثيق
-        user_id = (
-            data.get('user_id') or 
-            data.get('tg_id') or 
-            request.headers.get('X-User-ID') or 
-            request.headers.get('X-Telegram-User-Id')
-        )
+        success, user_id, _, err_res = extract_telegram_user_from_request(request)
+        if not success or not user_id:
+            return err_res or (jsonify({"success": False, "message": "Unauthorized"}), 401)
 
-        if not user_id:
-            success, extracted_id, _, _ = extract_telegram_user_from_request(request)
-            if success and extracted_id:
-                user_id = extracted_id
-
-        if not user_id:
-            return jsonify({"success": False, "message": "Missing user_id"}), 400
-
-        # تحديث حقل last_active_at في قاعدة البيانات
         if hasattr(database, 'update_user_last_active'):
             database.update_user_last_active(user_id)
 
-        return jsonify({"success": True, "message": "Activity updated"}), 200
+        return jsonify({
+            "success": True,
+            "message": "Activity updated",
+            "server_time": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        }), 200
 
     except Exception as e:
         print(f"❌ Error updating activity ping: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "خطأ في تحديث النشاط"}), 500
 
 
 @app.route('/api/user/info', methods=['GET', 'POST', 'OPTIONS'])
 def get_user_info_main():
-    """جلب بيانات حساب المستخدم والتحقق من الحظر وربط/فحص بصمة الجهاز للحماية من تعدد الحسابات"""
+    """جلب بيانات حساب المستخدم والتحقق الصارم من الحظر وبصمة الجهاز"""
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
 
     success, telegram_id, user_info, err_response = extract_telegram_user_from_request(request)
-    
     if not success or not telegram_id:
-        if err_response:
-            return err_response
-        return jsonify({"success": False, "error": "تعذر التوثيق أو معرف المستخدم غير متاح"}), 401
+        return err_response or (jsonify({"success": False, "error": "تعذر التوثيق أو معرف المستخدم غير متاح"}), 401)
 
     try:
-        # 1. فحص حظر الحساب المباشر من قاعدة البيانات
-        if hasattr(database, 'is_user_banned') and database.is_user_banned(telegram_id):
-            return jsonify({
-                "success": False, 
-                "error": "حسابك معطل حالياً بسبب مخالفة الشروط وتعدد الحسابات",
-                "banned": True
-            }), 403
+        user_data = database.get_user(telegram_id)
 
-        # 2. استخراج بيانات الجهاز وفحص بصمة الجهاز لمنع تعدد الحسابات
+        # إن لم يكن المستخدم مسجلاً بعد، يتم إنشاؤه أولاً ثم ربط جهازه فوراً
+        if not user_data or not isinstance(user_data, dict) or len(user_data) == 0:
+            first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
+            ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
+            user_data = database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
+
+        # تحديث اسم المستخدم أو اليوزرنيم إذا تغير في تليجرام
+        if isinstance(user_info, dict) and user_data:
+            updates = {}
+            tg_username = user_info.get('username') or ''
+            if tg_username and user_data.get('username') != tg_username:
+                updates['username'] = tg_username
+            if updates:
+                database.update_user(telegram_id, updates)
+
+        # تأكيد ربط الجهاز بعد ضمان وجود السجل في جدول users
         device_id, fingerprint = extract_device_info_from_request(request)
-        if device_id and hasattr(database, 'check_and_bind_device'):
-            try:
-                device_check = database.check_and_bind_device(telegram_id, device_id, fingerprint)
-                
-                # التعامل مع مخرجات check_and_bind_device
-                is_allowed = True
-                ban_reason = "تم حظر الحساب والجهاز فوراً لتجاوز الشروط واكتشاف تعدد الحسابات على نفس الجهاز."
+        if (device_id or fingerprint) and hasattr(database, 'check_and_bind_device'):
+            device_check = database.check_and_bind_device(telegram_id, device_id, fingerprint)
+            if isinstance(device_check, dict) and (device_check.get('banned') or device_check.get('allowed') is False):
+                ban_reason = device_check.get('reason') or "تم حظر الحساب والجهاز فوراً لاكتشاف تعدد الحسابات على نفس الجهاز."
+                return jsonify({
+                    "success": False,
+                    "error": ban_reason,
+                    "banned": True,
+                    "is_banned": True
+                }), 403
 
-                if isinstance(device_check, dict):
-                    if device_check.get('banned') or device_check.get('allowed') is False or device_check.get('success') is False:
-                        is_allowed = False
-                        if device_check.get('reason'):
-                            ban_reason = device_check.get('reason')
-                        elif device_check.get('error'):
-                            ban_reason = device_check.get('error')
-                elif device_check is False:
-                    is_allowed = False
-
-                if not is_allowed:
-                    return jsonify({
-                        "success": False,
-                        "error": ban_reason,
-                        "banned": True
-                    }), 403
-
-            except Exception as dev_err:
-                print(f"⚠️ Device verification exception for {telegram_id}: {dev_err}")
-
-        # إعادة فحص حالة الحظر في حال قامت دالة check_and_bind_device بحظر الحساب داخل قاعدة البيانات
         if hasattr(database, 'is_user_banned') and database.is_user_banned(telegram_id):
             return jsonify({
                 "success": False,
                 "error": "تم حظر هذا الحساب وجميع الحسابات المرتبطة بهذا الجهاز بسبب تعدد الحسابات",
-                "banned": True
+                "banned": True,
+                "is_banned": True
             }), 403
 
-        user_data = database.get_user(telegram_id)
-        
-        # إن لم يكن مستند المستخدم موجوداً، يتم إنشاؤه فوراً في Firestore
-        if not user_data or not isinstance(user_data, dict) or len(user_data) == 0:
-            first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
-            ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
-            
-            user_data = database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
-            
         balance = float(user_data.get('balance', 0.0))
         usd_balance = float(user_data.get('usd_balance', 0.0))
         znx_balance = float(user_data.get('znx_balance', 0.0))
+        ad_balance = float(user_data.get('ad_balance', 0.0))
 
         return jsonify({
-            "success": True, 
+            "success": True,
             "user": user_data,
             "player": user_data,
             "balance": balance,
             "usd_balance": usd_balance,
             "znx_balance": znx_balance,
-            "uid": str(telegram_id)
+            "ad_balance": ad_balance,
+            "uid": str(telegram_id),
+            "server_time": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         }), 200
 
     except Exception as e:
@@ -398,7 +353,6 @@ def get_user_info_main():
 @app.route('/api/leaderboard/init', methods=['GET', 'POST', 'OPTIONS'])
 @app.route('/api/leaderboard/data', methods=['GET', 'POST', 'OPTIONS'])
 def legacy_leaderboard_data():
-    """معالجة الطلبات المباشرة لمسارات المتصدرين القديمة وضمان إرجاع البيانات دون انكسار"""
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
     try:
@@ -411,7 +365,6 @@ def legacy_leaderboard_data():
 
 @app.route('/api/leaderboard/convert', methods=['POST', 'OPTIONS'])
 def legacy_leaderboard_convert():
-    """معالجة عمليات التحويل للمسار القديم"""
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
     try:
@@ -425,10 +378,6 @@ def legacy_leaderboard_convert():
 @app.route('/api/leaderboard', methods=['GET', 'POST', 'OPTIONS'])
 @app.route('/api/leaderboard/<path:subpath>', methods=['GET', 'POST', 'OPTIONS'])
 def leaderboard_legacy_fallback(subpath=""):
-    """
-    تحويل تلقائي لجميع الطلبات الفرعية المتبقية للمسار القديم /api/leaderboard 
-    إلى المسار الجديد /api/znx-wallet.
-    """
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
 
@@ -449,9 +398,10 @@ def add_security_headers(response):
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Telegram-User-Id, X-Telegram-Init-Data, X-Device-Id, X-Device-Fingerprint, X-User-ID'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Telegram-User-Id, X-Telegram-Init-Data, X-Init-Data, X-Device-Id, X-Device-Fingerprint, X-User-ID, X-Admin-ID'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     return response
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
