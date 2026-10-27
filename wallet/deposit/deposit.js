@@ -1,1022 +1,802 @@
-// shop/shop.js
-// =================================================================
-// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
-// =================================================================
+window.depositModule = (function () {
+    let tonPriceUsd = 1.4500;
+    let effectiveTonPrice = 1.4077;
+    let currentPackages = [];
+    let tcInstance = null;
+    let statusUnsubscribe = null;
+    let selectedPackageObj = null;
+    let scriptLoadingPromise = null;
+    let priceRefreshTimer = null;
+    let listenersBound = false;
 
-(function initShop() {
-    'use strict';
+    // متغيرات التحكم في عداد الـ 15 ثانية وحالة الطلب النشط
+    let countdownTimer = null;
+    let countdownSeconds = 15;
+    let activeOrderMemo = null;
+    let isOrderCancelledByUser = false;
+    let isPaymentVerifying = false;
 
-    let tonConnectUI = null;
-    let isBuying = false;
-    let shopDynamicSettings = null;
-    let cachedPackagesData = null;
-    let lastConfigFetchTime = 0;
-    const CONFIG_CACHE_TTL = 0; 
-    let vipTimerInterval = null;
-    let pendingVerifyTimer = null;
+    try {
+        localStorage.removeItem('deposit_packages_cache');
+    } catch (e) {}
 
-    let _lastPackagesHTML = '';
-    let _lastMiningHTML = '';
-    let _lastStorageHTML = '';
-
-    function syncFriendsAndGlobalState(res) {
-        if (!res || typeof res !== 'object') return;
-        if (!window.userState) window.userState = {};
-        if (!window.PlayerData) window.PlayerData = {};
-
-        const fields = [
-            'balance', 'usd_balance', 'hourly_rate', 'upgrades',
-            'storage_level', 'extra_storage', 'max_cap', 'last_claim_time', 'vip_status'
-        ];
-        fields.forEach(f => {
-            if (res[f] !== undefined) {
-                window.userState[f] = res[f];
-                window.PlayerData[f] = res[f];
-            }
-        });
-
-        if (res.balance !== undefined) {
-            localStorage.setItem('zn_balance', String(res.balance));
-            localStorage.setItem('user_balance', String(res.balance));
+    // استخراج شامل لمعرف المستخدم
+    function getValidUserId() {
+        const tg = window.Telegram?.WebApp;
+        const urlParams = new URLSearchParams(window.location.search);
+        const uid = tg?.initDataUnsafe?.user?.id ||
+                    window.userState?.tg_id ||
+                    window.userState?.user_id ||
+                    window.userState?.id ||
+                    urlParams.get('user_id') ||
+                    urlParams.get('tg_id') ||
+                    urlParams.get('uid') ||
+                    localStorage.getItem('tg_user_id') ||
+                    localStorage.getItem('tg_id') ||
+                    localStorage.getItem('user_id') ||
+                    sessionStorage.getItem('user_id');
+        if (uid && String(uid) !== 'undefined' && String(uid) !== 'null') {
+            return String(uid).trim();
         }
+        return "0";
+    }
 
-        if (res.upgrades && typeof res.upgrades === 'object') {
-            const totalUpgrades = Object.values(res.upgrades).reduce((a, b) => a + (parseInt(b) || 0), 0);
-            window.userState.upgrades_count = totalUpgrades;
-            window.PlayerData.upgrades_count = totalUpgrades;
+    // تحديث عناصر الأرصدة في الواجهة فوراً
+    function forceUpdateBalanceDOM(usdVal, znVal, znxVal) {
+        if (usdVal !== undefined && usdVal !== null && !isNaN(parseFloat(usdVal))) {
+            const formattedUsd = parseFloat(usdVal).toFixed(4);
+            const formattedUsdShort = parseFloat(usdVal).toFixed(2);
+            document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #user-balance, #wallet-usd-balance, .usdt-balance-display').forEach(el => {
+                el.innerText = el.id === 'top-balance-usd' ? `$${formattedUsdShort}` : `${formattedUsd} $`;
+            });
+            try { localStorage.setItem('cached_usd_balance', String(usdVal)); } catch (e) {}
         }
-
-        if (res.vip_status) {
-            window.userState.is_vip = true;
-            window.PlayerData.is_vip = true;
-            const uid = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-            if (uid) {
-                localStorage.removeItem(`zn_friends_cache_v3_${uid}`);
-                localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
-                localStorage.removeItem(`zn_friends_cache_${uid}`);
-            }
-            localStorage.removeItem('zn_friends_cache_v3_global');
-            localStorage.removeItem('zn_friends_cache_v2_global');
-            localStorage.removeItem('zn_friends_cache_global');
+        if (znVal !== undefined && znVal !== null && !isNaN(parseFloat(znVal))) {
+            document.querySelectorAll('#top-balance, .zn-balance-display, #header-zn-balance').forEach(el => {
+                el.innerText = parseFloat(znVal).toLocaleString();
+            });
+        }
+        if (znxVal !== undefined && znxVal !== null && !isNaN(parseFloat(znxVal))) {
+            document.querySelectorAll('#znx-balance, .znx-balance-display').forEach(el => {
+                el.innerText = `ZNX ${parseFloat(znxVal).toFixed(4)}`;
+            });
         }
     }
 
-    function triggerHaptic(type = 'impact', style = 'medium') {
-        if (window.Telegram?.WebApp?.HapticFeedback) {
+    // تحديث قائمة السجلات تلقائياً بهدوء بعد اكتمال العملية
+    function triggerHistoryRefresh() {
+        setTimeout(() => {
             try {
-                if (type === 'impact') {
-                    window.Telegram.WebApp.HapticFeedback.impactOccurred(style);
-                } else if (type === 'notification') {
-                    window.Telegram.WebApp.HapticFeedback.notificationOccurred(style);
-                } else if (type === 'selection') {
-                    window.Telegram.WebApp.HapticFeedback.selectionChanged();
+                if (window.historyModule) {
+                    if (typeof window.historyModule.refresh === 'function') {
+                        window.historyModule.refresh(true);
+                    } else if (typeof window.historyModule.init === 'function') {
+                        window.historyModule.init();
+                    }
                 }
-            } catch (e) {}
-        }
-    }
-
-    function floatVal(...args) {
-        for (let val of args) {
-            if (val !== undefined && val !== null && val !== '') {
-                let cleaned = String(val).replace(/,/g, '');
-                let p = parseFloat(cleaned);
-                if (!isNaN(p) && isFinite(p)) return p;
+            } catch (e) {
+                console.warn("⚠️ تعذر تحديث السجلات تلقائياً:", e);
             }
+        }, 350);
+    }
+
+    function formatShortAddress(address) {
+        if (!address || typeof address !== 'string') return '';
+        if (address.length <= 14) return address;
+        return `${address.slice(0, 6)}...${address.slice(-6)}`;
+    }
+
+    // دالة تحديث واجهة المحفظة الموحدة ومنع إلغاء الربط التلقائي
+    function updateWalletUI(wallet) {
+        const connectView = document.getElementById('deposit-connect-view');
+        const contentView = document.getElementById('deposit-content-view');
+        const walletNameEl = document.getElementById('connected-wallet-name');
+        const walletAddrEl = document.getElementById('connected-wallet-address');
+
+        const hasWalletAccount = Boolean(wallet && wallet.account && wallet.account.address);
+        const rawAddress = hasWalletAccount ? wallet.account.address : (localStorage.getItem('zn_bound_wallet_address') || '');
+        const isConnected = Boolean(rawAddress);
+
+        if (isConnected) {
+            if (connectView) connectView.style.display = 'none';
+            if (contentView) contentView.style.display = 'block';
+
+            const appName = wallet?.device?.appName || wallet?.name || localStorage.getItem('zn_bound_wallet_name') || 'محفظة TON';
+
+            if (walletNameEl) walletNameEl.innerText = appName;
+            if (walletAddrEl) walletAddrEl.innerText = formatShortAddress(rawAddress);
+
+            loadPackages();
+        } else {
+            if (contentView) contentView.style.display = 'none';
+            if (connectView) connectView.style.display = 'block';
+            if (walletNameEl) walletNameEl.innerText = '';
+            if (walletAddrEl) walletAddrEl.innerText = '';
         }
-        return 0;
     }
 
-    function cleanNum(num) {
-        let val = floatVal(num);
-        return parseFloat(val.toFixed(4)).toString();
-    }
-
-    function formatUSD(num) {
-        let val = floatVal(num);
-        if (Number.isInteger(val)) return val.toString();
-        if (val > 0 && val < 0.01) return parseFloat(val.toFixed(4)).toString();
-        return parseFloat(val.toFixed(2)).toString();
-    }
-
-    function formatNumberAbbreviated(num) {
-        let val = floatVal(num);
-        if (val >= 1000000000) return parseFloat((val / 1000000000).toFixed(2)) + 'B';
-        if (val >= 1000000) return parseFloat((val / 1000000).toFixed(2)) + 'M';
-        if (val >= 1000) return parseFloat((val / 1000).toFixed(2)) + 'K';
-        return parseFloat(val.toFixed(2)).toString();
-    }
-
-    function formatTopBalanceHTML(num) {
-        let val = floatVal(num);
-        
-        if (val >= 1000000000) {
-            let str = (val / 1000000000).toFixed(2);
-            let parts = str.split('.');
-            return `${parts[0]}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${parts[1]}B</span>`;
+    function textToTonCommentBoc(text) {
+        if (!text) return undefined;
+        if (typeof text === 'string' && (text.startsWith('te6cc') || text.startsWith('b5ee'))) {
+            return text;
         }
-        if (val >= 1000000) {
-            let str = (val / 1000000).toFixed(2);
-            let parts = str.split('.');
-            return `${parts[0]}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${parts[1]}M</span>`;
-        }
-        if (val >= 1000) {
-            let str = (val / 1000).toFixed(2);
-            let parts = str.split('.');
-            return `${parts[0]}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${parts[1]}K</span>`;
-        }
-
-        let fixedStr = val.toFixed(4);
-        let parts = fixedStr.split('.');
-        let intPart = parts[0];
-        let decPart = parts[1] || '0000';
-        return `${intPart}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${decPart}</span>`;
-    }
-
-    function withTimeout(promise, ms, timeoutMsg = "⚠️ انتهت المهلة الزمنية للعملية.") {
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                reject(new Error(timeoutMsg));
-            }, ms);
-            promise.then(
-                (res) => { clearTimeout(timer); resolve(res); },
-                (err) => { clearTimeout(timer); reject(err); }
-            );
-        });
-    }
-
-    function formatRemainingTime(expiresAtStr) {
-        if (!expiresAtStr) return null;
         try {
-            const expTime = new Date(expiresAtStr).getTime();
-            const now = Date.now();
-            const diffMs = expTime - now;
+            const textBytes = new TextEncoder().encode(String(text));
+            const dataBytes = new Uint8Array(4 + textBytes.length);
+            dataBytes.set([0, 0, 0, 0], 0);
+            dataBytes.set(textBytes, 4);
 
-            if (diffMs <= 0) return null;
+            const dataLen = dataBytes.length;
+            const d1 = 0x00;
+            const d2 = dataLen * 2;
 
-            const diffSecs = Math.floor(diffMs / 1000);
-            const diffMins = Math.floor(diffSecs / 60);
-            const diffHours = Math.floor(diffMins / 60);
-            const diffDays = Math.floor(diffHours / 24);
+            const cellBytes = new Uint8Array(2 + dataLen);
+            cellBytes[0] = d1;
+            cellBytes[1] = d2;
+            cellBytes.set(dataBytes, 2);
 
-            if (diffDays >= 1) {
-                const remHours = diffHours % 24;
-                return remHours > 0 ? `${diffDays} يوم و ${remHours} س` : `${diffDays} يوم`;
-            } else if (diffHours >= 1) {
-                const remMins = diffMins % 60;
-                return remMins > 0 ? `${diffHours} ساعة و ${remMins} د` : `${diffHours} ساعة`;
-            } else if (diffMins >= 1) {
-                const remSecs = diffSecs % 60;
-                return `${diffMins} د و ${remSecs} ث`;
-            } else {
-                return `${Math.max(1, diffSecs)} ثانية`;
+            const header = new Uint8Array([
+                0xb5, 0xee, 0x9c, 0x72,
+                0x41, 0x01, 0x01, 0x01, 0x00,
+                cellBytes.length, 0x00
+            ]);
+
+            const bocWithoutCrc = new Uint8Array(header.length + cellBytes.length);
+            bocWithoutCrc.set(header, 0);
+            bocWithoutCrc.set(cellBytes, header.length);
+
+            let crc = 0xFFFFFFFF;
+            for (let i = 0; i < bocWithoutCrc.length; i++) {
+                crc ^= bocWithoutCrc[i];
+                for (let j = 0; j < 8; j++) {
+                    crc = (crc & 1) ? ((crc >>> 1) ^ 0x82F63B78) : (crc >>> 1);
+                }
+            }
+            crc = (crc ^ 0xFFFFFFFF) >>> 0;
+
+            const finalBoc = new Uint8Array(bocWithoutCrc.length + 4);
+            finalBoc.set(bocWithoutCrc, 0);
+            finalBoc[bocWithoutCrc.length] = crc & 0xFF;
+            finalBoc[bocWithoutCrc.length + 1] = (crc >> 8) & 0xFF;
+            finalBoc[bocWithoutCrc.length + 2] = (crc >> 16) & 0xFF;
+            finalBoc[bocWithoutCrc.length + 3] = (crc >> 24) & 0xFF;
+
+            let binary = '';
+            for (let i = 0; i < finalBoc.length; i++) {
+                binary += String.fromCharCode(finalBoc[i]);
+            }
+            return btoa(binary);
+        } catch (e) {
+            console.error("⚠️ خطأ أثناء ترميز الميمو لـ BOC:", e);
+            return undefined;
+        }
+    }
+
+    function loadTonConnectScript() {
+        if (window.TON_CONNECT_UI || window.TonConnectUI) {
+            return Promise.resolve();
+        }
+        if (scriptLoadingPromise) {
+            return scriptLoadingPromise;
+        }
+
+        scriptLoadingPromise = new Promise((resolve, reject) => {
+            const existingScript = document.querySelector('script[src*="tonconnect-ui"]');
+            if (existingScript) {
+                if (window.TON_CONNECT_UI || window.TonConnectUI) {
+                    resolve();
+                    return;
+                }
+                existingScript.addEventListener('load', () => resolve());
+                existingScript.addEventListener('error', (err) => reject(err));
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js';
+            script.async = true;
+            script.onload = () => resolve();
+            script.onerror = () => {
+                scriptLoadingPromise = null;
+                reject(new Error("فشل تحميل مكتبة TON Connect من CDN"));
+            };
+            document.head.appendChild(script);
+        });
+
+        return scriptLoadingPromise;
+    }
+
+    async function initTonConnect() {
+        if (window.znTonConnectUI) {
+            tcInstance = window.znTonConnectUI;
+            return tcInstance;
+        }
+
+        try {
+            await loadTonConnectScript();
+            const TonConnectClass = window.TON_CONNECT_UI?.TonConnectUI ||
+                                    window.TonConnectUI?.TonConnectUI ||
+                                    window.TonConnectUI ||
+                                    window.TON_CONNECT_UI;
+
+            if (TonConnectClass) {
+                const manifestUrl = `${window.location.origin}/tonconnect-manifest.json`;
+
+                if (!tcInstance) {
+                    tcInstance = new TonConnectClass({
+                        manifestUrl: manifestUrl
+                    });
+                    window.znTonConnectUI = tcInstance;
+                }
+
+                if (!statusUnsubscribe && typeof tcInstance.onStatusChange === 'function') {
+                    statusUnsubscribe = tcInstance.onStatusChange(async (wallet) => {
+                        if (wallet && wallet.account && wallet.account.address) {
+                            const addr = wallet.account.address;
+                            const name = wallet.device?.appName || wallet.name || 'محفظة TON';
+                            localStorage.setItem('zn_bound_wallet_address', addr);
+                            localStorage.setItem('zn_bound_wallet_name', name);
+                            
+                            const initData = window.Telegram?.WebApp?.initData || '';
+                            try {
+                                await fetch('/api/wallet/deposit/bind_wallet', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-Telegram-Init-Data': initData
+                                    },
+                                    body: JSON.stringify({ wallet_address: addr, wallet_name: name, initData: initData })
+                                });
+                            } catch (e) {}
+                        }
+                        updateWalletUI(wallet);
+                    });
+                }
+
+                if (tcInstance.connectionRestored) {
+                    await tcInstance.connectionRestored;
+                }
+
+                const currentWallet = tcInstance.wallet || (tcInstance.connected ? { account: tcInstance.account, device: tcInstance.wallet?.device } : null);
+                if (currentWallet && currentWallet.account && currentWallet.account.address) {
+                    localStorage.setItem('zn_bound_wallet_address', currentWallet.account.address);
+                }
+                updateWalletUI(currentWallet);
             }
         } catch (e) {
-            return null;
+            console.warn("⚠️ خطأ أثناء تهيئة TON Connect UI:", e);
+            updateWalletUI(tcInstance?.wallet || null);
+        }
+        return tcInstance;
+    }
+
+    async function openConnectModal() {
+        const tc = await initTonConnect();
+        if (!tc) {
+            alert("تعذر تحميل مكتبة ربط المحافظ. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.");
+            return;
+        }
+
+        try {
+            if (tc.connected) {
+                updateWalletUI(tc.wallet);
+                return;
+            }
+            await tc.openModal();
+        } catch (e) {
+            console.warn("⚠️ تعذر فتح نافذة اختيار المحفظة:", e);
         }
     }
 
-    function startVipLiveTimer() {
-        if (vipTimerInterval) clearInterval(vipTimerInterval);
-        vipTimerInterval = setInterval(() => {
-            const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
-            if (activeVipStatus && activeVipStatus.expires_at) {
-                const remText = formatRemainingTime(activeVipStatus.expires_at);
-                const badgeElems = document.querySelectorAll('.vip-active-badge');
-                if (remText) {
-                    badgeElems.forEach(el => {
-                        const targetText = `نشطة (متبقي ${remText})`;
-                        if (el.innerText !== targetText) {
-                            el.innerText = targetText;
+    async function disconnectWallet() {
+        try {
+            const tc = await initTonConnect();
+            if (tc && tc.connected) {
+                await tc.disconnect();
+            }
+        } catch (e) {
+            console.warn("⚠️ خطأ أثناء قطع اتصال المحفظة:", e);
+        }
+
+        try {
+            localStorage.removeItem('zn_bound_wallet_address');
+            localStorage.removeItem('zn_bound_wallet_name');
+            Object.keys(localStorage).forEach((key) => {
+                if (key.startsWith('ton-connect-storage') || key.startsWith('ton-connect-ui')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            const initData = window.Telegram?.WebApp?.initData || '';
+            await fetch('/api/wallet/deposit/unbind_wallet', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData
+                },
+                body: JSON.stringify({ initData: initData })
+            });
+        } catch (e) {}
+
+        closeModal();
+        updateWalletUI(null);
+    }
+
+    async function fetchTonLivePrice() {
+        try {
+            const initData = window.Telegram?.WebApp?.initData || '';
+            const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
+                method: 'GET',
+                cache: 'no-store',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Telegram-Init-Data': initData,
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate'
+                }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.success) {
+                    if (data.bound_wallet && !localStorage.getItem('zn_bound_wallet_address')) {
+                        localStorage.setItem('zn_bound_wallet_address', data.bound_wallet);
+                        localStorage.setItem('zn_bound_wallet_name', data.bound_wallet_name || 'محفظة TON');
+                        updateWalletUI(tcInstance?.wallet || { account: { address: data.bound_wallet }, device: { appName: data.bound_wallet_name } });
+                    }
+
+                    if (data.ton_price) {
+                        tonPriceUsd = parseFloat(data.ton_price);
+                        effectiveTonPrice = parseFloat(data.effective_ton_price || (tonPriceUsd / 1.03));
+                        const priceElem = document.getElementById('ton-live-price');
+                        if (priceElem) {
+                            priceElem.innerText = `$${effectiveTonPrice.toFixed(4)}`;
                         }
-                    });
-                } else {
-                    if (window.updateShopUI) window.updateShopUI();
+                    }
+
+                    if (Array.isArray(data.packages) && data.packages.length > 0) {
+                        currentPackages = data.packages;
+                        renderPackages(currentPackages);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("⚠️ تعذر جلب باقات الشحن وسعر TON من الخادم:", e);
+        }
+    }
+
+    async function loadPackages() {
+        const grid = document.getElementById('deposit-packages-grid');
+        if (grid && (!currentPackages || currentPackages.length === 0)) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري تحميل باقات الشحن والأسعار...</div>`;
+        } else if (grid && currentPackages.length > 0) {
+            renderPackages(currentPackages);
+        }
+        await fetchTonLivePrice();
+    }
+
+    function renderPackages(packages) {
+        const grid = document.getElementById('deposit-packages-grid');
+        if (!grid) return;
+
+        if (!packages || packages.length === 0) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 12px;">لا توجد باقات متاحة حالياً</div>`;
+            return;
+        }
+
+        const effPrice = effectiveTonPrice > 0 ? effectiveTonPrice : (tonPriceUsd / 1.03);
+
+        grid.innerHTML = packages.map(pkg => {
+            const usdtVal = parseFloat(pkg.usdt_amount || 0);
+            const tonEst = (usdtVal / effPrice).toFixed(4);
+            const titleName = `باقة $${usdtVal} USDT`;
+
+            return `
+                <div onclick="window.depositModule?.buyPackageWithTon(${pkg.id})" style="background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(15,23,42,0.7)); border: 1px solid rgba(0, 152, 234, 0.3); border-radius: 14px; padding: 14px 10px; text-align: center; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden;">
+                    <div style="font-size: 22px; margin-bottom: 4px;">💵</div>
+                    <div style="font-size: 15px; font-weight: 800; color: #34d399; margin-bottom: 2px;">${titleName}</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">دفع تلقائي بعملة TON</div>
+                    <div style="background: #0098EA; color: #fff; border-radius: 8px; padding: 6px 4px; font-size: 12px; font-weight: 700;">
+                        ~ ${tonEst} TON
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function cancelPendingInvoiceOnServer(memo, status = 'cancelled', reason = null, deleteIfCancelled = true) {
+        if (!memo) return;
+        try {
+            const initData = window.Telegram?.WebApp?.initData || '';
+            await fetch('/api/wallet/deposit/cancel_invoice', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData
+                },
+                body: JSON.stringify({
+                    memo: memo,
+                    status: status,
+                    reason: reason,
+                    delete_if_cancelled: deleteIfCancelled,
+                    initData: initData
+                })
+            });
+        } catch (err) {
+            console.warn("⚠️ تعذر تحديث حالة الفاتورة الملغاة:", err);
+        }
+    }
+
+    function stopCountdownTimer() {
+        if (countdownTimer) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+        }
+    }
+
+    function start15SecCountdown() {
+        stopCountdownTimer();
+        countdownSeconds = 15;
+
+        const countdownBox = document.getElementById('deposit-countdown-box');
+        const numEl = document.getElementById('deposit-countdown-num');
+        const textEl = document.getElementById('deposit-countdown-text');
+        const cancelWrap = document.getElementById('deposit-cancel-btn-wrap');
+
+        if (countdownBox) countdownBox.style.display = 'block';
+        if (cancelWrap) cancelWrap.style.display = 'none';
+        if (numEl) numEl.innerText = '15';
+        if (textEl) textEl.innerText = '15';
+
+        countdownTimer = setInterval(() => {
+            if (isPaymentVerifying) {
+                stopCountdownTimer();
+                if (countdownBox) countdownBox.style.display = 'none';
+                if (cancelWrap) cancelWrap.style.display = 'none';
+                return;
+            }
+
+            countdownSeconds -= 1;
+            if (countdownSeconds > 0) {
+                if (numEl) numEl.innerText = String(countdownSeconds);
+                if (textEl) textEl.innerText = String(countdownSeconds);
+            } else {
+                stopCountdownTimer();
+                if (countdownBox) countdownBox.style.display = 'none';
+                if (cancelWrap && !isPaymentVerifying) {
+                    cancelWrap.style.display = 'block';
                 }
             }
         }, 1000);
     }
 
-    // توحيد كائن المحفظة عبر window.znTonConnectUI لمنع تضارب الجلسات
-    function initTonConnect() {
-        if (window.znTonConnectUI) {
-            tonConnectUI = window.znTonConnectUI;
-            return tonConnectUI;
-        }
-        try {
-            if (window.TON_CONNECT_UI) {
-                tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-                    manifestUrl: `${window.location.origin}/tonconnect-manifest.json`
-                });
-                window.znTonConnectUI = tonConnectUI;
-                return tonConnectUI;
-            }
-        } catch (e) {
-            console.error("TonConnect Init Error:", e);
-        }
-        return null;
+    function switchModalStep(stepName) {
+        const modal = document.getElementById('deposit-pay-modal');
+        const stepConfirm = document.getElementById('deposit-step-confirm');
+        const stepWaiting = document.getElementById('deposit-step-waiting');
+        const stepSuccess = document.getElementById('deposit-step-success');
+
+        if (stepConfirm) stepConfirm.style.display = stepName === 'confirm' ? 'block' : 'none';
+        if (stepWaiting) stepWaiting.style.display = stepName === 'waiting' ? 'block' : 'none';
+        if (stepSuccess) stepSuccess.style.display = stepName === 'success' ? 'block' : 'none';
+        if (modal) modal.style.display = 'flex';
     }
 
-    async function ensureTonConnectReady() {
-        if (window.znTonConnectUI) return window.znTonConnectUI;
-        if (tonConnectUI) return tonConnectUI;
-        
-        if (!window.TON_CONNECT_UI) {
-            await new Promise((resolve) => {
-                const script = document.createElement('script');
-                script.src = 'https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js';
-                script.onload = resolve;
-                script.onerror = resolve;
-                document.head.appendChild(script);
-            });
-        }
-
-        let retries = 0;
-        while (!window.TON_CONNECT_UI && retries < 10) {
-            await new Promise(res => setTimeout(res, 200));
-            retries++;
-        }
-
-        return initTonConnect();
-    }
-
-    function normalizeIncomingConfig(data) {
-        if (!data || typeof data !== 'object') return {};
-
-        const rootCfg = data;
-        const farmCfg = (data.farm_settings && typeof data.farm_settings === 'object') ? data.farm_settings : {};
-        const shopCfg = (data.settings && typeof data.settings === 'object') ? data.settings : {};
-
-        const resolvedUpgrades = rootCfg.upgrade_config
-            || farmCfg.upgrade_config
-            || shopCfg.upgrade_config
-            || {};
-
-        const resolvedStorage = rootCfg.storage_config
-            || farmCfg.storage_config
-            || shopCfg.storage_config
-            || rootCfg.storage_capacities
-            || farmCfg.storage_capacities
-            || shopCfg.storage_capacities
-            || {};
-
-        const resolvedPackages = rootCfg.packages
-            || shopCfg.packages
-            || farmCfg.packages
-            || rootCfg.usdt_packages
-            || shopCfg.usdt_packages
-            || farmCfg.usdt_packages
-            || {};
-
-        const resolvedMiningCfg = rootCfg.mining_config
-            || farmCfg.mining_config
-            || shopCfg.mining_config
-            || {};
-
-        return Object.assign({}, rootCfg, farmCfg, shopCfg, {
-            mining_config: resolvedMiningCfg,
-            upgrade_config: resolvedUpgrades,
-            storage_config: resolvedStorage,
-            storage_capacities: resolvedStorage,
-            packages: resolvedPackages,
-            usdt_packages: resolvedPackages
-        });
-    }
-
-    async function loadShopConfig(forceFetch = false) {
-        const now = Date.now();
-
-        if (!forceFetch && shopDynamicSettings && (now - lastConfigFetchTime < CONFIG_CACHE_TTL)) {
-            if (cachedPackagesData) {
-                renderDynamicPackages(cachedPackagesData);
-            }
-            window.updateShopUI();
+    async function promptPackageConfirmation(packageId) {
+        const tc = await initTonConnect();
+        const hasBoundAddr = Boolean(localStorage.getItem('zn_bound_wallet_address'));
+        if (!tc || (!tc.connected && !hasBoundAddr)) {
+            updateWalletUI(null);
+            await openConnectModal();
             return;
         }
 
+        const pkg = currentPackages.find(p => String(p.id) === String(packageId));
+        if (!pkg) {
+            alert("الباقة غير متوفرة حالياً");
+            return;
+        }
+
+        selectedPackageObj = pkg;
+        const effPrice = effectiveTonPrice > 0 ? effectiveTonPrice : (tonPriceUsd / 1.03);
+        const usdtVal = parseFloat(pkg.usdt_amount || 0);
+        const tonEst = (usdtVal / effPrice).toFixed(4);
+
+        const usdtEl = document.getElementById('confirm-pkg-usdt');
+        const tonEl = document.getElementById('confirm-pkg-ton');
+
+        if (usdtEl) usdtEl.innerText = `باقة $${usdtVal} USDT`;
+        if (tonEl) tonEl.innerText = `المبلغ المطلوب: ~ ${tonEst} TON`;
+
+        switchModalStep('confirm');
+    }
+
+    async function confirmAndStartPayment() {
+        if (!selectedPackageObj) {
+            closeModal();
+            return;
+        }
+
+        const pkg = selectedPackageObj;
+        const tc = await initTonConnect();
+        const hasBoundAddr = Boolean(localStorage.getItem('zn_bound_wallet_address'));
+        if (!tc || (!tc.connected && !hasBoundAddr)) {
+            closeModal();
+            updateWalletUI(null);
+            await openConnectModal();
+            return;
+        }
+
+        isOrderCancelledByUser = false;
+        isPaymentVerifying = false;
+        activeOrderMemo = null;
+
+        const waitingTitle = document.getElementById('deposit-waiting-title');
+        const statusEl = document.getElementById('deposit-modal-status');
+        if (waitingTitle) waitingTitle.innerText = 'منتظر الدفع...';
+        if (statusEl) statusEl.innerText = 'جاري تجهيز المعاملة وتحويلك إلى المحفظة...';
+
+        switchModalStep('waiting');
+        start15SecCountdown();
+
+        const tg = window.Telegram?.WebApp;
+        const initData = tg?.initData || '';
+        const userId = getValidUserId();
+        const senderWallet = tc?.wallet?.account?.address || tc?.account?.address || localStorage.getItem('zn_bound_wallet_address') || '';
+
         try {
-            const initData = window.Telegram?.WebApp?.initData || "";
-            const fetchOptions = {
+            const headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Telegram-Init-Data': initData
+            };
+            if (userId && userId !== "0") {
+                headers['X-Telegram-User-Id'] = String(userId);
+            }
+
+            const prepRes = await fetch('/api/wallet/deposit/prepare_ton_pay', {
                 method: 'POST',
-                cache: 'no-store',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData,
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                },
-                body: JSON.stringify({ initData: initData })
+                headers: headers,
+                body: JSON.stringify({
+                    package_id: pkg.id,
+                    usdt_amount: pkg.usdt_amount,
+                    ton_price: tonPriceUsd,
+                    sender_wallet: senderWallet,
+                    initData: initData,
+                    user_id: userId
+                })
+            });
+
+            if (isOrderCancelledByUser) return;
+
+            const prepText = await prepRes.text();
+            let prepData = {};
+            try {
+                prepData = JSON.parse(prepText);
+            } catch (jsonErr) {
+                throw new Error("استجابة غير صالحة من الخادم أثناء تجهيز الفاتورة");
+            }
+
+            if (!prepRes.ok || !prepData.success) {
+                stopCountdownTimer();
+                closeModal();
+                alert(prepData.error || "تعذر تجهيز طلب الشحن تلقائياً");
+                return;
+            }
+
+            const destinationWallet = String(prepData.wallet_address || '').trim();
+            if (!destinationWallet) {
+                stopCountdownTimer();
+                closeModal();
+                alert("⚠️ لم يتم ضبط عنوان محفظة الاستلام (TON_WALLET_ADDRESS) في إعدادات البيئة!");
+                return;
+            }
+
+            const rawMemo = prepData.payload_memo || prepData.memo;
+            activeOrderMemo = rawMemo;
+            const validPayloadBoc = prepData.payload_boc || textToTonCommentBoc(rawMemo);
+
+            const msg = {
+                address: destinationWallet,
+                amount: String(prepData.nano_ton)
             };
 
-            const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, fetchOptions), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
-            
-            const data = await res.json();
-            if (data && data.success) {
-                if (data.user_state && Object.keys(data.user_state).length > 0) {
-                    syncFriendsAndGlobalState(data.user_state);
-                }
-
-                shopDynamicSettings = normalizeIncomingConfig(data);
-                cachedPackagesData = shopDynamicSettings.packages;
-                lastConfigFetchTime = now;
-
-                try {
-                    sessionStorage.setItem('zn_shop_config', JSON.stringify(shopDynamicSettings));
-                    sessionStorage.setItem('zn_shop_config_time', now.toString());
-                } catch (e) {}
-
-                applyConfigToUI(shopDynamicSettings);
+            if (validPayloadBoc) {
+                msg.payload = validPayloadBoc;
             }
-        } catch (e) {
-            console.error("خطأ في تحميل إعدادات المتجر:", e);
-            window.updateShopUI();
-        }
-    }
-
-    function applyConfigToUI(data) {
-        const tonPriceElem = document.getElementById('ton-live-rate-text');
-        const livePrice = floatVal(data.ton_price_usd, data.ton_usdt_rate, window.tonPrice, window.userState?.ton_price);
-        if (tonPriceElem && livePrice) {
-            const newPriceHtml = `$${formatTopBalanceHTML(livePrice)}`;
-            if (tonPriceElem.innerHTML !== newPriceHtml) tonPriceElem.innerHTML = newPriceHtml;
-        }
-
-        const packages = data.packages || data.usdt_packages || (data.settings && (data.settings.packages || data.settings.usdt_packages));
-        if (packages) {
-            cachedPackagesData = packages;
-            renderDynamicPackages(packages);
-        }
-        
-        window.updateShopUI();
-    }
-
-    function renderDynamicPackages(packages) {
-        let container = document.getElementById('usdt-packages-container');
-        if (!container) return;
-
-        if (!packages || (typeof packages !== 'object')) {
-            const emptyHtml = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
-            if (_lastPackagesHTML !== emptyHtml) { container.innerHTML = emptyHtml; _lastPackagesHTML = emptyHtml; }
-            return;
-        }
-
-        const entries = Array.isArray(packages) 
-            ? packages.map((p, idx) => [`VIP${idx + 1}`, p]) 
-            : Object.entries(packages);
-
-        if (entries.length === 0) {
-            const emptyHtml = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
-            if (_lastPackagesHTML !== emptyHtml) { container.innerHTML = emptyHtml; _lastPackagesHTML = emptyHtml; }
-            return;
-        }
-
-        let html = '';
-        const colorThemes = [
-            { bg: 'linear-gradient(135deg, #1c1c1c, #2a2012)', border: '#cd7f32', btn: '#cd7f32', icon: '🥉', textColor: '#ffffff' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #212830)', border: '#c0c0c0', btn: '#c0c0c0', icon: '🥈', textColor: '#000000' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: '#ffd700', btn: '#ffd700', icon: '🥇', textColor: '#000000' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #1f2937)', border: '#3b82f6', btn: '#3b82f6', icon: '💎', textColor: '#ffffff' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #2d1a38)', border: '#a855f7', btn: '#a855f7', icon: '👑', textColor: '#ffffff' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
-        ];
-
-        const tonPriceElem = document.getElementById('ton-live-rate-text');
-        const displayedPrice = tonPriceElem ? parseFloat(tonPriceElem.innerText.replace('$', '')) : 1.38;
-
-        const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
-        const activePkgId = activeVipStatus?.package_id || null;
-        const activeExpiresAt = activeVipStatus?.expires_at || null;
-        const remainingTimeText = formatRemainingTime(activeExpiresAt);
-
-        let index = 0;
-        for (const [pkgId, pkg] of entries) {
-            if (!pkg) continue;
-            const theme = colorThemes[index % colorThemes.length];
-            const btnTextColor = theme.textColor || '#ffffff';
-
-            const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd, pkg.price);
-            let tonAmount = floatVal(pkg.ton_amount);
-            
-            if (tonAmount <= 0 && displayedPrice > 0 && usdtPrice > 0) {
-                tonAmount = (usdtPrice / displayedPrice) * 1.03;
-            }
-
-            const isActive = (activePkgId === pkgId) && (remainingTimeText !== null);
-
-            let perksHtml = '';
-            if (Array.isArray(pkg.perks_text) && pkg.perks_text.length > 0) {
-                perksHtml = pkg.perks_text.map(perk => `<div class="usdt-perks-item">${perk}</div>`).join('');
-            } else {
-                let rateAddFormatted = cleanNum(pkg.rate_add);
-                let storageAddFormatted = cleanNum(pkg.storage_add);
-                let znAddFormatted = formatNumberAbbreviated(floatVal(pkg.zn_add));
-                perksHtml = `
-                    <div class="usdt-perks-item">⚡ +${rateAddFormatted} ZN/h</div>
-                    <div class="usdt-perks-item">📦 +${storageAddFormatted} مخزن</div>
-                    <div class="usdt-perks-item">🪙 +${znAddFormatted} ZN</div>
-                `;
-            }
-
-            const activeClass = isActive ? 'active-vip' : '';
-            const activeBadgeHtml = isActive ? `<div class="vip-active-badge" style="background: rgba(255, 204, 0, 0.2); color: #ffcc00; font-size: 11px; padding: 4px 8px; border-radius: 8px; font-weight: bold; margin-bottom: 6px; border: 1px solid #ffcc00;">نشطة</div>` : '';
-            const btnLabel = isActive ? 'تجديد الاشتراك ⚡' : 'شراء تلقائي ⚡';
-
-            html += `
-                <div class="usdt-card ${activeClass}" style="background: ${theme.bg}; border: 1px solid ${isActive ? '#ffcc00' : theme.border}; padding: 14px; border-radius: 16px; margin-bottom: 12px;">
-                    ${activeBadgeHtml}
-                    <div>
-                        <div style="font-size: 26px;">${theme.icon}</div>
-                        <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || `باقة ${pkgId}`}</div>
-                        <div style="color: ${theme.border}; font-weight: 800; font-size: 17px; margin: 4px 0;">$${formatUSD(usdtPrice)}</div>
-                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${cleanNum(tonAmount)} TON</div>
-                    </div>
-                    <div class="usdt-perks" style="margin: 10px 0;">
-                        ${perksHtml}
-                    </div>
-                    <button class="btn-ton-pay" style="width: 100%; padding: 10px; background: ${theme.btn}; color: ${btnTextColor}; border: none; border-radius: 10px; font-weight: bold; font-size: 12px; cursor: pointer;" onclick="buyPackageWithTon('${pkgId}')">${btnLabel}</button>
-                </div>
-            `;
-            index++;
-        }
-
-        if (_lastPackagesHTML !== html) {
-            container.innerHTML = html;
-            _lastPackagesHTML = html;
-        }
-        startVipLiveTimer();
-    }
-
-    function pollPendingTonVerification(packageId, bocStr, payloadMemo, initData) {
-        if (pendingVerifyTimer) clearInterval(pendingVerifyTimer);
-        let attempts = 0;
-        const maxAttempts = 16;
-
-        pendingVerifyTimer = setInterval(async () => {
-            attempts++;
-            if (attempts > maxAttempts) {
-                clearInterval(pendingVerifyTimer);
-                pendingVerifyTimer = null;
-                return;
-            }
-
-            try {
-                const res = await fetch(`/api/shop/verify_and_apply_package?_t=${Date.now()}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `twa ${initData}`,
-                        'X-Telegram-Init-Data': initData
-                    },
-                    body: JSON.stringify({
-                        package_id: packageId,
-                        boc: bocStr,
-                        payload_memo: payloadMemo,
-                        initData: initData
-                    })
-                });
-                const data = await res.json();
-                if (data && data.success) {
-                    clearInterval(pendingVerifyTimer);
-                    pendingVerifyTimer = null;
-                    triggerHaptic('notification', 'success');
-                    alert("🎉 تم تأكيد الدفع من شبكة TON وتفعيل الباقة بنجاح!");
-
-                    const stateRes = data.result || data.data || data;
-                    syncFriendsAndGlobalState(stateRes);
-                    window.updateShopUI();
-                    window.dispatchEvent(new CustomEvent('userStateUpdated'));
-                } else if (data && !data.pending) {
-                    clearInterval(pendingVerifyTimer);
-                    pendingVerifyTimer = null;
-                }
-            } catch (e) {}
-        }, 5000);
-    }
-
-    window.buyPackageWithTon = async function(packageId) {
-        if (isBuying) return;
-
-        const initData = window.Telegram?.WebApp?.initData || "";
-        if (!initData) {
-            triggerHaptic('notification', 'error');
-            alert("⚠️ يجب فتح التطبيق من داخل تليجرام.");
-            return;
-        }
-
-        triggerHaptic('impact', 'medium');
-        
-        const tcInstance = await ensureTonConnectReady();
-        if (!tcInstance) {
-            triggerHaptic('notification', 'error');
-            alert("⚠️ جاري إعداد الاتصال بالمحفظة، يرجى المحاولة بعد ثوانٍ.");
-            return;
-        }
-
-        try {
-            if (!tcInstance.connected) {
-                await withTimeout(tcInstance.openModal(), 60000, "تأخرت عملية فتح المحفظة.");
-
-                let attempts = 0;
-                while (!tcInstance.connected && attempts < 40) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    attempts++;
-                }
-
-                if (!tcInstance.connected) {
-                    triggerHaptic('notification', 'error');
-                    alert("⚠️ يجب ربط المحفظة أولاً لإتمام عملية الشراء.");
-                    return;
-                }
-            }
-
-            isBuying = true;
-
-            const prepRes = await withTimeout(fetch(`/api/shop/prepare_ton_pay?_t=${Date.now()}`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData
-                },
-                body: JSON.stringify({ 
-                    package_id: packageId,
-                    initData: initData 
-                })
-            }), 20000, "تأخر السيرفر في تجهيز بيانات الدفع.");
-
-            const prepData = await prepRes.json();
-            if (!prepData.success) {
-                triggerHaptic('notification', 'error');
-                alert("خطأ: " + (prepData.error || prepData.message));
-                isBuying = false;
-                return;
-            }
-
-            const cleanNanoTon = String(Math.floor(Number(prepData.nano_ton)));
 
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 600,
-                messages: [{
-                    address: prepData.recipient_address,
-                    amount: cleanNanoTon,
-                    payload: prepData.payload || undefined
-                }]
+                messages: [msg]
             };
 
-            let result = null;
-            try {
-                result = await withTimeout(
-                    tcInstance.sendTransaction(transaction),
-                    120000,
-                    "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
-                );
-            } catch (txErr) {
-                const errStr = String(txErr?.message || txErr || "");
-                if (prepData.payload && !errStr.includes("UserRejects") && !errStr.includes("declined") && !errStr.includes("انتهت") && !errStr.includes("طويلاً")) {
-                    const fallbackTx = {
-                        validUntil: Math.floor(Date.now() / 1000) + 600,
-                        messages: [{
-                            address: prepData.recipient_address,
-                            amount: cleanNanoTon
-                        }]
-                    };
-                    result = await withTimeout(
-                        tcInstance.sendTransaction(fallbackTx),
-                        120000,
-                        "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
-                    );
-                } else {
-                    throw txErr;
-                }
+            if (statusEl) {
+                statusEl.innerText = 'منتظر الدفع داخل المحفظة المربوطة...';
             }
 
-            if (!result || !result.boc || typeof result.boc !== 'string' || result.boc.trim().length < 32) {
-                isBuying = false;
-                triggerHaptic('notification', 'error');
-                alert("❌ لم يتم استلام تأكيد المعاملة من المحفظة. إذا تم خصم الرصيد، يرجى الانتظار.");
-                return;
+            const txResult = await tc.sendTransaction(transaction);
+            const boc = txResult?.boc;
+
+            if (!boc) {
+                throw new Error("لم يتم استلام كود إثبات المعاملة المشفر (BOC)");
             }
 
-            const verifyRes = await withTimeout(fetch(`/api/shop/verify_and_apply_package?_t=${Date.now()}`, {
+            isPaymentVerifying = true;
+            stopCountdownTimer();
+            const countdownBox = document.getElementById('deposit-countdown-box');
+            const cancelWrap = document.getElementById('deposit-cancel-btn-wrap');
+            if (countdownBox) countdownBox.style.display = 'none';
+            if (cancelWrap) cancelWrap.style.display = 'none';
+
+            if (waitingTitle) waitingTitle.innerText = '⚡ جاري تأكيد الإيداع...';
+            if (statusEl) statusEl.innerText = 'تم الدفع! جاري التحقق من التحويل على البلوكشين وإضافة الرصيد لحسابك...';
+
+            const verifyRes = await fetch('/api/wallet/deposit/verify_and_apply', {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData
-                },
+                headers: headers,
                 body: JSON.stringify({
-                    package_id: packageId,
-                    boc: result.boc,
-                    payload_memo: prepData.payload_memo || "",
-                    initData: initData
+                    boc: boc,
+                    package_id: pkg.id,
+                    usdt_amount: pkg.usdt_amount,
+                    ton_amount: prepData.ton_amount,
+                    sender_wallet: senderWallet,
+                    memo: rawMemo,
+                    initData: initData,
+                    user_id: userId
                 })
-            }), 30000, "جاري تأكيد العملية من الشبكة...");
+            });
 
-            const verifyData = await verifyRes.json();
-            if (verifyData.success && (verifyData.result || verifyData.data || verifyData.balance !== undefined)) {
-                triggerHaptic('notification', 'success');
-                alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
+            const verifyText = await verifyRes.text();
+            let verifyData = {};
+            try {
+                verifyData = JSON.parse(verifyText);
+            } catch (jsonErr) {
+                throw new Error("استجابة غير صالحة من الخادم أثناء تأكيد الشحن");
+            }
 
-                const res = verifyData.result || verifyData.data || verifyData;
-                syncFriendsAndGlobalState(res);
+            if (verifyRes.ok && verifyData.success) {
+                const depositedAmount = parseFloat(verifyData.deposited_amount || pkg.usdt_amount || 0);
+                const newBal = parseFloat(verifyData.new_balance ?? verifyData.usd_balance ?? 0);
 
-                window.updateShopUI();
-                window.dispatchEvent(new CustomEvent('userStateUpdated'));
-            } else if (verifyData.pending) {
-                triggerHaptic('notification', 'warning');
-                alert(verifyData.message || "⏳ جاري تأكيد المعاملة من شبكة TON، سيتم تفعيل الباقة تلقائياً خلال ثوانٍ.");
-                pollPendingTonVerification(packageId, result.boc, prepData.payload_memo || "", initData);
+                if (!window.userState) window.userState = {};
+                window.userState.usd_balance = newBal;
+                window.userState.usdt_balance = newBal;
+
+                forceUpdateBalanceDOM(newBal);
+                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
+
+                const depAmtEl = document.getElementById('success-deposited-amount');
+                const newBalEl = document.getElementById('success-new-balance');
+                if (depAmtEl) depAmtEl.innerText = `+$${depositedAmount} USDT`;
+                if (newBalEl) newBalEl.innerText = `$${newBal.toFixed(4)} USDT`;
+
+                switchModalStep('success');
+                triggerHistoryRefresh();
             } else {
-                triggerHaptic('notification', 'error');
-                alert("⚠️ " + (verifyData.error || verifyData.message || "لم نتمكن من التحقق من الدفع."));
+                closeModal();
+                alert(`⚠️ ${verifyData.error || 'لم يتم تأكيد الشحن، يرجى المحاولة لاحقاً.'}`);
+                triggerHistoryRefresh();
             }
 
         } catch (e) {
-            console.error("Payment Flow Error:", e);
-            triggerHaptic('notification', 'error');
-            const errMsg = e?.message || "";
-            if (errMsg.includes("UserRejects") || errMsg.includes("User declined") || errMsg.includes("declined")) {
-                alert("❌ تم إلغاء المعاملة من قبل المستخدم.");
-            } else {
-                alert(errMsg || "❌ تم إلغاء المعاملة أو حدث خطأ أثناء الاتصال بالمحفظة.");
+            if (isOrderCancelledByUser) {
+                return;
             }
-        } finally {
-            isBuying = false;
+            console.error("❌ خطأ عملية الشحن:", e);
+            stopCountdownTimer();
+            closeModal();
+
+            const isUserCancel = e.message && (
+                e.message.includes('User rejected') ||
+                e.message.includes('Canceled') ||
+                e.message.includes('Reject') ||
+                e.message.includes('Interrupted')
+            );
+
+            if (isUserCancel) {
+                await cancelPendingInvoiceOnServer(activeOrderMemo, 'cancelled', 'تم إلغاء العملية من قبل المستخدم', true);
+                alert("تم إلغاء عملية الدفع من قبل المستخدم.");
+            } else {
+                await cancelPendingInvoiceOnServer(activeOrderMemo, 'failed', e.message || 'خطأ أثناء تنفيذ الدفع', false);
+                alert(`حدث خطأ أثناء تنفيذ الدفع: ${e.message || 'خطأ غير معروف'}`);
+            }
+            triggerHistoryRefresh();
         }
-    };
+    }
 
-    const injectModalUI = () => {
-        if (!document.getElementById('shop-modal-styles')) {
-            const styleSheet = document.createElement("style");
-            styleSheet.id = 'shop-modal-styles';
-            styleSheet.innerHTML = `
-                #shop-confirm-modal-overlay {
-                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                    background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(4px);
-                    display: none; align-items: center; justify-content: center;
-                    z-index: 99999; opacity: 0; transition: opacity 0.3s ease;
-                }
-                #shop-confirm-modal {
-                    background: #161b22; border: 1px solid #30363d; border-radius: 20px;
-                    padding: 24px; width: 85%; max-width: 320px; text-align: center;
-                    box-shadow: 0 10px 40px rgba(0,0,0,0.8);
-                    transform: translateY(30px) scale(0.95);
-                    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                }
-                .shop-modal-active { display: flex !important; opacity: 1 !important; }
-                .shop-modal-active > #shop-confirm-modal { transform: translateY(0) scale(1); }
-                .shop-modal-title { color: #ffffff; font-size: 19px; font-weight: bold; margin-bottom: 8px; }
-                .shop-modal-desc { color: #8b949e; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
-                .shop-modal-price-box { 
-                    background: #0d1117; border-radius: 12px; padding: 12px; 
-                    color: #ffcc00; font-weight: bold; font-size: 16px; margin-bottom: 20px;
-                    border: 1px solid #30363d; direction: ltr;
-                }
-                .shop-modal-actions { display: flex; gap: 12px; justify-content: center; }
-                .shop-btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-weight: bold; font-size: 15px; cursor: pointer; }
-                .shop-btn-cancel { background: #21262d; color: #ffffff; }
-                .shop-btn-confirm { background: #0088cc; color: #ffffff; }
-            `;
-            document.head.appendChild(styleSheet);
+    async function cancelActiveOrder() {
+        if (isPaymentVerifying) {
+            return;
         }
+        isOrderCancelledByUser = true;
+        stopCountdownTimer();
+        const memoToCancel = activeOrderMemo;
+        activeOrderMemo = null;
+        closeModal();
 
-        if (!document.getElementById('shop-confirm-modal-overlay')) {
-            const modalHTML = `
-                <div id="shop-confirm-modal-overlay">
-                    <div id="shop-confirm-modal">
-                        <div id="shop-modal-icon" style="font-size: 45px; margin-bottom: 10px;">🛒</div>
-                        <div class="shop-modal-title" id="shop-modal-title">تأكيد الشراء</div>
-                        <div class="shop-modal-desc" id="shop-modal-desc">هل أنت متأكد من هذه العملية؟</div>
-                        <div class="shop-modal-price-box" id="shop-modal-price">0 ZN</div>
-                        <div class="shop-modal-actions">
-                            <button class="shop-btn shop-btn-cancel" onclick="closeShopModal()">إلغاء</button>
-                            <button class="shop-btn shop-btn-confirm" id="shop-modal-confirm-btn">شراء الآن</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        if (memoToCancel) {
+            await cancelPendingInvoiceOnServer(memoToCancel, 'cancelled', 'تم إلغاء الطلب من قبل المستخدم', true);
+            triggerHistoryRefresh();
         }
-    };
+    }
 
-    window.closeShopModal = function() {
-        triggerHaptic('impact', 'light');
-        const overlay = document.getElementById('shop-confirm-modal-overlay');
-        if (overlay) overlay.classList.remove('shop-modal-active');
-    };
+    function closeModal() {
+        stopCountdownTimer();
+        const modal = document.getElementById('deposit-pay-modal');
+        if (modal) modal.style.display = 'none';
+    }
 
-    injectModalUI();
+    function bindEventsOnce() {
+        if (listenersBound) return;
+        listenersBound = true;
 
-    window.switchShopTab = function(tab) {
-        triggerHaptic('selection');
-        const miningSec = document.getElementById('shop-mining-section');
-        const storageSec = document.getElementById('shop-storage-section');
-        const btnMining = document.getElementById('tab-mining');
-        const btnStorage = document.getElementById('tab-storage');
-
-        if (!miningSec || !storageSec) return;
-
-        if (tab === 'mining') {
-            miningSec.style.display = 'grid';
-            storageSec.style.display = 'none';
-            if (btnMining) { btnMining.style.background = '#0088cc'; btnMining.classList.add('active'); }
-            if (btnStorage) { btnStorage.style.background = '#21262d'; btnStorage.classList.remove('active'); }
-        } else {
-            miningSec.style.display = 'none';
-            storageSec.style.display = 'grid';
-            if (btnMining) { btnMining.style.background = '#21262d'; btnMining.classList.remove('active'); }
-            if (btnStorage) { btnStorage.style.background = '#0088cc'; btnStorage.classList.add('active'); }
-        }
-    };
-
-    window.updateShopUI = function() {
-        if (cachedPackagesData) {
-            renderDynamicPackages(cachedPackagesData);
-        }
-
-        const miningSec = document.getElementById('shop-mining-section');
-        const storageSec = document.getElementById('shop-storage-section');
-
-        const pData = window.userState || {};
-        let totalBal = floatVal(pData.balance);
-        let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
-
-        const balElem = document.getElementById('shop-balance-text');
-        if (balElem) {
-            const newHtml = `${formatTopBalanceHTML(totalBal)} ZN`;
-            if (balElem.innerHTML !== newHtml) balElem.innerHTML = newHtml;
-        }
-
-        const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-shop, #top-balance, #header-zn-balance, .user-balance');
-        elBalances.forEach(el => {
-            if (el.id !== 'shop-balance-text') {
-                const newHtml = (el.textContent.includes('ZN') || el.innerHTML.includes('ZN')) 
-                    ? `${formatTopBalanceHTML(totalBal)} ZN` 
-                    : formatTopBalanceHTML(totalBal);
-                if (el.innerHTML !== newHtml) el.innerHTML = newHtml;
+        window.addEventListener('userStateUpdated', (e) => {
+            const state = e.detail || window.userState;
+            if (state) {
+                const usd = state.usd_balance ?? state.usdt_balance;
+                const zn = state.balance ?? state.zn_balance;
+                const znx = state.znx_balance;
+                forceUpdateBalanceDOM(usd, zn, znx);
             }
         });
 
-        const usdElem = document.getElementById('shop-usd-text');
-        if (usdElem) {
-            const newHtml = `$${formatTopBalanceHTML(totalUsd)}`;
-            if (usdElem.innerHTML !== newHtml) usdElem.innerHTML = newHtml;
-        }
-        
-        const rateElem = document.getElementById('shop-rate-text');
-        if (rateElem) {
-            const hRate = floatVal(pData.hourly_rate);
-            const newText = `+${cleanNum(hRate)}/h ⚡`;
-            if (rateElem.innerText !== newText) rateElem.innerText = newText;
-        }
+        window.addEventListener('ton-connect-ui-wallet-change', (e) => {
+            const wallet = e.detail || (tcInstance ? tcInstance.wallet : null);
+            updateWalletUI(wallet);
+        });
 
-        if (!miningSec || !storageSec) return;
-
-        const settings = shopDynamicSettings || {};
-        const globalMaxUpgrades = parseInt(settings.mining_config?.max_upgrades_per_level || 15);
-        const miningCfg = settings.upgrade_config 
-                       || settings.speed_config 
-                       || settings.upgrades 
-                       || {};
-
-        let miningHtml = '';
-        const sortedMiningEntries = Object.entries(miningCfg).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
-
-        for (const [key, cfg] of sortedMiningEntries) {
-            let i = parseInt(key);
-            if (isNaN(i) || !cfg || typeof cfg !== 'object') continue;
-
-            let count = parseInt((pData.upgrades && (pData.upgrades[`lvl${i}`] ?? pData.upgrades[key])) || 0);
-            let priceZn = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
-            let priceUsd = floatVal(cfg.cost_usd, cfg.usd_cost, cfg.usd);
-            let speed = floatVal(cfg.rate_bonus, cfg.rate, cfg.speed, cfg.rate_add); 
-            let maxLimit = parseInt(cfg.max || cfg.max_limit || globalMaxUpgrades);
-            let isMax = count >= maxLimit;
-
-            let canAfford = (totalBal >= priceZn) && (totalUsd >= priceUsd);
-
-            let btnText = '';
-            if (priceUsd > 0 && priceZn > 0) {
-                btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
-            } else if (priceUsd > 0) {
-                btnText = `$${formatUSD(priceUsd)}`;
-            } else {
-                btnText = `${formatNumberAbbreviated(priceZn)} ZN`;
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && (tcInstance?.connected || localStorage.getItem('zn_bound_wallet_address'))) {
+                fetchTonLivePrice();
             }
+        });
+    }
 
-            miningHtml += `
-                <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 12px; text-align: center; position: relative; display: flex; flex-direction: column; justify-content: space-between;">
-                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; border-radius: 12px; z-index: 2;">مكتمل MAX</div>` : ''}
-                    <div>
-                        <div style="font-size: 26px;">⚡</div>
-                        <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${cleanNum(speed)}/h</div>
-                        <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
-                    </div>
-                    <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${priceZn}, ${priceUsd})" 
-                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#21262d'}; color: ${canAfford && !isMax ? '#000000' : '#8b949e'}; border: none; border-radius: 6px; font-weight: bold; font-size: 11px; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || !canAfford ? 'disabled' : ''}>
-                        ${btnText}
-                    </button>
-                </div>
-            `;
-        }
-        
-        const newMiningHtml = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب الباقات...</div>';
-        if (_lastMiningHTML !== newMiningHtml) {
-            miningSec.innerHTML = newMiningHtml;
-            _lastMiningHTML = newMiningHtml;
-        }
-
-        const storageCfg = settings.storage_config 
-                        || settings.storage_capacities 
-                        || settings.storages 
-                        || {};
-
-        let storageHtml = '';
-        let currentStorageLvl = parseInt(pData.storage_level || 0); 
-        const sortedStorageEntries = Object.entries(storageCfg).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
-
-        for (const [key, cfg] of sortedStorageEntries) {
-            let i = parseInt(key);
-            if (isNaN(i) || i === 0 || !cfg || typeof cfg !== 'object') continue;
-
-            let priceZn = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
-            let priceUsd = floatVal(cfg.cost_usd, cfg.usd_cost, cfg.usd);
-            let capacity = floatVal(cfg.capacity, cfg.cap, cfg.max_cap);
-            let isOwned = i <= currentStorageLvl;
-            let isNextUpgrade = i === currentStorageLvl + 1;
-            let canAfford = (totalBal >= priceZn) && (totalUsd >= priceUsd);
-
-            let btnBg = '#21262d', btnColor = '#8b949e', btnText = '', isDisabled = true;
-
-            if (isOwned) {
-                btnBg = '#10b981'; btnColor = '#000000'; btnText = 'تم الشراء ✔️';
-            } else if (isNextUpgrade) {
-                if (priceUsd > 0 && priceZn > 0) {
-                    btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
-                } else if (priceUsd > 0) {
-                    btnText = `$${formatUSD(priceUsd)}`;
-                } else {
-                    btnText = `${formatNumberAbbreviated(priceZn)} ZN`;
-                }
-
-                if (canAfford) {
-                    btnBg = '#0088cc'; btnColor = '#ffffff'; isDisabled = false;
-                }
-            } else {
-                btnText = 'مغلق 🔒';
-            }
-
-            storageHtml += `
-                <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 12px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
-                    <div>
-                        <div style="font-size: 26px;">📦</div>
-                        <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
-                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${formatNumberAbbreviated(capacity)} ZN</div>
-                    </div>
-                    <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${priceZn}, ${priceUsd})" 
-                        style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; font-size: 11px; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
-                        ${btnText}
-                    </button>
-                </div>
-            `;
-        }
-        
-        const newStorageHtml = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب مستويات التخزين...</div>';
-        if (_lastStorageHTML !== newStorageHtml) {
-            storageSec.innerHTML = newStorageHtml;
-            _lastStorageHTML = newStorageHtml;
-        }
-    };
-
-    window.requestShopPurchase = function(type, level, priceZn, priceUsd) {
-        const curBal = floatVal(window.userState?.balance);
-        const curUsd = floatVal(window.userState?.usd_balance, window.userState?.balance_usd, window.userState?.usd, window.userState?.usdt);
-
-        priceZn = floatVal(priceZn);
-        priceUsd = floatVal(priceUsd);
-
-        if (curBal < priceZn) {
-            triggerHaptic('notification', 'error');
-            alert("⚠️ الرصيد من عملة ZN غير كافي للشراء!");
-            return; 
-        }
-
-        if (curUsd < priceUsd) {
-            triggerHaptic('notification', 'error');
-            alert("⚠️ الرصيد من الدولار (USD) غير كافي للشراء!");
-            return; 
-        }
-
-        triggerHaptic('impact', 'light');
-
-        const modalTitle = document.getElementById('shop-modal-title');
-        const modalDesc = document.getElementById('shop-modal-desc');
-        const modalPrice = document.getElementById('shop-modal-price');
-
-        if (type === 'speed') {
-            if (modalTitle) modalTitle.innerText = `تأكيد ترقية السرعة (مستوى ${level})`;
-            if (modalDesc) modalDesc.innerText = `هل تريد إضافة هذه السرعة إلى معدل التعدين الخاص بك؟`;
-        } else {
-            if (modalTitle) modalTitle.innerText = `تأكيد ترقية المخزن (مستوى ${level})`;
-            if (modalDesc) modalDesc.innerText = `هل تريد توسيع سعة التخزين للاحتفاظ بأرباح أكثر؟`;
-        }
-
-        if (modalPrice) {
-            if (priceUsd > 0 && priceZn > 0) {
-                modalPrice.innerText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
-            } else if (priceUsd > 0) {
-                modalPrice.innerText = `$${formatUSD(priceUsd)}`;
-            } else {
-                modalPrice.innerText = `${formatNumberAbbreviated(priceZn)} ZN`;
-            }
-        }
-
-        const overlay = document.getElementById('shop-confirm-modal-overlay');
-        const confirmBtn = document.getElementById('shop-modal-confirm-btn');
-
-        if (confirmBtn) {
-            confirmBtn.onclick = function() {
-                closeShopModal();
-                executeActualPurchase(type, level);
-            };
-        }
-
-        if (overlay) overlay.classList.add('shop-modal-active');
-    };
-
-    async function executeActualPurchase(type, level) {
-        const initData = window.Telegram?.WebApp?.initData || ""; 
-        if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل تليجرام.");
-
-        if (isBuying) return;
-        isBuying = true;
-
-        let apiType = (type === 'speed') ? 'mining' : 'storage';
+    function init() {
+        bindEventsOnce();
 
         try {
-            let response = await withTimeout(fetch(`/api/shop/buy?_t=${Date.now()}`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData
-                },
-                body: JSON.stringify({ 
-                    type: apiType, 
-                    level_num: level,
-                    level: level,
-                    upgrade_level: level,
-                    initData: initData 
-                })
-            }), 15000, "تأخرت الاستجابة من سيرفر الشراء.");
-
-            let resData = await response.json();
-
-            if (response.ok && resData.success) {
-                triggerHaptic('notification', 'success');
-
-                const res = resData.result || resData.data || resData;
-                syncFriendsAndGlobalState(res);
-
-                window.updateShopUI();
-                window.dispatchEvent(new CustomEvent('userStateUpdated'));
-            } else {
-                triggerHaptic('notification', 'error');
-                alert("⚠️ " + (resData.error || resData.message || "حدث خطأ أثناء الشراء."));
+            const cachedUsd = localStorage.getItem('cached_usd_balance');
+            if (cachedUsd !== null && !window.userState?.usd_balance) {
+                forceUpdateBalanceDOM(parseFloat(cachedUsd));
             }
-        } catch (e) {
-            console.error("Shop Purchase Error:", e);
-            triggerHaptic('notification', 'error');
-            alert(e?.message || "❌ تعذر الاتصال بالسيرفر.");
-        } finally {
-            isBuying = false; 
-        }
-    }
+        } catch (e) {}
 
-    setInterval(() => {
-        if (document.visibilityState === 'visible' && !isBuying) {
-            loadShopConfig(true);
+        if (localStorage.getItem('zn_bound_wallet_address')) {
+            updateWalletUI({ account: { address: localStorage.getItem('zn_bound_wallet_address') }, device: { appName: localStorage.getItem('zn_bound_wallet_name') || 'محفظة TON' } });
+        } else {
+            updateWalletUI(null);
         }
-    }, 2500);
 
-    function boot() {
         initTonConnect();
-        loadShopConfig(true); 
+
+        if (priceRefreshTimer) clearInterval(priceRefreshTimer);
+        priceRefreshTimer = setInterval(() => {
+            if (tcInstance?.connected || localStorage.getItem('zn_bound_wallet_address')) {
+                fetchTonLivePrice();
+            }
+        }, 5000);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener("DOMContentLoaded", boot);
-    } else {
-        boot();
-    }
-
-    window.addEventListener('userStateUpdated', () => {
-        window.updateShopUI();
-    });
-    
-    window.onShopTabOpen = function() {
-        loadShopConfig(true); 
+    return {
+        init,
+        openConnectModal,
+        disconnectWallet,
+        selectPackage: promptPackageConfirmation,
+        buyPackageWithTon: promptPackageConfirmation,
+        confirmAndStartPayment,
+        cancelActiveOrder,
+        closeModal
     };
-
 })();
+
+window.init_deposit_module = function () {
+    if (window.depositModule) {
+        window.depositModule.init();
+    }
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => window.depositModule?.init());
+} else {
+    window.depositModule?.init();
+}
