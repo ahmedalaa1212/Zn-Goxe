@@ -1,5 +1,5 @@
 // ==========================================
-// 0. نظام حظر تعدد الحسابات وبصمة الجهاز الصلبة (Multi-Accounting & Hardware Fingerprint Engine)
+// 0. نظام حظر تعدد الحسابات وبصمة العتاد الصلبة (Hardware Fingerprint & Anti-Multi-Account Engine)
 // ==========================================
 const DB_NAME = 'ZN_Device_DB';
 const STORE_NAME = 'device_store';
@@ -77,11 +77,26 @@ function getCookie(name) {
     return null;
 }
 
+function getWebGLHardwareInfo() {
+    try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) return 'no-webgl';
+        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+        const vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+        const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+        const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || '';
+        return `${vendor || ''}::${renderer || ''}::${maxTex}`;
+    } catch (e) {
+        return 'webgl-err';
+    }
+}
+
 function generateCanvasFingerprint() {
     try {
         const canvas = document.createElement('canvas');
-        canvas.width = 220;
-        canvas.height = 60;
+        canvas.width = 200;
+        canvas.height = 50;
         const ctx = canvas.getContext('2d');
         if (!ctx) return 'no-canvas-ctx';
         ctx.textBaseline = 'top';
@@ -90,33 +105,12 @@ function generateCanvasFingerprint() {
         ctx.fillStyle = '#f60';
         ctx.fillRect(125, 1, 62, 20);
         ctx.fillStyle = '#069';
-        ctx.fillText('ZN-GOXE-HW-FP-2026', 2, 15);
+        ctx.fillText('ZN-GOXE-FP-2026', 2, 15);
         ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-        ctx.fillText('ZN-GOXE-HW-FP-2026', 4, 17);
-        ctx.beginPath();
-        ctx.arc(50, 35, 15, 0, Math.PI * 2, true);
-        ctx.closePath();
-        ctx.fill();
+        ctx.fillText('ZN-GOXE-FP-2026', 4, 17);
         return canvas.toDataURL();
     } catch (e) {
         return 'canvas-error';
-    }
-}
-
-function getWebGLHardwareSignature() {
-    try {
-        const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        if (!gl) return 'no-webgl';
-        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-        const vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
-        const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
-        const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
-        const maxCube = gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE) || 0;
-        const maxRender = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 0;
-        return `${vendor || ''}::${renderer || ''}::${maxTex}::${maxCube}::${maxRender}`;
-    } catch (e) {
-        return 'webgl-error';
     }
 }
 
@@ -141,20 +135,15 @@ window.getOrCreateDeviceId = async function() {
     if (cachedDeviceId) return cachedDeviceId;
 
     let deviceId = null;
-    try {
-        deviceId = localStorage.getItem('device_uuid');
-    } catch (e) {}
-
+    try { deviceId = localStorage.getItem('device_uuid'); } catch (e) {}
+    if (!deviceId) {
+        try { deviceId = sessionStorage.getItem('device_uuid'); } catch (e) {}
+    }
     if (!deviceId) {
         deviceId = getCookie('device_uuid');
     }
-
     if (!deviceId) {
         deviceId = await getIDBValue('device_uuid');
-    }
-
-    if (!deviceId && window.name && window.name.startsWith('zn_dev_')) {
-        deviceId = window.name.replace('zn_dev_', '');
     }
 
     if (!deviceId) {
@@ -166,9 +155,9 @@ window.getOrCreateDeviceId = async function() {
     }
 
     try { localStorage.setItem('device_uuid', deviceId); } catch (e) {}
+    try { sessionStorage.setItem('device_uuid', deviceId); } catch (e) {}
     setCookie('device_uuid', deviceId);
     await setIDBValue('device_uuid', deviceId);
-    try { window.name = 'zn_dev_' + deviceId; } catch (e) {}
 
     cachedDeviceId = deviceId;
     return deviceId;
@@ -178,20 +167,20 @@ let cachedFingerprint = null;
 window.getDeviceFingerprint = async function() {
     if (cachedFingerprint) return cachedFingerprint;
 
-    // استخدام خصائص العتاد الفيزيائية الثابتة عبر جميع المتصفحات والنوافذ الخفية على نفس الجهاز
-    const sw = Math.min(screen.width || 0, screen.height || 0);
-    const sh = Math.max(screen.width || 0, screen.height || 0);
-    const dpr = Number(window.devicePixelRatio || 1).toFixed(2);
+    // استخدام خصائص العتاد الصلبة (Hardware Signals) الثابتة عبر جميع المتصفحات والوضع الخفي لنفس الجهاز
+    const screenW = Math.min(screen.width || 0, screen.height || 0);
+    const screenH = Math.max(screen.width || 0, screen.height || 0);
+    const pixelRatio = Number(window.devicePixelRatio || 1).toFixed(2);
 
     const hardwareComponents = [
-        getWebGLHardwareSignature(),
-        `${sw}x${sh}x${screen.colorDepth || 24}@${dpr}`,
+        `${screenW}x${screenH}@${pixelRatio}x${screen.colorDepth || 24}`,
         navigator.hardwareConcurrency || 0,
         navigator.deviceMemory || 0,
         navigator.maxTouchPoints || 0,
         navigator.platform || '',
         new Date().getTimezoneOffset(),
         Intl?.DateTimeFormat()?.resolvedOptions()?.timeZone || '',
+        getWebGLHardwareInfo(),
         generateCanvasFingerprint()
     ];
 
@@ -200,14 +189,7 @@ window.getDeviceFingerprint = async function() {
     return cachedFingerprint;
 };
 
-let isAppTerminatedBySecurity = false;
-
-window.showBannedScreen = function(reasonMessage, titleText = 'تم حظر الحساب والجهاز') {
-    isAppTerminatedBySecurity = true;
-    if (typeof animationFrameId !== 'undefined' && animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-    }
-
+window.showBannedScreen = function(reasonMessage) {
     const appEl = document.getElementById('app');
     const navEl = document.getElementById('main-nav');
     const loaders = document.querySelectorAll('#loading-screen, .loading-screen, #loader');
@@ -242,17 +224,16 @@ window.showBannedScreen = function(reasonMessage, titleText = 'تم حظر ال�
     }
 
     const safeMessage = window.escapeHTML(reasonMessage || 'تم حظر هذا الحساب والجهاز بسبب استخدام أكثر من حساب على نفس الجهاز.');
-    const safeTitle = window.escapeHTML(titleText);
 
     bannedEl.innerHTML = `
         <div style="background: rgba(255, 77, 77, 0.1); border: 2px solid #ff4d4d; border-radius: 20px; padding: 30px 20px; max-width: 420px; width: 100%; box-shadow: 0 10px 30px rgba(255, 77, 77, 0.2);">
             <div style="font-size: 64px; margin-bottom: 15px;">🚫</div>
-            <h2 style="color: #ff4d4d; margin-bottom: 15px; font-size: 24px; font-weight: bold;">${safeTitle}</h2>
+            <h2 style="color: #ff4d4d; margin-bottom: 15px; font-size: 24px; font-weight: bold;">تم حظر الحساب والجهاز</h2>
             <p style="color: #e6e6e6; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
                 ${safeMessage}
             </p>
             <div style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 10px; font-size: 12px; color: #888; margin-bottom: 20px; text-align: right;">
-                ⚠️ <b>تنبيه الحماية الصارم:</b> يمنع استخدام أكثر من حساب تليجرام واحد على نفس الجهاز أو المتصفح. يتم حظر جميع الحسابات المرتبطة بنفس الجهاز تلقائياً.
+                ⚠️ <b>تنبيه حظر تعدد الحسابات:</b> يمنع استخدام أكثر من حساب تليجرام واحد على نفس الجهاز أو المتصفح. تم حظر جميع الحسابات المرتبطة بهذا الجهاز بشكل نهائي.
             </div>
             <button onclick="window.Telegram?.WebApp?.close()" style="background: #ff4d4d; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: bold; font-size: 15px; cursor: pointer; width: 100%;">
                 إغلاق التطبيق
@@ -299,7 +280,6 @@ window.formatTime = function(seconds) {
 };
 
 function hideLoadingScreen() {
-    if (isAppTerminatedBySecurity) return;
     const appEl = document.getElementById('app');
     const navEl = document.getElementById('main-nav');
     if (appEl) {
@@ -356,10 +336,11 @@ function getSavedState() {
         const saved = localStorage.getItem('app_user_state');
         if (saved) {
             const parsed = JSON.parse(saved);
+            // حماية: إذا تغير حساب تليجرام على نفس المتصفح، لا ندمج أرصدة الحساب السابق محلياً
             if (user?.id && parsed.tg_id && String(parsed.tg_id) !== String(user.id)) {
                 return base;
             }
-            return { ...base, ...parsed, tg_id: user?.id || parsed.tg_id };
+            return { ...base, ...parsed };
         }
         return base;
     } catch { return base; }
@@ -435,13 +416,9 @@ window.calculateTrueMaxCap = function(state) {
 };
 
 // ==========================================
-// 2. الاتصال المؤمن بالسيرفر ومعالجة الاستجابة المباشرة
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
-    if (isAppTerminatedBySecurity) {
-        throw new Error("تم إيقاف الجلسة لأسباب أمنية.");
-    }
-
     const headers = { 'Content-Type': 'application/json' };
 
     let deviceId = null;
@@ -455,10 +432,10 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         console.warn("⚠️ خطأ في معالجة بصمة الجهاز:", e);
     }
 
-    const verifiedTgId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id;
-    if (verifiedTgId) {
-        if (!window.userState.tg_id) window.userState.tg_id = verifiedTgId;
-        headers['X-Telegram-User-Id'] = String(verifiedTgId);
+    const currentTgId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id;
+    if (currentTgId) {
+        if (!window.userState.tg_id) window.userState.tg_id = currentTgId;
+        headers['X-Telegram-User-Id'] = String(currentTgId);
     }
 
     if (tg?.initData) {
@@ -574,11 +551,8 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 // ==========================================
 async function sendUserPing() {
     try {
-        const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-        const userId = tgUser?.id || window.userState?.tg_id;
-        if (!userId || !tg?.initData) return;
-
-        await window.fetchAPI('/api/ping', 'POST', { user_id: userId });
+        if (!window.Telegram?.WebApp?.initData) return;
+        await window.fetchAPI('/api/ping', 'POST', {});
     } catch (error) {
         console.error("Failed to send activity ping:", error);
     }
@@ -810,7 +784,6 @@ let animationFrameId = null;
 function startLocalMiningSimulator() {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     function tick() {
-        if (isAppTerminatedBySecurity) return;
         if (!document.hidden) {
             const targetVal = parseFloat(window.userState?.balance || 0);
             renderSmoothBalance(targetVal);
@@ -937,7 +910,7 @@ window.saveWalletAddress = async function() {
                 alert(res?.error || 'فشل حفظ العنوان في السيرفر');
             }
         } catch (err) {
-            alert(err?.message || 'تعذر حفظ العنوان حالياً');
+            alert(err?.message || 'تعذر حفظ عنوان المحفظة');
         }
     }
 };
@@ -1201,7 +1174,7 @@ async function loadModuleScript(jsPath) {
 }
 
 window.switchView = async function(viewName) {
-    if (!viewName || isAppTerminatedBySecurity) return;
+    if (!viewName) return;
 
     let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
     if (cleanViewName === 'wallets' || cleanViewName === 'tools') cleanViewName = 'wallet';
@@ -1349,41 +1322,30 @@ window.switchView = async function(viewName) {
 };
 
 // ==========================================
-// 11. التشغيل المباشر والفحص الأمني عند الإقلاع
+// 11. التشغيل المباشر عند الإقلاع
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
+    hideLoadingScreen();
+
     try {
         await window.getOrCreateDeviceId();
         await window.getDeviceFingerprint();
     } catch(e) {}
 
-    // منع فتح التطبيق من متصفح خارجي غير موثق بتوقيع تليجرام
-    if (!tg || !tg.initData || !tg.initDataUnsafe?.user?.id) {
-        window.showBannedScreen(
-            'عذراً، لا يُسمح بفتح التطبيق من متصفح خارجي. يرجى الدخول حصرياً من داخل بوت تليجرام الرسمي.',
-            'بيئة تشغيل غير مصرح بها 🔒'
-        );
-        return;
+    startLocalMiningSimulator();
+    window.fetchTonPrice();
+
+    if (!window.userState.tg_id && tg?.initDataUnsafe?.user?.id) {
+        window.userState.tg_id = tg.initDataUnsafe.user.id;
     }
-
-    hideLoadingScreen();
-
-    window.userState.tg_id = tg.initDataUnsafe.user.id;
-    if (tg.initDataUnsafe.user.first_name) {
+    if ((!window.userState.first_name || window.userState.first_name === "لاعب") && tg?.initDataUnsafe?.user?.first_name) {
         window.userState.first_name = tg.initDataUnsafe.user.first_name;
     }
 
     try {
         await window.fetchAPI('/api/user/info');
-    } catch (e) {
-        if (isAppTerminatedBySecurity) return;
-    }
-
-    if (isAppTerminatedBySecurity) return;
-
-    sendUserPing();
-    startLocalMiningSimulator();
-    window.fetchTonPrice();
+        sendUserPing();
+    } catch (e) {}
 
     document.querySelectorAll('.nav-item, [data-view]').forEach(btn => {
         btn.addEventListener('click', (e) => {
