@@ -15,7 +15,6 @@
     let vipTimerInterval = null;
     let pendingVerifyTimer = null;
 
-    // متغيرات حفظ حالة الـ UI لمنع الرمشة (Smart Diffing)
     let _lastPackagesHTML = '';
     let _lastMiningHTML = '';
     let _lastStorageHTML = '';
@@ -50,7 +49,6 @@
         if (res.vip_status) {
             window.userState.is_vip = true;
             window.PlayerData.is_vip = true;
-            // مسح جميع إصدارات كاش الأصدقاء (v2 و v3) لإجبار الواجهة على تحديث نسب وإعدادات الـ VIP
             const uid = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
             if (uid) {
                 localStorage.removeItem(`zn_friends_cache_v3_${uid}`);
@@ -106,11 +104,6 @@
         if (val >= 1000000) return parseFloat((val / 1000000).toFixed(2)) + 'M';
         if (val >= 1000) return parseFloat((val / 1000).toFixed(2)) + 'K';
         return parseFloat(val.toFixed(2)).toString();
-    }
-
-    function formatTopBalance(num) {
-        let val = floatVal(num);
-        return val.toFixed(4);
     }
 
     function formatTopBalanceHTML(num) {
@@ -203,14 +196,18 @@
         }, 1000);
     }
 
+    // توحيد كائن المحفظة عبر window.znTonConnectUI لمنع تضارب الجلسات
     function initTonConnect() {
-        if (tonConnectUI) return tonConnectUI;
+        if (window.znTonConnectUI) {
+            tonConnectUI = window.znTonConnectUI;
+            return tonConnectUI;
+        }
         try {
             if (window.TON_CONNECT_UI) {
                 tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-                    manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
-                    buttonRootId: 'ton-connect-btn'
+                    manifestUrl: `${window.location.origin}/tonconnect-manifest.json`
                 });
+                window.znTonConnectUI = tonConnectUI;
                 return tonConnectUI;
             }
         } catch (e) {
@@ -220,6 +217,7 @@
     }
 
     async function ensureTonConnectReady() {
+        if (window.znTonConnectUI) return window.znTonConnectUI;
         if (tonConnectUI) return tonConnectUI;
         
         if (!window.TON_CONNECT_UI) {
@@ -297,23 +295,17 @@
 
         try {
             const initData = window.Telegram?.WebApp?.initData || "";
-            const fetchOptions = initData ? {
+            const fetchOptions = {
                 method: 'POST',
                 cache: 'no-store',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `twa ${initData}`,
+                    'X-Telegram-Init-Data': initData,
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'Pragma': 'no-cache'
                 },
                 body: JSON.stringify({ initData: initData })
-            } : {
-                method: 'GET',
-                cache: 'no-store',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                }
             };
 
             const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, fetchOptions), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
@@ -457,7 +449,7 @@
     function pollPendingTonVerification(packageId, bocStr, payloadMemo, initData) {
         if (pendingVerifyTimer) clearInterval(pendingVerifyTimer);
         let attempts = 0;
-        const maxAttempts = 16; // فحص لمدة ~80 ثانية في الخلفية
+        const maxAttempts = 16;
 
         pendingVerifyTimer = setInterval(async () => {
             attempts++;
@@ -472,7 +464,8 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `twa ${initData}`
+                        'Authorization': `twa ${initData}`,
+                        'X-Telegram-Init-Data': initData
                     },
                     body: JSON.stringify({
                         package_id: packageId,
@@ -503,7 +496,7 @@
     window.buyPackageWithTon = async function(packageId) {
         if (isBuying) return;
 
-        const initData = window.Telegram?.WebApp?.initData;
+        const initData = window.Telegram?.WebApp?.initData || "";
         if (!initData) {
             triggerHaptic('notification', 'error');
             alert("⚠️ يجب فتح التطبيق من داخل تليجرام.");
@@ -542,7 +535,8 @@
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`
+                    'Authorization': `twa ${initData}`,
+                    'X-Telegram-Init-Data': initData
                 },
                 body: JSON.stringify({ 
                     package_id: packageId,
@@ -578,7 +572,6 @@
                 );
             } catch (txErr) {
                 const errStr = String(txErr?.message || txErr || "");
-                // إذا اعترضت محفظة قديمة على حقل الـ payload، نعيد المحاولة بدونه مع بقاء الحماية
                 if (prepData.payload && !errStr.includes("UserRejects") && !errStr.includes("declined") && !errStr.includes("انتهت") && !errStr.includes("طويلاً")) {
                     const fallbackTx = {
                         validUntil: Math.floor(Date.now() / 1000) + 600,
@@ -597,7 +590,6 @@
                 }
             }
 
-            // الحل الأمني الصارم: إيقاف العملية فوراً إذا لم ترجع المحفظة BOC حقيقي
             if (!result || !result.boc || typeof result.boc !== 'string' || result.boc.trim().length < 32) {
                 isBuying = false;
                 triggerHaptic('notification', 'error');
@@ -609,7 +601,8 @@
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`
+                    'Authorization': `twa ${initData}`,
+                    'X-Telegram-Init-Data': initData
                 },
                 body: JSON.stringify({
                     package_id: packageId,
@@ -953,7 +946,7 @@
     };
 
     async function executeActualPurchase(type, level) {
-        const initData = window.Telegram?.WebApp?.initData; 
+        const initData = window.Telegram?.WebApp?.initData || ""; 
         if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل تليجرام.");
 
         if (isBuying) return;
@@ -966,7 +959,8 @@
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`
+                    'Authorization': `twa ${initData}`,
+                    'X-Telegram-Init-Data': initData
                 },
                 body: JSON.stringify({ 
                     type: apiType, 
@@ -1000,7 +994,6 @@
         }
     }
 
-    // جلب البيانات اللحظية من السيرفر بشكل مستمر كل 2.5 ثانية (Live Polling)
     setInterval(() => {
         if (document.visibilityState === 'visible' && !isBuying) {
             loadShopConfig(true);
