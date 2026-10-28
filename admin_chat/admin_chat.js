@@ -2,9 +2,10 @@
     let currentTicketId = null;
     let allTickets = [];
     let adminPollInterval = null;
-    let isFetching = false;
+    let isFetchingList = false;
+    let isFetchingTicket = false;
     let isSendingReply = false;
-    let lastMsgCount = 0;
+    let lastMsgSignature = "";
     let tickCounter = 0;
 
     // دالة حماية وتنظيف النصوص لمنع ثغرات الحقن XSS
@@ -18,17 +19,35 @@
             .replace(/'/g, "&#039;");
     }
 
-    // جلب كل التذاكر مع معالجة الأخطاء بأمان
-    window.fetchAdminTickets = async function() {
-        if (isFetching || currentTicketId) return;
-        isFetching = true;
+    // استخراج هيدرز التوثيق مع دعم كامل لـ Telegram WebApp
+    function getAuthHeaders(isJson = false) {
+        const tg = window.Telegram?.WebApp;
+        const initData = tg?.initData || "";
+        const adminId = tg?.initDataUnsafe?.user?.id || "";
+        const headers = {
+            'X-Telegram-Init-Data': initData,
+            'X-Admin-Id': String(adminId),
+            'Cache-Control': 'no-cache'
+        };
+        if (isJson) {
+            headers['Content-Type'] = 'application/json';
+        }
+        return headers;
+    }
+
+    // جلب كل التذاكر مع منع الكاش بالوقت اللحظي
+    window.fetchAdminTickets = async function(force = false) {
+        if (isFetchingList || (currentTicketId && !force)) return;
+        isFetchingList = true;
 
         const container = document.getElementById('tickets-container');
         try {
-            const response = await fetch('/api/admin-chat/tickets', {
-                headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
+            const response = await fetch(`/api/admin-chat/tickets?_t=${Date.now()}`, {
+                method: 'GET',
+                headers: getAuthHeaders(false),
+                cache: 'no-store'
             });
-            
+
             let data = {};
             try {
                 data = await response.json();
@@ -39,36 +58,50 @@
             if (data.success) {
                 allTickets = data.tickets || [];
                 updateUnreadBadge(allTickets);
-                filterTickets();
-            } else if (container) {
+                if (!currentTicketId) {
+                    filterTickets();
+                }
+            } else if (container && !currentTicketId) {
                 const errorText = data.message || data.error || 'حدث خطأ غير معروف في الاتصال';
                 container.innerHTML = `<p style="color:#ef4444; text-align:center;">${escapeHtml(errorText)}</p>`;
             }
         } catch (e) {
-            if (container && allTickets.length === 0) {
+            if (container && allTickets.length === 0 && !currentTicketId) {
                 container.innerHTML = `<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر (${escapeHtml(e.message || 'خطأ شبكة')})</p>`;
             }
         } finally {
-            isFetching = false;
+            isFetchingList = false;
         }
     };
 
-    // جلب تذكرة واحدة أثناء فتح المحادثة
-    async function fetchSingleActiveTicket() {
-        if (!currentTicketId || isFetching) return;
-        isFetching = true;
+    // جلب التذكرة النشطة فوراً أثناء فتح المحادثة (Real-Time Sync)
+    async function fetchSingleActiveTicket(forceRender = false) {
+        if (!currentTicketId || isFetchingTicket) return;
+        isFetchingTicket = true;
 
         try {
-            const response = await fetch(`/api/admin-chat/ticket/${encodeURIComponent(currentTicketId)}`, {
-                headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
+            const response = await fetch(`/api/admin-chat/ticket/${encodeURIComponent(currentTicketId)}?_t=${Date.now()}`, {
+                method: 'GET',
+                headers: getAuthHeaders(false),
+                cache: 'no-store'
             });
             const data = await response.json();
 
             if (data.success && data.ticket) {
                 const ticket = data.ticket;
                 const msgs = ticket.messages || [];
+                const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+                const currentSignature = `${msgs.length}_${lastMsg ? lastMsg.timestamp + '_' + lastMsg.text : ''}`;
 
-                if (msgs.length !== lastMsgCount) {
+                // تحديث القائمة المحلية أيضاً
+                const idx = allTickets.findIndex(t => t.ticket_id === ticket.ticket_id);
+                if (idx !== -1) {
+                    allTickets[idx] = ticket;
+                } else {
+                    allTickets.unshift(ticket);
+                }
+
+                if (forceRender || currentSignature !== lastMsgSignature) {
                     renderChatMessages(msgs);
                     if (ticket.has_unread_admin || ticket.last_sender === 'user') {
                         markTicketAsReadSilent(currentTicketId);
@@ -77,7 +110,7 @@
             }
         } catch (e) {
         } finally {
-            isFetching = false;
+            isFetchingTicket = false;
         }
     }
 
@@ -85,10 +118,7 @@
         try {
             await fetch('/api/admin-chat/mark_read', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || ""
-                },
+                headers: getAuthHeaders(true),
                 body: JSON.stringify({ ticket_id: ticketId })
             });
         } catch (e) {}
@@ -97,7 +127,7 @@
     function updateUnreadBadge(tickets) {
         const badge = document.getElementById('unread-count-badge');
         if (!badge) return;
-        
+
         const unreadCount = tickets.filter(t => (t.has_unread_admin || t.last_sender === 'user') && t.status !== 'closed').length;
         if (unreadCount > 0) {
             badge.innerText = `${unreadCount} غير مقروء`;
@@ -157,6 +187,8 @@
             const safeFirstName = escapeHtml(info.first_name || 'مستخدم');
             const safeUsername = escapeHtml(info.username || 'بدون');
             const safeTicketId = escapeHtml(t.ticket_id);
+            const msgs = t.messages || [];
+            const lastMsgText = msgs.length > 0 ? escapeHtml(String(msgs[msgs.length - 1].text || '').slice(0, 60)) : '';
 
             html += `
                 <div onclick="openAdminChat('${safeTicketId}')" style="background: #1f2330; ${cardBorder} padding: 12px; border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s;">
@@ -166,9 +198,10 @@
                         </strong>
                         ${statusBadge}
                     </div>
+                    ${lastMsgText ? `<div style="font-size:11px; color:#cbd5e1; margin-top:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${lastMsgText}</div>` : ''}
                     <div style="font-size: 11px; color:#94a3b8; margin-top:6px; display:flex; justify-content:space-between;">
                         <span>كود التذكرة: <b style="color:#f59e0b;">#${safeTicketId}</b></span>
-                        <span>الرسائل: ${(t.messages || []).length}</span>
+                        <span>الرسائل: ${msgs.length}</span>
                     </div>
                 </div>
             `;
@@ -179,9 +212,12 @@
     window.openAdminChat = async function(ticketId) {
         currentTicketId = ticketId;
         const ticket = allTickets.find(t => t.ticket_id === ticketId);
-        
+
         markTicketAsReadSilent(ticketId);
-        if (ticket) ticket.has_unread_admin = false;
+        if (ticket) {
+            ticket.has_unread_admin = false;
+            ticket.last_sender = 'admin';
+        }
         updateUnreadBadge(allTickets);
 
         document.getElementById('tickets-list-section').style.display = 'none';
@@ -191,18 +227,19 @@
             const info = ticket.user_info || {};
             document.getElementById('chat-user-name').innerText = `${info.first_name || 'مستخدم'} (@${info.username || 'بدون'})`;
             document.getElementById('chat-ticket-id').innerText = `رقم التذكرة: #${ticket.ticket_id}`;
-            lastMsgCount = 0;
+            lastMsgSignature = "";
             renderChatMessages(ticket.messages || []);
         }
 
-        fetchSingleActiveTicket();
+        await fetchSingleActiveTicket(true);
     };
 
     function renderChatMessages(messages) {
         const box = document.getElementById('admin-chat-box');
         if (!box) return;
 
-        lastMsgCount = messages.length;
+        const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+        lastMsgSignature = `${messages.length}_${lastMsg ? lastMsg.timestamp + '_' + lastMsg.text : ''}`;
         box.innerHTML = '';
 
         if (messages.length === 0) {
@@ -219,11 +256,13 @@
                 border-radius: 12px;
                 font-size: 13px;
                 line-height: 1.4;
+                margin-bottom: 6px;
                 align-self: ${isAdmin ? 'flex-end' : 'flex-start'};
                 background: ${isAdmin ? '#f59e0b' : '#2d3345'};
                 color: ${isAdmin ? '#000' : '#fff'};
                 border-bottom-${isAdmin ? 'right' : 'left'}-radius: 2px;
                 white-space: pre-wrap;
+                word-break: break-word;
             `;
             div.innerText = m.text || '';
             box.appendChild(div);
@@ -233,54 +272,68 @@
 
     window.closeChatView = function() {
         currentTicketId = null;
-        lastMsgCount = 0;
+        lastMsgSignature = "";
         document.getElementById('chat-view-section').style.display = 'none';
         document.getElementById('tickets-list-section').style.display = 'block';
-        fetchAdminTickets();
+        fetchAdminTickets(true);
     };
 
     window.sendAdminReply = async function() {
         if (isSendingReply) return;
 
         const input = document.getElementById('admin-reply-input');
-        const text = input.value.trim();
+        const text = input ? input.value.trim() : '';
         if (!text || !currentTicketId) return;
 
         isSendingReply = true;
         input.value = '';
 
+        // إظهار الرسالة لحظياً في الواجهة قبل انتظار السيرفر (Optimistic Instant Render)
+        const activeTicket = allTickets.find(t => t.ticket_id === currentTicketId);
+        const optimisticMsg = {
+            sender: 'admin',
+            text: text,
+            timestamp: new Date().toISOString()
+        };
+        if (activeTicket) {
+            activeTicket.messages = activeTicket.messages || [];
+            activeTicket.messages.push(optimisticMsg);
+            renderChatMessages(activeTicket.messages);
+        }
+
         try {
             const res = await fetch('/api/admin-chat/reply', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || ""
-                },
+                headers: getAuthHeaders(true),
                 body: JSON.stringify({ ticket_id: currentTicketId, text: text })
             });
             const data = await res.json();
             if (data.success) {
-                fetchSingleActiveTicket();
+                if (data.ticket && data.ticket.messages) {
+                    renderChatMessages(data.ticket.messages);
+                } else {
+                    await fetchSingleActiveTicket(true);
+                }
             } else {
                 alert("خطأ: " + (data.message || data.error || "فشل الإرسال"));
+                await fetchSingleActiveTicket(true);
             }
         } catch (e) {
             alert("فشل الإرسال بسبب خطأ في الاتصال");
+            await fetchSingleActiveTicket(true);
         } finally {
             isSendingReply = false;
+            if (input) input.focus();
         }
     };
 
     window.closeCurrentTicket = async function() {
-        if (!currentTicketId || !confirm("هل أنت تأكد من إغلاق التذكرة؟")) return;
+        if (!currentTicketId || !confirm("هل أنت متأكد من إغلاق التذكرة؟")) return;
 
         try {
             const res = await fetch('/api/admin-chat/close', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || ""
-                },
+                headers: getAuthHeaders(true),
                 body: JSON.stringify({ ticket_id: currentTicketId })
             });
             const data = await res.json();
@@ -294,23 +347,30 @@
         }
     };
 
+    // دعم الإرسال بزر Enter في حقل كتابة الأدمن
+    document.addEventListener('keydown', function(e) {
+        if (e.target && e.target.id === 'admin-reply-input' && e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            window.sendAdminReply();
+        }
+    });
+
+    // تحديث لحظي سريع كل 1.5 ثانية داخل المحادثة وكل 3 ثوانٍ للقائمة
     function startSmartPolling() {
         if (adminPollInterval) clearInterval(adminPollInterval);
-        
+
         adminPollInterval = setInterval(() => {
             if (document.visibilityState !== 'visible') return;
 
             tickCounter++;
             if (currentTicketId) {
                 fetchSingleActiveTicket();
-            } else {
-                if (tickCounter % 3 === 0) {
-                    fetchAdminTickets();
-                }
+            } else if (tickCounter % 2 === 0) {
+                fetchAdminTickets();
             }
-        }, 3000);
+        }, 1500);
     }
 
-    fetchAdminTickets();
+    fetchAdminTickets(true);
     startSmartPolling();
 })();
