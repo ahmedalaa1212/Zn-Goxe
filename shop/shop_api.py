@@ -35,7 +35,7 @@ PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 TON_SAFETY_MARGIN = 1.03  # إضافة 3% على الكمية المطلوبة كحماية
 
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
-CACHE_TTL_TON = 15  # كاش لمدة 15 ثانية فقط لسعر TON لمنع بطء الاتصال
+CACHE_TTL_TON = 15  # كاش لمدة 15 ثانية فقط لسعر TON الخارجي لمنع بطء الاتصال
 
 _LAST_PENDING_CHECK_TS = 0
 _PENDING_LOCK = threading.Lock()
@@ -147,12 +147,14 @@ def _is_tx_already_processed(tx_hash: str) -> bool:
 def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=None, created_after_ts=None):
     """
     التحقق الفعلي الصارم من وصول المعاملة على شبكة TON عبر TonCenter API.
-    لا يتم قبول أي معاملة إلا إذا ثبت وجودها فعلياً على البلوكشين وبنفس القيمة المطلوبة
-    وبمطابقة صريحة للـ payload_memo الخاص بالمستخدم أو الـ tx_hash الفعلي.
+    يشترط تطابق الـ expected_memo الخاص بالمستخدم والباقة بشكل إلزامي لمنع سرقة المعاملات.
     """
     headers = {'User-Agent': 'Mozilla/5.0'}
     min_nano_ton = int(min_nano_ton or 0)
-    if min_nano_ton <= 0:
+    clean_expected_memo = str(expected_memo or "").strip()
+
+    # منع قبول أي تحقق بدون Memo فريد مرتبط بالمستخدم والباقة
+    if min_nano_ton <= 0 or not clean_expected_memo:
         return False, None
 
     if not tx_hash and not is_valid_ton_boc(boc):
@@ -185,18 +187,22 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
                     if not val_ok:
                         continue
 
-                    # مطابقة صارمة وحصرية عبر الميمو الفريد للطلب أو الهاش الفعلي للمعاملة
-                    hash_match = bool(
-                        tx_hash and len(tx_hash) >= 16 and (
+                    # مطابقة إلزامية للميمو الفريد الخاص بالمستخدم والباقة
+                    memo_match = (clean_expected_memo == msg_memo) or (clean_expected_memo in msg_memo)
+                    if not memo_match:
+                        continue
+
+                    # إذا تم إرسال tx_hash صريح، نتحقق من تطابقه أيضاً
+                    if tx_hash and len(tx_hash) >= 16:
+                        hash_match = (
                             tx_hash.lower() == msg_hash.lower()
                             or (in_msg_hash and tx_hash.lower() == in_msg_hash.lower())
                         )
-                    )
-                    memo_match = bool(expected_memo and expected_memo in msg_memo)
+                        if not hash_match:
+                            continue
 
-                    if hash_match or memo_match:
-                        if not _is_tx_already_processed(msg_hash):
-                            return True, msg_hash
+                    if not _is_tx_already_processed(msg_hash):
+                        return True, msg_hash
 
     except Exception as e:
         print(f"⚠️ [TonCenter Verification Warning]: {e}")
@@ -224,7 +230,7 @@ def check_and_reconcile_pending_payments(target_tg_id=None):
         pending_rows = get_pending_ton_payments(tg_id=target_tg_id, limit=15)
 
         for row in pending_rows:
-            if not row.get("boc_hash"):
+            if not row.get("boc_hash") or not row.get("payload_memo"):
                 continue
 
             created_dt = row.get("created_at")
@@ -264,19 +270,20 @@ def check_and_reconcile_pending_payments(target_tg_id=None):
 
 @shop_bp.route('/get_config', methods=['GET', 'POST'])
 def get_config():
-    """مسار جلب الباقات والبيانات الحية للاعب لعرضها فوراً بدون إعادة تحميل"""
+    """مسار جلب الباقات والبيانات الحية للاعب مباشرة من Supabase لعرض أي تعديل لحظياً"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(
             request, is_post=(request.method == 'POST')
         )
 
-        if success and user_id and (time.time() - _LAST_PENDING_CHECK_TS >= 8):
+        if success and user_id and (time.time() - _LAST_PENDING_CHECK_TS >= 10):
             threading.Thread(
                 target=check_and_reconcile_pending_payments,
                 args=(str(user_id),),
                 daemon=True
             ).start()
 
+        # جلب أحدث الإعدادات وبيانات اللاعب مباشرة من Supabase بدون أي كاش
         settings = get_shop_catalog(tg_id=user_id if success else None)
         raw_ton_price = get_cached_ton_price()
 
@@ -315,9 +322,15 @@ def get_config():
         response = jsonify({
             "success": True,
             "settings": settings,
+            "mining_config": settings.get("mining_config", {}),
+            "upgrade_config": settings.get("upgrade_config", {}),
+            "storage_config": settings.get("storage_config", {}),
+            "storage_capacities": settings.get("storage_capacities", {}),
             "ton_price_usd": raw_ton_price,
             "packages": packages_with_ton,
-            "user_state": user_state
+            "usdt_packages": packages_with_ton,
+            "user_state": user_state,
+            "server_time": int(time.time())
         })
 
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
@@ -341,7 +354,7 @@ def prepare_ton_pay():
             return error_res
 
         data = request.get_json() or {}
-        pkg_id = str(data.get('package_id'))
+        pkg_id = str(data.get('package_id') or "").strip()
 
         settings = get_shop_catalog()
         packages = settings.get('packages', {})
@@ -359,13 +372,18 @@ def prepare_ton_pay():
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
         boc_comment_payload = encode_ton_comment_boc(memo_payload)
 
-        create_pending_ton_payment(
+        if not boc_comment_payload:
+            return jsonify({"success": False, "error": "تعذر تشفير معرف المعاملة (Memo)، يرجى المحاولة مرة أخرى."}), 200
+
+        created_ok = create_pending_ton_payment(
             tg_id=user_id,
             package_id=pkg_id,
             usdt_price=usd_val,
             expected_nano_ton=nano_ton,
             payload_memo=memo_payload
         )
+        if not created_ok:
+            return jsonify({"success": False, "error": "تعذر تسجيل طلب الدفع، يرجى المحاولة مرة أخرى."}), 200
 
         return jsonify({
             "success": True,
@@ -375,7 +393,7 @@ def prepare_ton_pay():
             "nano_ton": str(nano_ton),
             "recipient_address": PROJECT_TON_WALLET,
             "payload_memo": memo_payload,
-            "payload": boc_comment_payload or None
+            "payload": boc_comment_payload
         }), 200
 
     except Exception as e:
@@ -390,13 +408,21 @@ def verify_and_apply_package():
             return error_res
 
         data = request.get_json() or {}
-        pkg_key = str(data.get('package_id') or "")
+        pkg_key = str(data.get('package_id') or "").strip()
         raw_boc = str(data.get('boc') or "").strip()
         tx_hash = str(data.get('tx_hash') or data.get('hash') or "").strip()
         payload_memo = str(data.get('payload_memo') or data.get('memo') or "").strip()
 
-        if not pkg_key:
-            return jsonify({"success": False, "error": "بيانات الباقة غير مكتملة."}), 200
+        if not pkg_key or not payload_memo:
+            return jsonify({"success": False, "error": "بيانات الباقة أو معرف الدفع (Memo) غير مكتملة."}), 200
+
+        # التحقق الصارم من أن الميمو يخص نفس الباقة ونفس المستخدم لمنع التلاعب بالأسعار
+        expected_prefix = f"BUY_{pkg_key}_USER_{user_id}_"
+        if not payload_memo.startswith(expected_prefix):
+            return jsonify({
+                "success": False,
+                "error": "⛔ تلاعب أمني: معرف الدفع لا يطابق هذه الباقة أو هذا الحساب!"
+            }), 403
 
         if not tx_hash and not is_valid_ton_boc(raw_boc):
             return jsonify({
@@ -414,23 +440,19 @@ def verify_and_apply_package():
             tg_id=user_id,
             package_id=pkg_key,
             boc=raw_boc,
-            payload_memo=payload_memo or None
+            payload_memo=payload_memo
         )
 
-        if pending_record and int(pending_record.get("expected_nano_ton", 0)) > 0:
-            expected_nano = int(pending_record["expected_nano_ton"])
-            if not payload_memo:
-                payload_memo = str(pending_record.get("payload_memo") or "")
-            created_dt = pending_record.get("created_at")
-            created_ts = int(created_dt.timestamp()) if isinstance(created_dt, datetime) else None
-        else:
-            pkg_info = packages[pkg_key]
-            usd_val = float(pkg_info.get('usdt') or pkg_info.get('cost_usd') or 0.0)
-            raw_ton_price = get_cached_ton_price()
-            base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
-            expected_ton = max(0.0001, round(base_ton * TON_SAFETY_MARGIN, 4))
-            expected_nano = int(round(expected_ton * 1000000000))
-            created_ts = int(time.time()) - 120
+        if not pending_record or int(pending_record.get("expected_nano_ton", 0)) <= 0:
+            return jsonify({
+                "success": False,
+                "error": "⚠️ لم يتم العثور على طلب دفع نشط مطابق لهذه الباقة."
+            }), 200
+
+        expected_nano = int(pending_record["expected_nano_ton"])
+        payload_memo = str(pending_record.get("payload_memo") or payload_memo)
+        created_dt = pending_record.get("created_at")
+        created_ts = int(created_dt.timestamp()) if isinstance(created_dt, datetime) else (int(time.time()) - 300)
 
         verified_ok = False
         confirmed_tx_hash = None
@@ -516,6 +538,13 @@ def buy_upgrade():
 @shop_bp.route('/clear_cache', methods=['POST'])
 def clear_cache():
     try:
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
+
+        if not database.is_admin_or_mod(str(user_id)):
+            return jsonify({"success": False, "error": "⛔ غير مصرح: هذا الإجراء مخصص للإدارة فقط."}), 403
+
         invalidate_shop_cache()
         return jsonify({"success": True, "message": "تم تفريغ كاش المتجر بنجاح."}), 200
     except Exception as e:
