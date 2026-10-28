@@ -182,6 +182,17 @@ def _parse_json_field(field_val, default=None):
     return copy.deepcopy(default)
 
 
+def _is_user_row_banned(user_row: dict) -> bool:
+    """فحص داخلي سريع لحالة الحظر داخل صف المستخدم"""
+    if not isinstance(user_row, dict):
+        return False
+    return bool(
+        user_row.get("is_banned")
+        or user_row.get("banned")
+        or str(user_row.get("status") or "").lower() == "banned"
+    )
+
+
 def ensure_pending_payments_table():
     try:
         with get_db_connection() as conn:
@@ -210,6 +221,13 @@ def ensure_pending_payments_table():
 def create_pending_ton_payment(tg_id, package_id, usdt_price, expected_nano_ton, payload_memo):
     try:
         ensure_pending_payments_table()
+        str_uid = str(tg_id).strip()
+        str_pkg = str(package_id).strip()
+        clean_memo = str(payload_memo or "").strip()
+
+        if not str_uid or not str_pkg or not clean_memo:
+            return False
+
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -219,11 +237,11 @@ def create_pending_ton_payment(tg_id, package_id, usdt_price, expected_nano_ton,
                     ON CONFLICT (payload_memo) DO NOTHING;
                     """,
                     (
-                        str(tg_id),
-                        str(package_id),
+                        str_uid,
+                        str_pkg,
                         float(usdt_price or 0.0),
                         int(expected_nano_ton or 0),
-                        str(payload_memo).strip(),
+                        clean_memo,
                     ),
                 )
         return True
@@ -233,29 +251,45 @@ def create_pending_ton_payment(tg_id, package_id, usdt_price, expected_nano_ton,
 
 
 def attach_boc_to_pending_payment(tg_id, package_id, boc, payload_memo=None):
+    """
+    ربط الـ BOC بطلب الدفع المعلق مع التحقق الصارم من تطابق (tg_id, package_id, payload_memo)
+    لمنع ثغرة الدفع لباقة رخيصة وتفعيل باقة أغلى.
+    """
     try:
         ensure_pending_payments_table()
         boc_hash = _normalize_tx_identifier(boc=boc)
-        if not boc_hash:
+        str_uid = str(tg_id).strip()
+        str_pkg = str(package_id).strip()
+        clean_memo = str(payload_memo or "").strip()
+
+        if not str_uid or not str_pkg:
+            return None
+
+        expected_prefix = f"BUY_{str_pkg}_USER_{str_uid}_"
+        if clean_memo and not clean_memo.startswith(expected_prefix):
+            logger.error(f"🚨 [Security] محاولة تلاعب بالميمو: {clean_memo} لا يطابق {expected_prefix}")
             return None
 
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                if payload_memo:
+                if clean_memo:
                     cur.execute(
                         """
                         UPDATE pending_ton_payments
-                        SET boc_hash = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE payload_memo = %s AND tg_id = %s
+                        SET boc_hash = COALESCE(%s, boc_hash), updated_at = CURRENT_TIMESTAMP
+                        WHERE payload_memo = %s
+                          AND tg_id = %s
+                          AND package_id = %s
+                          AND status = 'pending'
                         RETURNING *;
                         """,
-                        (boc_hash, str(payload_memo).strip(), str(tg_id)),
+                        (boc_hash or None, clean_memo, str_uid, str_pkg),
                     )
                 else:
                     cur.execute(
                         """
                         UPDATE pending_ton_payments
-                        SET boc_hash = %s, updated_at = CURRENT_TIMESTAMP
+                        SET boc_hash = COALESCE(%s, boc_hash), updated_at = CURRENT_TIMESTAMP
                         WHERE id = (
                             SELECT id FROM pending_ton_payments
                             WHERE tg_id = %s AND package_id = %s AND status = 'pending'
@@ -263,7 +297,7 @@ def attach_boc_to_pending_payment(tg_id, package_id, boc, payload_memo=None):
                         )
                         RETURNING *;
                         """,
-                        (boc_hash, str(tg_id), str(package_id)),
+                        (boc_hash or None, str_uid, str_pkg),
                     )
                 row = cur.fetchone()
                 return dict(row) if row else None
@@ -304,7 +338,7 @@ def get_pending_ton_payments(tg_id=None, limit=25):
 
 
 def get_shop_catalog(tg_id=None):
-    """جلب بيانات المتجر وبيانات اللاعب الحية مع تحويل آمن للقيم الفارغة وتواريخ user_state"""
+    """جلب بيانات المتجر وبيانات اللاعب الحية مباشرة من Supabase بدون كاش"""
     try:
         farm_settings = {}
         shop_settings = {}
@@ -323,17 +357,31 @@ def get_shop_catalog(tg_id=None):
                         shop_settings = _parse_json_field(row["value"], {})
 
                 if tg_id:
-                    cur.execute("SELECT * FROM users WHERE tg_id = %s LIMIT 1", (str(tg_id),))
+                    clean_uid = str(tg_id).strip()
+                    cur.execute(
+                        """
+                        SELECT * FROM users
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        LIMIT 1
+                        """,
+                        (clean_uid, clean_uid, clean_uid),
+                    )
                     u_row = cur.fetchone()
                     if u_row:
                         user_state = dict(u_row)
                         for k, v in list(user_state.items()):
                             if isinstance(v, datetime):
                                 user_state[k] = format_iso(v)
-                        user_state['balance'] = float(user_state.get('balance') or 0.0)
-                        user_state['ad_balance'] = float(user_state.get('ad_balance') or 0.0)
-                        user_state['usd_balance'] = float(user_state.get('usd_balance') or 0.0)
-                        user_state['znx_balance'] = float(user_state.get('znx_balance') or 0.0)
+                        user_state["balance"] = float(user_state.get("balance") or 0.0)
+                        user_state["ad_balance"] = float(user_state.get("ad_balance") or 0.0)
+                        user_state["usd_balance"] = float(user_state.get("usd_balance") or 0.0)
+                        user_state["znx_balance"] = float(user_state.get("znx_balance") or 0.0)
+                        user_state["hourly_rate"] = float(user_state.get("hourly_rate") or 0.10)
+                        user_state["max_cap"] = float(user_state.get("max_cap") or 0.5)
+                        user_state["extra_storage"] = float(user_state.get("extra_storage") or 0.0)
+                        user_state["storage_level"] = int(user_state.get("storage_level") or 0)
+                        user_state["upgrades"] = _parse_json_field(user_state.get("upgrades"), {})
+                        user_state["vip_status"] = _parse_json_field(user_state.get("vip_status"), {})
 
         mining_cfg = farm_settings.get("mining_config") or shop_settings.get("mining_config") or {}
         if not isinstance(mining_cfg, dict):
@@ -436,7 +484,7 @@ def get_shop_catalog(tg_id=None):
             "usdt_packages": usdt_pkgs,
             "ton_wallet": ton_wallet,
             "ton_usdt_rate": ton_usdt_rate,
-            "user_state": user_state
+            "user_state": user_state,
         }
     except Exception as e:
         logger.error(f"❌ Error in get_shop_catalog: {e}")
@@ -449,7 +497,7 @@ def get_shop_catalog(tg_id=None):
             "usdt_packages": copy.deepcopy(DEFAULT_USDT_PACKAGES),
             "ton_wallet": "",
             "ton_usdt_rate": 5.5,
-            "user_state": {}
+            "user_state": {},
         }
 
 
@@ -462,7 +510,7 @@ def get_user_vip_status(user_id):
         if not user_id:
             return {"is_active": False, "package_id": None, "remaining_seconds": 0}
 
-        str_uid = str(user_id)
+        str_uid = str(user_id).strip()
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT vip_status FROM users WHERE tg_id = %s", (str_uid,))
@@ -506,7 +554,7 @@ def get_user_vip_status(user_id):
 
 def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0, tx_hash=None, details=None):
     try:
-        str_uid = str(tg_id)
+        str_uid = str(tg_id).strip()
         safe_tx_h = _normalize_tx_identifier(tx_hash=tx_hash) or None
         details_obj = details if isinstance(details, dict) else {}
 
@@ -527,7 +575,7 @@ def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0,
                         VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (tx_hash) DO NOTHING;
                         """,
-                        (safe_tx_h, str_uid, str(tx_type), float(cost_zn or 0.0), float(cost_usd or 0.0), Json(details_obj)),
+                        (safe_tx_h, str_uid, str(tx_type), float(cost_zn or 0.0), float(cost_usd or 0.0), json.dumps(details_obj, ensure_ascii=False)),
                     )
         return True
     except Exception as e:
@@ -544,7 +592,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
         catalog = get_shop_catalog()
         mining_cfg = catalog.get("upgrade_config", {})
         global_max = int(catalog.get("mining_config", {}).get("max_upgrades_per_level") or 15)
-        lvl_str = str(upgrade_level)
+        lvl_str = str(upgrade_level).strip()
 
         if lvl_str not in mining_cfg:
             return False, "مستوى الترقية غير موجود في المتجر", {}
@@ -555,7 +603,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
         rate_bonus = float(item_info.get("rate_bonus") or item_info.get("rate") or 0.0)
         max_purchases = int(item_info.get("max") or item_info.get("max_limit") or global_max)
 
-        str_uid = str(tg_id)
+        str_uid = str(tg_id).strip()
         tx_ctx = get_db_transaction() if callable(get_db_transaction) else get_db_connection()
 
         with tx_ctx as conn:
@@ -567,9 +615,17 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                     return False, "المستخدم غير موجود", {}
 
                 user_data = dict(user_data)
+                if _is_user_row_banned(user_data):
+                    return False, "⛔ هذا الحساب محظور ولا يمكنه إجراء عمليات شراء.", {}
+
                 user_upgrades = _parse_json_field(user_data.get("upgrades"), {})
 
-                current_owned = int(user_upgrades.get(f"lvl{lvl_str}") ?? user_upgrades.get(lvl_str) ?? 0)
+                # إصلاح خطأ ?? البرمجي بطريقة بايثون القياسية الآمنة
+                raw_owned = user_upgrades.get(f"lvl{lvl_str}")
+                if raw_owned is None:
+                    raw_owned = user_upgrades.get(lvl_str, 0)
+                current_owned = int(raw_owned or 0)
+
                 if current_owned >= max_purchases:
                     return False, "وصلت للحد الأقصى لشراء هذه الترقية", {}
 
@@ -609,6 +665,9 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                 else:
                     new_last_claim_dt = now_dt
 
+                # توحيد المفتاح لمنع ازدواجية العد بين lvlX و X
+                if lvl_str in user_upgrades:
+                    user_upgrades.pop(lvl_str, None)
                 user_upgrades[f"lvl{lvl_str}"] = current_owned + 1
                 total_upgrades_cnt = sum(int(v) for v in user_upgrades.values() if isinstance(v, (int, float)))
 
@@ -666,7 +725,7 @@ def upgrade_storage_capacity(tg_id):
 
         catalog = get_shop_catalog()
         storage_cfg = catalog.get("storage_config", {})
-        str_uid = str(tg_id)
+        str_uid = str(tg_id).strip()
         tx_ctx = get_db_transaction() if callable(get_db_transaction) else get_db_connection()
 
         with tx_ctx as conn:
@@ -678,6 +737,9 @@ def upgrade_storage_capacity(tg_id):
                     return False, "المستخدم غير موجود", {}
 
                 user_data = dict(user_data)
+                if _is_user_row_banned(user_data):
+                    return False, "⛔ هذا الحساب محظور ولا يمكنه إجراء عمليات شراء.", {}
+
                 current_lvl = int(user_data.get("storage_level") or 0)
                 next_lvl_str = str(current_lvl + 1)
 
@@ -784,10 +846,21 @@ def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
 
 
 def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_memo=None):
-    """تفعيل باقات VIP عبر get_db_transaction لتوفير القفل الذري الحقيقي ومنع Race Condition"""
+    """
+    تفعيل باقات VIP عبر get_db_transaction لتوفير القفل الذري الحقيقي ومنع Race Condition
+    مع التحقق الجنائي من تطابق الباقة والمستخدم والميمو.
+    """
     try:
         if not tg_id or not package_id:
             return False, "بيانات غير صالحة", {}
+
+        str_uid = str(tg_id).strip()
+        pkg_key = str(package_id).strip()
+        clean_memo = str(payload_memo or "").strip()
+
+        expected_prefix = f"BUY_{pkg_key}_USER_{str_uid}_"
+        if not clean_memo or not clean_memo.startswith(expected_prefix):
+            return False, "⛔ معرف الدفع (Memo) غير صالح أو لا يطابق هذه الباقة.", {}
 
         tx_identifier = _normalize_tx_identifier(tx_hash=tx_hash, boc=boc)
         boc_hash = _normalize_tx_identifier(boc=boc) if boc else ""
@@ -797,7 +870,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
 
         catalog = get_shop_catalog()
         pkgs = catalog.get("packages", {})
-        pkg_key = str(package_id)
 
         if pkg_key not in pkgs:
             return False, "الباقة غير موجودة في المتجر", {}
@@ -818,13 +890,29 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
         usd_add = float(pkg_info.get("usd_add") or 0.0)
         pkg_price_usd = float(pkg_info.get("usdt") or pkg_info.get("cost_usd") or pkg_info.get("price") or 0.0)
 
-        str_uid = str(tg_id)
         ensure_pending_payments_table()
         tx_ctx = get_db_transaction() if callable(get_db_transaction) else get_db_connection()
 
         with tx_ctx as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                check_hashes = [h for h in {tx_identifier, boc_hash} if h]
+                # 1. التحقق من وجود طلب دفع معلق مطابق لنفس المستخدم ونفس الباقة ونفس الميمو
+                cur.execute(
+                    """
+                    SELECT * FROM pending_ton_payments
+                    WHERE payload_memo = %s AND tg_id = %s AND package_id = %s
+                    FOR UPDATE
+                    """,
+                    (clean_memo, str_uid, pkg_key),
+                )
+                pending_row = cur.fetchone()
+                if not pending_row:
+                    return False, "⛔ لم يتم العثور على طلب دفع مسجل مطابق لهذه الباقة.", {}
+
+                if str(pending_row.get("status") or "").lower() == "completed":
+                    return False, "تمت معالجة وتفعيل هذا الطلب سابقاً!", {}
+
+                # 2. التحقق من عدم معالجة الهاش أو الـ BOC سابقاً
+                check_hashes = [h for h in {tx_identifier, boc_hash, clean_memo} if h]
                 cur.execute(
                     "SELECT 1 FROM processed_txs WHERE tx_hash = ANY(%s)",
                     (check_hashes,),
@@ -834,12 +922,12 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
 
                 cur.execute(
                     """
-                    INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd)
-                    VALUES (%s, %s, %s, 'vip_package', %s)
+                    INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd, details)
+                    VALUES (%s, %s, %s, 'vip_package', %s, %s)
                     ON CONFLICT (tx_hash) DO NOTHING
                     RETURNING tx_hash;
                     """,
-                    (tx_identifier, str_uid, pkg_key, pkg_price_usd),
+                    (tx_identifier, str_uid, pkg_key, pkg_price_usd, clean_memo),
                 )
                 if not cur.fetchone():
                     return False, "تمت معالجة هذه العملية سابقاً!", {}
@@ -847,13 +935,14 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                 if boc_hash and boc_hash != tx_identifier:
                     cur.execute(
                         """
-                        INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd)
-                        VALUES (%s, %s, %s, 'vip_package_boc', %s)
+                        INSERT INTO processed_txs (tx_hash, tg_id, package_id, type, cost_usd, details)
+                        VALUES (%s, %s, %s, 'vip_package_boc', %s, %s)
                         ON CONFLICT (tx_hash) DO NOTHING;
                         """,
-                        (boc_hash, str_uid, pkg_key, pkg_price_usd),
+                        (boc_hash, str_uid, pkg_key, pkg_price_usd, clean_memo),
                     )
 
+                # 3. قفل صف المستخدم والتحقق من عدم حظره
                 cur.execute("SELECT * FROM users WHERE tg_id = %s FOR UPDATE", (str_uid,))
                 user_data = cur.fetchone()
 
@@ -861,6 +950,8 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                     raise ValueError("المستخدم غير موجود")
 
                 user_data = dict(user_data)
+                if _is_user_row_banned(user_data):
+                    raise ValueError("هذا الحساب محظور لمخالفة القوانين")
 
                 current_balance = float(user_data.get("balance") or 0.0)
                 current_usd = float(user_data.get("usd_balance") or 0.0)
@@ -955,24 +1046,14 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                     (new_balance, new_usd, new_rate, new_extra_storage, new_max_cap, new_last_claim_dt, Json(new_vip_status), auto_bot, new_expires_dt, str_uid),
                 )
 
-                if payload_memo:
-                    cur.execute(
-                        """
-                        UPDATE pending_ton_payments
-                        SET status = 'completed', tx_hash = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE payload_memo = %s;
-                        """,
-                        (tx_identifier, str(payload_memo).strip()),
-                    )
-                elif boc_hash:
-                    cur.execute(
-                        """
-                        UPDATE pending_ton_payments
-                        SET status = 'completed', tx_hash = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE boc_hash = %s AND tg_id = %s;
-                        """,
-                        (tx_identifier, boc_hash, str_uid),
-                    )
+                cur.execute(
+                    """
+                    UPDATE pending_ton_payments
+                    SET status = 'completed', tx_hash = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE payload_memo = %s AND tg_id = %s AND package_id = %s;
+                    """,
+                    (tx_identifier, clean_memo, str_uid, pkg_key),
+                )
 
                 updated_fields = {
                     "balance": new_balance,
@@ -983,10 +1064,18 @@ def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None, payload_
                     "last_claim_time": format_iso(new_last_claim_dt),
                     "vip_status": new_vip_status,
                     "is_vip": True,
-                    "vip_active": True
+                    "vip_active": True,
                 }
 
-        log_purchase_transaction(tg_id, "vip_package", pkg_key, 0.0, pkg_price_usd, tx_identifier, details={"payload_memo": payload_memo, "boc_hash": boc_hash})
+        log_purchase_transaction(
+            tg_id,
+            "vip_package",
+            pkg_key,
+            0.0,
+            pkg_price_usd,
+            tx_identifier,
+            details={"payload_memo": clean_memo, "boc_hash": boc_hash},
+        )
         return True, "تم تفعيل الباقة بنجاح!", updated_fields
 
     except Exception as e:
@@ -999,7 +1088,7 @@ def get_user_purchase_history(tg_id, limit=20):
         if not tg_id:
             return []
 
-        str_uid = str(tg_id)
+        str_uid = str(tg_id).strip()
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
