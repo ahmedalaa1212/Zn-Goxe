@@ -72,8 +72,8 @@ def get_cached_ton_price():
 
 def encode_ton_comment_boc(comment_text: str) -> str:
     """
-    تحويل نص الـ Memo إلى خلية BOC قياسية بصيغة Base64 متوافقة مع TonConnect
-    بحيث يتم تسجيل الـ Memo فعلياً داخل البلوكشين عند الدفع.
+    تحويل نص الـ Memo إلى خلية BOC قياسية مدعومة بتدقيق CRC32C بصيغة Base64
+    متوافقة مع كافة محافظ TonConnect لضمان تسجيل الـ Memo فعلياً داخل البلوكشين عند الدفع.
     """
     try:
         if not comment_text:
@@ -85,7 +85,7 @@ def encode_ton_comment_boc(comment_text: str) -> str:
 
         boc_header = bytes([
             0xB5, 0xEE, 0x9C, 0x72,  # serialized_boc magic
-            0x01,                    # has_idx=0, has_crc32c=0, flags=0, size_bytes=1
+            0x41,                    # has_idx=0, has_crc32c=1 (0x40), flags=0, size_bytes=1
             0x01,                    # off_bytes=1
             0x01,                    # cells=1
             0x01,                    # roots=1
@@ -93,7 +93,17 @@ def encode_ton_comment_boc(comment_text: str) -> str:
             len(cell_bytes),         # tot_cells_size
             0x00                     # root_list=[0]
         ])
-        return base64.b64encode(boc_header + cell_bytes).decode("ascii")
+        boc_without_crc = boc_header + cell_bytes
+
+        crc = 0xFFFFFFFF
+        for b in boc_without_crc:
+            crc ^= b
+            for _ in range(8):
+                crc = ((crc >> 1) ^ 0x82F63B78) if (crc & 1) else (crc >> 1)
+        crc = (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF
+
+        final_boc = boc_without_crc + crc.to_bytes(4, byteorder="little")
+        return base64.b64encode(final_boc).decode("ascii")
     except Exception as e:
         print(f"⚠️ [BOC Comment Encode Warning]: {e}")
         return ""
@@ -110,12 +120,10 @@ def is_valid_ton_boc(boc_str: str) -> bool:
     if len(clean_boc) < 32 or clean_boc.startswith("TX_"):
         return False
     try:
-        # إضافة حشو Base64 إن لزم الأمر
         padded = clean_boc + "=" * (-len(clean_boc) % 4)
         raw_bytes = base64.b64decode(padded)
         if len(raw_bytes) < 12:
             return False
-        # التحقق من الـ Magic Bytes القياسية لـ TON BOC
         magic = raw_bytes[:4].hex().lower()
         return magic in ("b5ee9c72", "68ff65f3", "acc3a728")
     except Exception:
@@ -139,19 +147,18 @@ def _is_tx_already_processed(tx_hash: str) -> bool:
 def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=None, created_after_ts=None):
     """
     التحقق الفعلي الصارم من وصول المعاملة على شبكة TON عبر TonCenter API.
-    لا يتم قبول أي معاملة إلا إذا ثبت وجودها فعلياً على البلوكشين وبنفس القيمة المطلوبة.
+    لا يتم قبول أي معاملة إلا إذا ثبت وجودها فعلياً على البلوكشين وبنفس القيمة المطلوبة
+    وبمطابقة صريحة للـ payload_memo الخاص بالمستخدم أو الـ tx_hash الفعلي.
     """
     headers = {'User-Agent': 'Mozilla/5.0'}
     min_nano_ton = int(min_nano_ton or 0)
     if min_nano_ton <= 0:
         return False, None
 
-    # رفض فوري إذا لم يكن هناك لا tx_hash ولا BOC حقيقي
     if not tx_hash and not is_valid_ton_boc(boc):
         return False, None
 
     now_ts = int(time.time())
-    # نافذة زمنية آمنة للمعاملات الحديثة (آخر 20 دقيقة إذا لم يحدد وقت الإنشاء)
     min_utime = int(created_after_ts - 90) if created_after_ts else (now_ts - 1200)
 
     try:
@@ -164,27 +171,25 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
                     in_msg = tx.get('in_msg', {})
                     val = int(in_msg.get('value', 0))
                     tx_utime = int(tx.get('utime', 0))
-                    msg_hash = tx.get('transaction_id', {}).get('hash', '')
-                    in_msg_hash = in_msg.get('hash', '')
+                    msg_hash = str(tx.get('transaction_id', {}).get('hash', '')).strip()
+                    in_msg_hash = str(in_msg.get('hash', '')).strip()
 
-                    if not msg_hash or val <= 0:
+                    if not msg_hash or val <= 0 or tx_utime < min_utime:
                         continue
 
-                    # استخراج الميمو من الرسالة الواردة
                     decoded_body = in_msg.get('decoded_body') if isinstance(in_msg.get('decoded_body'), dict) else {}
-                    msg_memo = str(in_msg.get('message', '') or decoded_body.get('text', '') or '')
+                    msg_memo = str(in_msg.get('message', '') or decoded_body.get('text', '') or '').strip()
 
                     # التحقق من القيمة المالية (مع هامش سماح 5% لتقلبات الكسور)
                     val_ok = val >= int(min_nano_ton * 0.95)
                     if not val_ok:
                         continue
 
-                    # 1. مطابقة مباشرة عبر الميمو أو الهاش
+                    # مطابقة صارمة وحصرية عبر الميمو الفريد للطلب أو الهاش الفعلي للمعاملة
                     hash_match = bool(
-                        tx_hash and (
-                            tx_hash.lower() in msg_hash.lower()
-                            or msg_hash.lower() in tx_hash.lower()
-                            or (in_msg_hash and tx_hash.lower() in in_msg_hash.lower())
+                        tx_hash and len(tx_hash) >= 16 and (
+                            tx_hash.lower() == msg_hash.lower()
+                            or (in_msg_hash and tx_hash.lower() == in_msg_hash.lower())
                         )
                     )
                     memo_match = bool(expected_memo and expected_memo in msg_memo)
@@ -193,17 +198,9 @@ def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=Non
                         if not _is_tx_already_processed(msg_hash):
                             return True, msg_hash
 
-                    # 2. مطابقة ذكية في حال قامت محفظة المستخدم بإرسال المعاملة بدون حقل التعليق
-                    # بشرط: أن يكون الـ BOC حقيقياً + المعاملة حديثة + نفس المبلغ المطلوب بالضبط + لم تُصرف من قبل
-                    if is_valid_ton_boc(boc) and not msg_memo and tx_utime >= min_utime:
-                        exact_val_match = int(min_nano_ton * 0.97) <= val <= int(min_nano_ton * 1.05)
-                        if exact_val_match and not _is_tx_already_processed(msg_hash):
-                            return True, msg_hash
-
     except Exception as e:
         print(f"⚠️ [TonCenter Verification Warning]: {e}")
 
-    # الحل الأمني الصارم (Anti-Cheat): عدم قبول أي معاملة غير مؤكدة من الشبكة
     return False, None
 
 
@@ -215,7 +212,6 @@ def check_and_reconcile_pending_payments(target_tg_id=None):
     global _LAST_PENDING_CHECK_TS
     now = time.time()
 
-    # منع الضغط الزائد على TonCenter (فحص مرة كل 6 ثوانٍ كحد أقصى في الخلفية)
     if not target_tg_id and (now - _LAST_PENDING_CHECK_TS < 6):
         return []
 
@@ -228,7 +224,6 @@ def check_and_reconcile_pending_payments(target_tg_id=None):
         pending_rows = get_pending_ton_payments(tg_id=target_tg_id, limit=15)
 
         for row in pending_rows:
-            # لا نفحص إلا المعاملات التي أرسل المستخدم لها BOC فعلي من المحفظة
             if not row.get("boc_hash"):
                 continue
 
@@ -275,7 +270,6 @@ def get_config():
             request, is_post=(request.method == 'POST')
         )
 
-        # تشغيل فحص خفيف غير معطل في الخلفية للمعاملات المعلقة إن وجدت
         if success and user_id and (time.time() - _LAST_PENDING_CHECK_TS >= 8):
             threading.Thread(
                 target=check_and_reconcile_pending_payments,
@@ -295,27 +289,27 @@ def get_config():
 
         sorted_pkgs = sorted(
             usdt_pkgs.items(),
-            key=lambda x: float(x[1].get('usdt', 0) if isinstance(x[1], dict) else 0)
+            key=lambda x: float((x[1].get('usdt') or 0.0) if isinstance(x[1], dict) else 0.0)
         )
 
         for pkg_id, pkg_info in sorted_pkgs:
             if not isinstance(pkg_info, dict):
                 continue
-            usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
+            usd_val = float(pkg_info.get('usdt') or pkg_info.get('cost_usd') or 0.0)
 
             base_ton_amount = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
             ton_needed = round(base_ton_amount * TON_SAFETY_MARGIN, 4)
 
             packages_with_ton[str(pkg_id)] = {
-                "title": str(pkg_info.get('title', f'باقة {pkg_id}')),
+                "title": str(pkg_info.get('title') or f'باقة {pkg_id}'),
                 "usdt": usd_val,
-                "duration_days": int(pkg_info.get('duration_days', 0)),
-                "features": pkg_info.get('features', {}),
-                "perks_text": pkg_info.get('perks_text', []),
+                "duration_days": int(pkg_info.get('duration_days') or 0),
+                "features": pkg_info.get('features') or {},
+                "perks_text": pkg_info.get('perks_text') or [],
                 "ton_amount": ton_needed,
-                "rate_add": float(pkg_info.get('rate_add', 0)),
-                "storage_add": float(pkg_info.get('storage_add', 0)),
-                "zn_add": float(pkg_info.get('zn_add', 0))
+                "rate_add": float(pkg_info.get('rate_add') or 0.0),
+                "storage_add": float(pkg_info.get('storage_add') or 0.0),
+                "zn_add": float(pkg_info.get('zn_add') or 0.0)
             }
 
         response = jsonify({
@@ -357,7 +351,7 @@ def prepare_ton_pay():
 
         pkg_info = packages[pkg_id]
         raw_ton_price = get_cached_ton_price()
-        usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
+        usd_val = float(pkg_info.get('usdt') or pkg_info.get('cost_usd') or 0.0)
 
         base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
         ton_amount = max(0.0001, round(base_ton * TON_SAFETY_MARGIN, 4))
@@ -365,7 +359,6 @@ def prepare_ton_pay():
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
         boc_comment_payload = encode_ton_comment_boc(memo_payload)
 
-        # حفظ العملية كـ Pending في قاعدة البيانات قبل فتح المحفظة لضمان ثبات السعر والميمو
         create_pending_ton_payment(
             tg_id=user_id,
             package_id=pkg_id,
@@ -405,7 +398,6 @@ def verify_and_apply_package():
         if not pkg_key:
             return jsonify({"success": False, "error": "بيانات الباقة غير مكتملة."}), 200
 
-        # التحقق الصارم من صحة الـ BOC لمنع إرسال أكواد وهمية
         if not tx_hash and not is_valid_ton_boc(raw_boc):
             return jsonify({
                 "success": False,
@@ -418,7 +410,6 @@ def verify_and_apply_package():
         if pkg_key not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 200
 
-        # ربط الـ BOC بالمعاملة المعلقة واسترجاع المبلغ المطلوب وقت إنشاء الطلب
         pending_record = attach_boc_to_pending_payment(
             tg_id=user_id,
             package_id=pkg_key,
@@ -434,14 +425,13 @@ def verify_and_apply_package():
             created_ts = int(created_dt.timestamp()) if isinstance(created_dt, datetime) else None
         else:
             pkg_info = packages[pkg_key]
-            usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
+            usd_val = float(pkg_info.get('usdt') or pkg_info.get('cost_usd') or 0.0)
             raw_ton_price = get_cached_ton_price()
             base_ton = (usd_val / raw_ton_price) if raw_ton_price > 0 else (usd_val / 1.38)
             expected_ton = max(0.0001, round(base_ton * TON_SAFETY_MARGIN, 4))
             expected_nano = int(round(expected_ton * 1000000000))
             created_ts = int(time.time()) - 120
 
-        # فحص الشبكة مع إعادة المحاولة (حتى 3 محاولات بفاصل 3 ثوانٍ) لإعطاء البلوكشين وقتاً لتأكيد المعاملة
         verified_ok = False
         confirmed_tx_hash = None
         for attempt in range(3):
@@ -458,7 +448,6 @@ def verify_and_apply_package():
                 time.sleep(3)
 
         if not verified_ok:
-            # المعاملة لم تظهر على TonCenter بعد، نبقيها Pending لتفحصها الواجهة أو السيرفر خلال ثوانٍ
             return jsonify({
                 "success": False,
                 "pending": True,
@@ -510,7 +499,6 @@ def buy_upgrade():
         )
 
         if apply_success:
-            # مزامنة ترقيات الصديق فوراً بعد الشراء من المتجر
             sync_friend_upgrades_db(str(user_id))
             return jsonify({
                 "success": True,
