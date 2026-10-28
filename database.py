@@ -83,9 +83,10 @@ def init_db_pool():
     global db_pool, _schema_initialized
     if db_pool is None or db_pool.closed:
         db_url = get_database_url()
+        max_conn = int(os.environ.get("DB_MAX_CONN", "35"))
         db_pool = pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=15,
+            minconn=2,
+            maxconn=max_conn,
             dsn=db_url,
             connect_timeout=5,
             keepalives=1,
@@ -93,7 +94,7 @@ def init_db_pool():
             keepalives_interval=10,
             keepalives_count=5
         )
-        print("⚡ [Supabase Pool] تم تأسيس بركة الاتصالات بنجاح!")
+        print(f"⚡ [Supabase Pool] تم تأسيس بركة الاتصالات بنجاح (Max: {max_conn})!")
 
         if not _schema_initialized:
             conn = None
@@ -515,7 +516,7 @@ def init_db_pool():
 
 @contextmanager
 def get_db_connection():
-    """مستلم اتصالات ذكي يفحص صلاحية الاتصال ويستبدله فوراً إذا أغلقته Supabase"""
+    """مستلم اتصالات ذكي يفحص صلاحية الاتصال ويضمن قراءة البيانات الحية فوراً (autocommit=True)"""
     pool_obj = init_db_pool()
     conn = pool_obj.getconn()
     broken = False
@@ -668,7 +669,7 @@ def log_admin_action(admin_name, details, user_id=None, action="admin_action", t
 
 
 def get_user(telegram_id):
-    """جلب بيانات المستخدم كاملة من Supabase"""
+    """جلب بيانات المستخدم كاملة ومحدثة لحظياً من Supabase"""
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
         return None
@@ -690,6 +691,24 @@ def get_user(telegram_id):
                     d['ad_balance'] = float(d.get('ad_balance') or 0.0)
                     d['usd_balance'] = float(d.get('usd_balance') or 0.0)
                     d['znx_balance'] = float(d.get('znx_balance') or 0.0)
+                    d['hourly_rate'] = float(d.get('hourly_rate') or 0.10)
+                    d['max_cap'] = float(d.get('max_cap') or 0.5)
+                    d['extra_storage'] = float(d.get('extra_storage') or 0.0)
+                    d['storage_level'] = int(d.get('storage_level') or 0)
+                    if isinstance(d.get('upgrades'), str):
+                        try:
+                            d['upgrades'] = json.loads(d['upgrades'])
+                        except Exception:
+                            d['upgrades'] = {}
+                    elif not isinstance(d.get('upgrades'), dict):
+                        d['upgrades'] = {}
+                    if isinstance(d.get('vip_status'), str):
+                        try:
+                            d['vip_status'] = json.loads(d['vip_status'])
+                        except Exception:
+                            d['vip_status'] = {}
+                    elif not isinstance(d.get('vip_status'), dict):
+                        d['vip_status'] = {}
                     return d
                 return None
     except Exception as e:
@@ -726,7 +745,7 @@ def get_user_balances(telegram_id):
 
 
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
-    """إنشاء مستخدم جديد أو تحديث بياناته وربط الإحالة تلقائياً في جدولي users و user_friends"""
+    """إنشاء مستخدم جديد أو تحديث بياناته وربط الإحالة ذرياً في جدولي users و user_friends"""
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
         return {}
@@ -736,14 +755,27 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
     safe_name = str(first_name or 'لاعب').strip()[:100]
 
     try:
-        existing = get_user(clean_id)
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
+        with get_db_transaction() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT tg_id, ref_by, referred_by, upgrades_count
+                    FROM users
+                    WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                    LIMIT 1
+                    FOR UPDATE
+                """, (clean_id, clean_id, clean_id))
+                existing = cur.fetchone()
+
                 if not existing:
                     if clean_ref:
                         cur.execute("SELECT ref_by, referred_by, is_banned, banned FROM users WHERE tg_id = %s LIMIT 1", (clean_ref,))
                         ref_row = cur.fetchone()
-                        if ref_row and (ref_row[0] == clean_id or ref_row[1] == clean_id or ref_row[2] or ref_row[3]):
+                        if ref_row and (
+                            ref_row.get("ref_by") == clean_id
+                            or ref_row.get("referred_by") == clean_id
+                            or ref_row.get("is_banned")
+                            or ref_row.get("banned")
+                        ):
                             clean_ref = None
 
                     cur.execute("""
@@ -777,7 +809,14 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
                     if not current_ref and clean_ref:
                         cur.execute("SELECT ref_by, referred_by, is_banned, banned FROM users WHERE tg_id = %s LIMIT 1", (clean_ref,))
                         ref_row = cur.fetchone()
-                        if not (ref_row and (ref_row[0] == clean_id or ref_row[1] == clean_id or ref_row[2] or ref_row[3])):
+                        if not (
+                            ref_row and (
+                                ref_row.get("ref_by") == clean_id
+                                or ref_row.get("referred_by") == clean_id
+                                or ref_row.get("is_banned")
+                                or ref_row.get("banned")
+                            )
+                        ):
                             cur.execute("""
                                 UPDATE users
                                 SET ref_by = %s, referred_by = %s
@@ -789,13 +828,13 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
                                 ON CONFLICT (referrer_id, friend_id) DO NOTHING;
                             """, (clean_ref, clean_id, safe_name, safe_name, int(existing.get("upgrades_count") or 0)))
 
-        return get_user(clean_id) or existing or {}
+        return get_user(clean_id) or {}
     except Exception as e:
         print(f"❌ خطأ init_user: {e}")
-        return {}
+        return get_user(clean_id) or {}
 
 
-def is_user_banned(telegram_id):
+def is_user_banned(telegram_id, raise_on_error=False):
     """فحص شامل وسريع لحالة حظر المستخدم أو جهازه"""
     clean_id = _sanitize_id(telegram_id)
     if not clean_id:
@@ -832,37 +871,39 @@ def is_user_banned(telegram_id):
                     if cur.fetchone():
                         return True
                 return False
-    except Exception:
+    except Exception as e:
+        if raise_on_error:
+            raise e
         return False
 
 
 def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
     """
-    نظام الحماية الصارم لمنع تعدد الحسابات (1 جهاز / متصفح = 1 حساب فقط):
-    - يفحص معرّف الجهاز (device_id) وبصمة العتاد الصلبة (fingerprint_hash) التي تكشف المتصفحات الأخرى والوضع الخفي.
-    - إذا تم اكتشاف أي حساب آخر يستخدم نفس الجهاز أو نفس البصمة: يتم فوراً حظر جميع الحسابات المشتركة وحظر الجهاز والبصمة.
+    نظام الحماية الصارم لمنع تعدد الحسابات (1 جهاز / متصفح = 1 حساب فقط) بنظام Fail-Closed.
     """
     clean_id = _sanitize_id(telegram_id)
-    clean_dev = str(device_id).strip() if device_id and str(device_id).strip().lower() not in ("none", "null", "undefined", "") else None
-    clean_fp = str(fingerprint_hash).strip() if fingerprint_hash and str(fingerprint_hash).strip().lower() not in ("none", "null", "undefined", "") else None
+    clean_dev = str(device_id).strip()[:256] if device_id and str(device_id).strip().lower() not in ("none", "null", "undefined", "") else None
+    clean_fp = str(fingerprint_hash).strip()[:256] if fingerprint_hash and str(fingerprint_hash).strip().lower() not in ("none", "null", "undefined", "") else None
 
     if not clean_id:
         return {"allowed": False, "banned": True, "reason": "معرف المستخدم غير صالح"}
 
-    # إعفاء الأدمن الرئيسي من الحظر التلقائي
     if is_admin_exempt(clean_id):
         return {"allowed": True, "banned": False}
 
-    # إذا لم يتم إرسال أي بصمة أو معرف جهاز، نتحقق فقط من حالة حظر الحساب
     if not clean_dev and not clean_fp:
-        if is_user_banned(clean_id):
-            return {"allowed": False, "banned": True, "reason": "حسابك محظور لمخالفة شروط الاستخدام."}
-        return {"allowed": True, "banned": False}
+        try:
+            if is_user_banned(clean_id, raise_on_error=True):
+                return {"allowed": False, "banned": True, "reason": "حسابك محظور لمخالفة شروط الاستخدام."}
+            return {"allowed": True, "banned": False}
+        except Exception as e:
+            print(f"⚠️ خطأ فحص حظر المستخدم بدون بصمة: {e}")
+            return {"allowed": False, "banned": False, "db_error": True, "reason": "خطأ مؤقت في قاعدة البيانات"}
 
     effective_dev_id = clean_dev or f"fp_dev_{clean_fp}"
 
     try:
-        with get_db_connection() as conn:
+        with get_db_transaction() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # 1. التأكد من وجود سجل للمستخدم أولاً
                 cur.execute("""
@@ -880,7 +921,7 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                         "reason": user_row.get("ban_reason") or "تم حظر هذا الحساب والجهاز لمخالفة القوانين."
                     }
 
-                # 2. فحص هل الجهاز أو البصمة مدرج مسبقاً في banned_devices أو محظور في devices
+                # 2. فحص هل الجهاز أو البصمة مدرج مسبقاً في banned_devices
                 cur.execute("""
                     SELECT device_id, fingerprint_hash, banned_user_id, reason
                     FROM banned_devices
@@ -911,12 +952,8 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                 # 3. البحث الشامل عن أي حسابات أخرى مرتبطة بنفس الـ device_id أو نفس الـ fingerprint_hash
                 associated_users = set()
                 associated_devices = {effective_dev_id}
-                if clean_fp:
-                    associated_fps = {clean_fp}
-                else:
-                    associated_fps = set()
+                associated_fps = {clean_fp} if clean_fp else set()
 
-                # أ) فحص جدول users عن أي مستخدم آخر يملك نفس device_id أو نفس fingerprint_hash
                 if clean_dev and clean_fp:
                     cur.execute("""
                         SELECT tg_id, device_id, fingerprint_hash FROM users
@@ -942,7 +979,6 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                     if r.get("fingerprint_hash"):
                         associated_fps.add(str(r["fingerprint_hash"]).strip())
 
-                # ب) فحص جدول devices عن أي سجل يطابق device_id أو fingerprint_hash
                 if clean_dev and clean_fp:
                     cur.execute("""
                         SELECT device_id, primary_user_id, users, fingerprint_hash, is_banned
@@ -977,16 +1013,14 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                             if s_uid and not is_admin_exempt(s_uid):
                                 associated_users.add(s_uid)
 
-                # إزالة المستخدم الحالي لمعرفة هل يوجد حسابات أخرى غيره على نفس الجهاز/المتصفح
                 other_users = {u for u in associated_users if u != clean_id}
 
-                # 4. إذا تم اكتشاف أكثر من حساب على نفس الجهاز أو البصمة -> حظر جماعي فوري لكل الحسابات والأجهزة!
+                # 4. إذا تم اكتشاف أكثر من حساب على نفس الجهاز أو البصمة -> حظر جماعي فوري!
                 if len(other_users) > 0:
                     all_offending_users = sorted(list(other_users | {clean_id}))
                     accounts_str = ", ".join(all_offending_users)
                     ban_reason = f"حظر تلقائي لتعدد الحسابات على نفس الجهاز/المتصفح (الحسابات المشتركة: {accounts_str})"
 
-                    # 4.1 تحديث وحظر جميع الحسابات المشتركة في جدول users
                     cur.execute("""
                         UPDATE users
                         SET is_banned = TRUE,
@@ -1001,7 +1035,6 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                         WHERE tg_id = ANY(%s) OR user_id = ANY(%s) OR telegram_id = ANY(%s)
                     """, (ban_reason, effective_dev_id, clean_fp, all_offending_users, all_offending_users, all_offending_users))
 
-                    # 4.2 تحديث أو إدراج الأجهزة في جدول devices كأجهزة محظورة مع قائمة الحسابات
                     for dev_item in associated_devices:
                         if not dev_item:
                             continue
@@ -1025,7 +1058,6 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                             Json(all_offending_users)
                         ))
 
-                        # 4.3 إدراج الجهاز في جدول banned_devices
                         cur.execute("""
                             INSERT INTO banned_devices (device_id, fingerprint_hash, banned_user_id, reason, banned_by, banned_at)
                             VALUES (%s, %s, %s, %s, 'النظام الأمني التلقائي', CURRENT_TIMESTAMP)
@@ -1037,7 +1069,6 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                                 banned_at = CURRENT_TIMESTAMP
                         """, (dev_item, clean_fp, clean_id, ban_reason))
 
-                    # 4.4 إدراج البصمات أيضاً في جدول banned_devices لمنع فتح متصفح جديد
                     for fp_item in associated_fps:
                         if not fp_item:
                             continue
@@ -1050,7 +1081,6 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                                 banned_at = CURRENT_TIMESTAMP
                         """, (fp_item, fp_item, clean_id, ban_reason))
 
-                    # 4.5 توثيق الحظر التلقائي في سجل الأدمن
                     cur.execute("""
                         INSERT INTO admin_logs (action, user_id, admin_id, admin_name, status, details, created_at)
                         VALUES ('auto_ban_multi_account', %s, 'SYSTEM', 'النظام الأمني التلقائي', 'completed', %s, CURRENT_TIMESTAMP)
@@ -1062,7 +1092,7 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
                         "reason": ban_reason
                     }
 
-                # 5. الوضع السليم (حساب واحد فقط على هذا الجهاز والبصمة) -> ربط الجهاز بالمستخدم وتحديث الظهور
+                # 5. الوضع السليم -> ربط الجهاز بالمستخدم وتحديث الظهور
                 cur.execute("""
                     UPDATE users
                     SET device_id = %s,
@@ -1085,7 +1115,7 @@ def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
         return {"allowed": True, "banned": False}
     except Exception as e:
         print(f"⚠️ خطأ في فحص بصمة الجهاز check_and_bind_device: {e}")
-        return {"allowed": True, "banned": False}
+        return {"allowed": False, "banned": False, "db_error": True, "reason": "خطأ مؤقت أثناء التحقق من أمان الجهاز"}
 
 
 def update_user(telegram_id, updates_dict):
