@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# addons/addons_api.py
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
 from addons.addons_db import (
@@ -25,7 +27,7 @@ def api_create_promo():
     if not is_auth:
         return err_resp
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     code = data.get('code')
     coins = data.get('coins', 0)
     duration_val = data.get('duration_val', 1)
@@ -50,7 +52,7 @@ def api_delete_promo():
     if not is_auth:
         return err_resp
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     code = data.get('code')
     success, msg = delete_promo_code(code)
     return jsonify({'success': success, 'message': msg})
@@ -61,7 +63,7 @@ def api_toggle_promo():
     if not is_auth:
         return err_resp
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     code = data.get('code')
     is_active = data.get('is_active', True)
     success, msg = toggle_promo_code_status(code, is_active)
@@ -69,8 +71,12 @@ def api_toggle_promo():
 
 @addons_bp.route('/api/user/promo/redeem', methods=['POST'])
 def api_redeem_promo():
-    data = request.json or {}
-    telegram_id = data.get('telegram_id')
+    # 🔒 تأمين المسار: أخذ الـ ID الموثق من التوكن حصراً وليس من الـ Body لمنع التزوير
+    success_auth, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success_auth:
+        return error_res
+
+    data = request.get_json(silent=True) or {}
     code = data.get('code')
     success, msg, reward = redeem_promo_code(telegram_id, code)
     return jsonify({'success': success, 'message': msg, 'reward': reward})
