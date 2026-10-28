@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # settings/settings_api.py
+import time
 import traceback
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
@@ -10,6 +11,10 @@ from settings.settings_db import (
 )
 
 settings_bp = Blueprint('settings', __name__)
+
+# حماية ضد التخمين والسبام (Cooldown لكل مستخدم)
+_redeem_cooldowns = {}
+REDEEM_COOLDOWN_SECONDS = 2.0
 
 
 @settings_bp.route('/stats', methods=['GET', 'POST'])
@@ -72,17 +77,31 @@ def handle_redeem_code():
         if not success:
             return error_res
 
+        uid_str = str(uid).strip()
+        now = time.time()
+        last_attempt = _redeem_cooldowns.get(uid_str, 0)
+        if now - last_attempt < REDEEM_COOLDOWN_SECONDS:
+            return jsonify({
+                "success": False,
+                "message": "⏳ يرجى الانتظار ثانية قبل المحاولة مرة أخرى."
+            }), 429
+        _redeem_cooldowns[uid_str] = now
+
+        # تنظيف الذاكرة إذا كبرت القائمة
+        if len(_redeem_cooldowns) > 5000:
+            _redeem_cooldowns.clear()
+
         data = request.get_json(silent=True) or {}
         code = str(data.get('code', '')).strip()
 
         if not code:
             return jsonify({"success": False, "message": "يرجى كتابة الكود أولاً."}), 200
 
-        result = redeem_promo_code(str(uid), code)
+        result = redeem_promo_code(uid_str, code)
 
         # إذا نجح التفعيل، نرسل أيضاً أحدث إحصائيات للمستخدم ليتحدث الفرونت إند فوراً
         if result.get("success"):
-            stats = get_user_settings_stats(str(uid))
+            stats = get_user_settings_stats(uid_str)
             result["stats"] = stats
 
         return jsonify(result), 200
