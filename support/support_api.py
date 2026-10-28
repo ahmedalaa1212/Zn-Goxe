@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # support/support_api.py
 import traceback
 from flask import Blueprint, jsonify, request
@@ -10,6 +11,16 @@ from support.support_db import (
 
 support_bp = Blueprint('support', __name__)
 
+
+@support_bp.after_request
+def add_no_cache_headers(response):
+    """منع المتصفح و WebView التليجرام من تخزين الردود مؤقتاً لضمان ظهور الرسائل لحظياً"""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @support_bp.route('/ticket', methods=['GET', 'POST'])
 def get_ticket():
     try:
@@ -21,7 +32,7 @@ def get_ticket():
         data = request.get_json(silent=True) or {} if is_post else {}
         raw_ticket_id = request.args.get('ticket_id') or data.get('ticket_id')
         ticket_id = str(raw_ticket_id).strip() if raw_ticket_id else None
-        
+
         ticket_data = get_or_create_active_ticket(str(uid), custom_ticket_id=ticket_id, user_info=user_info)
 
         if not ticket_data:
@@ -38,6 +49,7 @@ def get_ticket():
         print(f"Error in get_ticket: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "message": "خطأ داخلي في السيرفر"}), 500
+
 
 @support_bp.route('/message', methods=['POST'])
 def send_message():
@@ -64,7 +76,7 @@ def send_message():
             return jsonify({"success": False, "message": "رقم التذكرة غير موجود"}), 400
 
         res = add_support_message(str(uid), ticket_id, text, sender="user", user_info=user_info)
-        
+
         if not res.get("success"):
             return jsonify(res), 400
 
@@ -74,6 +86,7 @@ def send_message():
         print(f"Error in send_message: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "message": "خطأ داخلي في السيرفر"}), 500
+
 
 @support_bp.route('/new_ticket', methods=['POST'])
 def new_ticket():
