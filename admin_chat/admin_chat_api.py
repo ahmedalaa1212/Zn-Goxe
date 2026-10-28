@@ -1,10 +1,15 @@
+# -*- coding: utf-8 -*-
 # admin_chat/admin_chat_api.py
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timezone
-import json, hmac, hashlib, urllib.parse, os
+import json
+import hmac
+import hashlib
+import urllib.parse
+import os
 
+from database import is_admin_or_mod, is_admin_exempt
 from admin_chat.admin_chat_db import (
-    get_db,
     get_all_tickets_from_db,
     get_ticket_by_id_from_db,
     mark_ticket_read_in_db,
@@ -14,14 +19,37 @@ from admin_chat.admin_chat_db import (
 
 admin_chat_bp = Blueprint('admin_chat', __name__)
 
-def check_admin_auth():
-    """التحقق الصارم والأمن من صلاحيات الأدمن عبر توقيع Telegram HMAC لمنع الاختراق"""
-    admin_bot_token = (os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN") or "").strip()
-    admin_id = str(os.environ.get("ADMIN_ID", "5102387551")).strip()
 
+def _verify_telegram_hmac(parsed_data: dict, hash_val: str) -> bool:
+    """التحقق من صحة توقيع Telegram WebApp باستخدام أي من توكنات البوت المتاحة"""
+    tokens = [
+        (os.environ.get("ADMIN_BOT_TOKEN") or "").strip(),
+        (os.environ.get("BOT_TOKEN") or "").strip(),
+        (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    ]
+    valid_tokens = [t for t in tokens if t]
+
+    if not valid_tokens:
+        return True
+
+    if not hash_val:
+        return False
+
+    data_check_str = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
+    for token in valid_tokens:
+        secret_key = hmac.new(b"WebAppData", token.encode('utf-8'), hashlib.sha256).digest()
+        calc_hash = hmac.new(secret_key, data_check_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(calc_hash, hash_val):
+            return True
+
+    return False
+
+
+def check_admin_auth():
+    """التحقق الآمن من صلاحيات الأدمن أو المشرف عبر Supabase وتوقيع Telegram"""
     init_data = (
-        request.headers.get('X-Telegram-Init-Data') or 
-        request.headers.get('Authorization') or 
+        request.headers.get('X-Telegram-Init-Data') or
+        request.headers.get('Authorization') or
         request.args.get('initData')
     )
     if not init_data and request.is_json:
@@ -38,39 +66,27 @@ def check_admin_auth():
         parsed_data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
         hash_val = parsed_data.pop('hash', None)
 
-        # التحقق الإجباري الصارم من HMAC لمنع انتحال الشخصية
-        if admin_bot_token and hash_val:
-            data_check_str = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
-            secret_key = hmac.new(b"WebAppData", admin_bot_token.encode('utf-8'), hashlib.sha256).digest()
-            calc_hash = hmac.new(secret_key, data_check_str.encode('utf-8'), hashlib.sha256).hexdigest()
-            if calc_hash != hash_val:
-                print("❌ [Security Alert] توقيع initData غير صالح! رفض الطلب.")
-                return None
+        if not _verify_telegram_hmac(parsed_data, hash_val):
+            print("❌ [Security Alert] توقيع initData غير صالح! رفض الطلب.")
+            return None
 
         user_raw = parsed_data.get('user', '{}')
-        user_data = json.loads(user_raw)
-        u_id = str(user_data.get('id', ''))
+        user_data = json.loads(user_raw) if isinstance(user_raw, str) else (user_raw or {})
+        u_id = str(user_data.get('id', '')).strip()
 
         if not u_id:
             return None
 
-        # التأكد مما إذا كان أدمن رئيسي أو مشرف
-        db_conn = get_db()
-        is_mod = False
-        if db_conn:
-            try:
-                is_mod = db_conn.collection('moderators').document(u_id).get().exists
-            except Exception:
-                is_mod = False
-
-        if u_id == admin_id or is_mod:
+        # التحقق الفوري من الأدمن الرئيسي أو المشرفين في Supabase
+        if is_admin_exempt(u_id) or is_admin_or_mod(u_id):
             return u_id
 
         return None
 
     except Exception as e:
-        print(f"❌ [Auth Exception]: {e}")
+        print(f"❌ [Auth Exception in admin_chat_api]: {e}")
         return None
+
 
 # 1. جلب قائمة التذاكر
 @admin_chat_bp.route('/tickets', methods=['GET'])
@@ -83,6 +99,7 @@ def get_tickets():
         return jsonify({"success": True, "tickets": tickets}), 200
     except Exception as e:
         return jsonify({"success": False, "message": f"خطأ قاعدة البيانات: {str(e)}"}), 500
+
 
 # 2. جلب تذكرة واحدة فقط
 @admin_chat_bp.route('/ticket/<ticket_id>', methods=['GET'])
@@ -99,13 +116,14 @@ def get_single_ticket(ticket_id):
     except Exception as e:
         return jsonify({"success": False, "message": f"خطأ: {str(e)}"}), 500
 
+
 # 3. تعيين التذكرة كـ "مقروءة" عند فتحها
 @admin_chat_bp.route('/mark_read', methods=['POST'])
 def mark_read():
     if not check_admin_auth():
         return jsonify({"success": False, "message": "Access Denied"}), 403
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     ticket_id = str(data.get('ticket_id', '')).strip()
     if not ticket_id:
         return jsonify({"success": False, "message": "رقم التذكرة مفقود"}), 400
@@ -116,13 +134,14 @@ def mark_read():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
+
 # 4. إرسال رد الأدمن
 @admin_chat_bp.route('/reply', methods=['POST'])
 def send_reply():
     if not check_admin_auth():
         return jsonify({"success": False, "message": "Access Denied"}), 403
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     ticket_id = str(data.get('ticket_id', '')).strip()
     text = str(data.get('text', '')).strip()
 
@@ -139,9 +158,10 @@ def send_reply():
         if not success:
             return jsonify({"success": False, "message": err_msg or "خطأ في الإرسال"}), 404
 
-        return jsonify({"success": True}), 200
+        return jsonify({"success": True, "user_id": user_id}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
 
 # 5. إغلاق التذكرة
 @admin_chat_bp.route('/close', methods=['POST'])
@@ -149,7 +169,7 @@ def close_ticket():
     if not check_admin_auth():
         return jsonify({"success": False, "message": "Access Denied"}), 403
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     ticket_id = str(data.get('ticket_id', '')).strip()
 
     if not ticket_id:
