@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # settings/settings_db.py
+import re
 import json
 import logging
 from psycopg2.extras import RealDictCursor, Json
@@ -29,13 +30,23 @@ def ensure_settings_tables():
                         reward_coins DOUBLE PRECISION DEFAULT 0.0,
                         amount DOUBLE PRECISION DEFAULT 0.0,
                         points DOUBLE PRECISION DEFAULT 0.0,
-                        max_uses INT DEFAULT 1,
+                        max_uses INT DEFAULT 0,
                         used_count INT DEFAULT 0,
                         used_by JSONB DEFAULT '[]'::jsonb,
                         is_active BOOLEAN DEFAULT TRUE,
+                        expires_at TIMESTAMPTZ NULL,
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
+
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS coins DOUBLE PRECISION DEFAULT 0.0;
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS reward_coins DOUBLE PRECISION DEFAULT 0.0;
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS max_uses INT DEFAULT 0;
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS used_count INT DEFAULT 0;
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS used_by JSONB DEFAULT '[]'::jsonb;
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NULL;
+                    ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100);
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);
@@ -47,13 +58,14 @@ def ensure_settings_tables():
                     CREATE INDEX IF NOT EXISTS idx_users_mined_points ON users(mined_points DESC);
                     CREATE INDEX IF NOT EXISTS idx_users_total_mined ON users(total_mined DESC);
                 """)
+            conn.commit()
         _settings_tables_initialized = True
     except Exception as e:
         logger.error(f"Error ensuring settings tables in Supabase: {e}")
 
 
 def _clean_uid(uid) -> str:
-    """تنظيف معرف المستخدم"""
+    """تنظيف معرف المستخدم والتأكد من أنه رقم تيليجرام سليم"""
     if uid is None:
         return ""
     s = str(uid).strip()
@@ -61,6 +73,8 @@ def _clean_uid(uid) -> str:
         s = s.replace("ref_", "", 1).strip()
     if s.endswith(".0"):
         s = s[:-2]
+    if not re.match(r'^\d{3,20}$', s):
+        return ""
     return s
 
 
@@ -122,7 +136,6 @@ def get_user_settings_stats(uid: str) -> dict:
 
                 data = dict(row)
 
-                # حساب إجمالي مستويات التعدين عبر الـ 9 مستويات من JSONB
                 farm_levels_count = 0
                 upgrades = data.get('upgrades')
                 if isinstance(upgrades, str):
@@ -139,21 +152,18 @@ def get_user_settings_stats(uid: str) -> dict:
                         except (ValueError, TypeError):
                             pass
 
-                # إذا لم تكن مفصلة داخل upgrades نعتمد على upgrades_count المخزن
                 if farm_levels_count == 0:
                     try:
                         farm_levels_count = max(0, int(data.get('upgrades_count') or 0))
                     except (ValueError, TypeError):
                         farm_levels_count = 0
 
-                # حساب مستويات المخزن
                 storage_levels_count = 0
                 try:
                     storage_levels_count = max(0, int(data.get('storage_level') or 0))
                 except (ValueError, TypeError):
                     storage_levels_count = 0
 
-                # تنسيق الرصيد الأساسي والأرصدة الإضافية
                 def _format_num(val):
                     try:
                         num = float(val or 0.0)
@@ -253,30 +263,32 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
 
 def redeem_promo_code(uid: str, code_input: str) -> dict:
     """
-    تفعيل كود الهدايا والمكافآت في Supabase باستخدام Transaction ذري (FOR UPDATE)
-    لمنع التكرار أو التلاعب وتحديث رصيد المستخدم لحظياً.
+    تفعيل كود الهدايا والمكافآت في Supabase باستخدام Transaction ذري مغلق (FOR UPDATE)
+    لمنع التكرار أو التلاعب أو الغش وتحديث رصيد المستخدم لحظياً.
     """
     clean_id = _clean_uid(uid)
     if not clean_id or not code_input:
         return {"success": False, "message": "⚠️ البيانات المدخلة غير مكتملة."}
 
-    raw_code = str(code_input).strip()
-    if not raw_code or len(raw_code) > 30:
-        return {"success": False, "message": "⚠️ صيغة الكود غير صالحة."}
+    raw_code = str(code_input).strip().upper()
+    if not re.match(r'^[A-Z0-9_\-]{2,32}$', raw_code):
+        return {"success": False, "message": "❌ هذا الكود غير صحيح أو غير موجود!"}
 
     ensure_settings_tables()
 
     try:
         with database.get_db_connection() as conn:
-            # تعطيل الـ autocommit مؤقتاً لتنفيذ Transaction مغلق وآمن (Row-Level Lock)
             prev_autocommit = conn.autocommit
             conn.autocommit = False
             try:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # 1. البحث عن الكود مع قفل الصف لحين انتهاء العملية (FOR UPDATE)
+                    # 1. البحث عن الكود مع قفل الصف لحين انتهاء العملية (FOR UPDATE) وفحص انتهاء الوقت من السيرفر
                     cur.execute("""
-                        SELECT * FROM promo_codes
-                        WHERE UPPER(TRIM(code)) = UPPER(%s)
+                        SELECT 
+                            *,
+                            (expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP) AS is_expired
+                        FROM promo_codes
+                        WHERE UPPER(TRIM(code)) = %s
                         FOR UPDATE
                     """, (raw_code,))
                     code_row = cur.fetchone()
@@ -287,12 +299,16 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
 
                     if code_row.get('is_active') is False:
                         conn.rollback()
-                        return {"success": False, "message": "⚠️ هذا الكود غير مفعل حالياً."}
+                        return {"success": False, "message": "⚠️ هذا الكود معطل حالياً."}
 
-                    # استخراج قيمة المكافأة من أي حقل متاح
+                    if code_row.get('is_expired'):
+                        conn.rollback()
+                        return {"success": False, "message": "⏰ للأسف، انتهت صلاحية هذا الكود!"}
+
+                    # استخراج قيمة المكافأة
                     raw_coins = (
-                        code_row.get('coins')
-                        or code_row.get('reward_coins')
+                        code_row.get('reward_coins')
+                        or code_row.get('coins')
                         or code_row.get('amount')
                         or code_row.get('points')
                         or 0
@@ -306,7 +322,9 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
                         conn.rollback()
                         return {"success": False, "message": "⚠️ هذا الكود لا يحتوي على مكافأة صالحة."}
 
-                    max_uses = int(code_row.get('max_uses') or 1)
+                    # ملاحظة هامة: max_uses = 0 تعني غير محدود
+                    raw_max_uses = code_row.get('max_uses')
+                    max_uses = int(raw_max_uses) if raw_max_uses is not None else 0
                     used_count = int(code_row.get('used_count') or 0)
 
                     used_by = code_row.get('used_by')
@@ -324,40 +342,65 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
                         conn.rollback()
                         return {"success": False, "message": "⚠️ لقد قمت باستخدام هذا الكود من قبل!"}
 
-                    if used_count >= max_uses:
+                    # فحص الحد الأقصى إذا كان أكبر من 0
+                    if max_uses > 0 and used_count >= max_uses:
                         conn.rollback()
                         return {"success": False, "message": "⚠️ للأسف، اكتمل الحد الأقصى لاستخدام هذا الكود!"}
 
-                    # 2. تحديث بيانات الكود
-                    used_by.append(clean_id)
+                    # 2. التحقق من وجود المستخدم وفحص حالة الحظر مع قفل صفه (FOR UPDATE)
+                    cur.execute("""
+                        SELECT tg_id, COALESCE(is_banned, FALSE) AS is_banned
+                        FROM users
+                        WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                        LIMIT 1
+                        FOR UPDATE
+                    """, (clean_id, clean_id, clean_id))
+                    existing_user = cur.fetchone()
+
+                    if existing_user and existing_user.get('is_banned'):
+                        conn.rollback()
+                        return {"success": False, "message": "🚫 حسابك محظور من استخدام الأكواد."}
+
+                    # 3. تحديث بيانات الكود
+                    used_by_strs.append(clean_id)
                     cur.execute("""
                         UPDATE promo_codes
                         SET used_count = COALESCE(used_count, 0) + 1,
                             used_by = %s,
                             updated_at = CURRENT_TIMESTAMP
                         WHERE code = %s
-                    """, (Json(used_by), code_row['code']))
+                    """, (Json(used_by_strs), code_row['code']))
 
-                    # 3. التأكد من وجود المستخدم وتحديث رصيده لحظياً
-                    cur.execute("""
-                        INSERT INTO users (tg_id, user_id, telegram_id, first_name, name, balance, total_earned)
-                        VALUES (%s, %s, %s, 'لاعب', 'لاعب', %s, %s)
-                        ON CONFLICT (tg_id) DO UPDATE
-                        SET balance = COALESCE(users.balance, 0.0) + EXCLUDED.balance,
-                            total_earned = COALESCE(users.total_earned, 0.0) + EXCLUDED.total_earned,
-                            last_active_at = CURRENT_TIMESTAMP
-                        RETURNING balance
-                    """, (clean_id, clean_id, clean_id, coins, coins))
+                    # 4. تحديث رصيد المستخدم لحظياً
+                    if existing_user:
+                        cur.execute("""
+                            UPDATE users
+                            SET balance = COALESCE(balance, 0.0) + %s,
+                                total_earned = COALESCE(total_earned, 0.0) + %s,
+                                last_active_at = CURRENT_TIMESTAMP
+                            WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
+                            RETURNING balance
+                        """, (coins, coins, clean_id, clean_id, clean_id))
+                    else:
+                        cur.execute("""
+                            INSERT INTO users (tg_id, user_id, telegram_id, first_name, name, balance, total_earned)
+                            VALUES (%s, %s, %s, 'لاعب', 'لاعب', %s, %s)
+                            ON CONFLICT (tg_id) DO UPDATE
+                            SET balance = COALESCE(users.balance, 0.0) + EXCLUDED.balance,
+                                total_earned = COALESCE(users.total_earned, 0.0) + EXCLUDED.total_earned,
+                                last_active_at = CURRENT_TIMESTAMP
+                            RETURNING balance
+                        """, (clean_id, clean_id, clean_id, coins, coins))
 
                     updated_user = cur.fetchone()
                     new_balance = float(updated_user['balance']) if updated_user else coins
 
-                    # اعتماد العملية بالكامل
                     conn.commit()
 
+                    formatted_coins = f"{int(coins):,}" if coins.is_integer() else f"{coins:,.2f}"
                     return {
                         "success": True,
-                        "message": f"🎉 مبروك! تم إضافة {coins:,.0f} ZN إلى رصيدك بنجاح.",
+                        "message": f"🎉 مبروك! تم إضافة {formatted_coins} ZN إلى رصيدك بنجاح.",
                         "coins": coins,
                         "new_balance": new_balance
                     }
