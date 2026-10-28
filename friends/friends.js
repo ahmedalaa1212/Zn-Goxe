@@ -1,5 +1,7 @@
 // friends/friends.js
 (function initFriendsModule() {
+    'use strict';
+
     const tele = window.Telegram?.WebApp;
     const INIT_DATA = tele?.initData || "";
     const BOT_USERNAME = "zngoxe_bot";
@@ -13,6 +15,51 @@
             .replace(/'/g, "&#039;");
     }
 
+    function getDeviceCredentials() {
+        let devId = window.deviceId
+            || window.ZN_DEVICE_ID
+            || localStorage.getItem('device_id')
+            || localStorage.getItem('zn_device_id')
+            || '';
+
+        if (!devId) {
+            devId = 'dev_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
+            try {
+                localStorage.setItem('device_id', devId);
+                localStorage.setItem('zn_device_id', devId);
+            } catch (e) {}
+        }
+
+        let fpHash = window.deviceFingerprint
+            || window.ZN_FINGERPRINT
+            || localStorage.getItem('device_fingerprint')
+            || localStorage.getItem('fingerprint_hash')
+            || '';
+
+        if (!fpHash) {
+            try {
+                const rawFp = [
+                    navigator.userAgent || '',
+                    navigator.language || '',
+                    (screen?.width || 0) + 'x' + (screen?.height || 0),
+                    (screen?.colorDepth || 0),
+                    Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+                    navigator.hardwareConcurrency || ''
+                ].join('|');
+                let hash = 0;
+                for (let i = 0; i < rawFp.length; i++) {
+                    hash = ((hash << 5) - hash) + rawFp.charCodeAt(i);
+                    hash |= 0;
+                }
+                fpHash = 'fp_' + Math.abs(hash).toString(16);
+                localStorage.setItem('device_fingerprint', fpHash);
+                localStorage.setItem('fingerprint_hash', fpHash);
+            } catch (e) {}
+        }
+
+        return { deviceId: devId, fingerprint: fpHash };
+    }
+
     async function secureRequest(url, method = "GET", body = null) {
         const initData = tele?.initData || "";
 
@@ -20,11 +67,14 @@
             throw new Error("يجب فتح التطبيق من داخل Telegram.");
         }
 
+        const creds = getDeviceCredentials();
         const headers = {
             Accept: "application/json",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             Pragma: "no-cache",
             "X-Telegram-Init-Data": initData,
+            "X-Device-Id": creds.deviceId,
+            "X-Device-Fingerprint": creds.fingerprint,
             Authorization: `Bearer ${initData}`
         };
 
@@ -37,10 +87,13 @@
 
         if (body !== null && method !== "GET" && method !== "HEAD") {
             headers["Content-Type"] = "application/json";
-            options.body = JSON.stringify(body);
+            options.body = JSON.stringify({
+                ...body,
+                device_id: creds.deviceId,
+                fingerprint_hash: creds.fingerprint
+            });
         }
 
-        // إضافة طابع زمني للرابط لمنع أي كاش على مستوى WebView
         const sep = url.includes("?") ? "&" : "?";
         const liveUrl = `${url}${sep}_t=${Date.now()}`;
 
@@ -53,6 +106,11 @@
             data = {};
         }
 
+        if (data && (data.banned || data.is_banned)) {
+            showToast(data.error || data.message || "🚫 تم حظر هذا الحساب لمخالفة القوانين.");
+            throw new Error(data.error || "Banned");
+        }
+
         if (!response.ok) {
             throw new Error(data.error || `HTTP ${response.status}`);
         }
@@ -62,12 +120,12 @@
 
     let lastFetchTimestamp = 0;
     const FETCH_COOLDOWN_MS = 1000;
-    const LIVE_POLL_INTERVAL_MS = 2500; // مزامنة حية مع Supabase كل 2.5 ثانية
+    const LIVE_POLL_INTERVAL_MS = 3500;
     let isFetchingLive = false;
     let isTaskClaiming = false;
     let isClaimingRefEarnings = false;
 
-    // الإعدادات الافتراضية (5 ترقيات، ويتم تحديثها لحظياً من Supabase)
+    // الإعدادات الافتراضية للمستخدم العادي (5 ترقيات، 10% عمولة، 1.5% رسوم سحب)
     window.FriendsConfig = {
         min_upgrades_for_task: 5,
         vip_min_upgrades_for_task: 3,
@@ -89,13 +147,23 @@
         }
     };
 
+    function isFriendsSectionVisible() {
+        if (document.visibilityState !== "visible") return false;
+        const listEl = document.getElementById('ref-tasks-list') || document.getElementById('friends-list-container');
+        if (!listEl) return true;
+        return listEl.offsetParent !== null;
+    }
+
     function getMinUpgrades() {
-        // فحص الشرط الفعّال الخاص باللاعب أولاً (يتأثر بحالة VIP)
-        if (window.PlayerData && window.PlayerData.effective_min_upgrades !== undefined) {
+        const isVip = Boolean(window.PlayerData && window.PlayerData.is_vip === true);
+        if (isVip && window.PlayerData && window.PlayerData.effective_min_upgrades !== undefined) {
             const val = parseInt(window.PlayerData.effective_min_upgrades);
             if (!isNaN(val) && val > 0) return val;
         }
-        // الرجوع للشرط الافتراضي العام في حال لم يتوفر
+        if (window.PlayerData && window.PlayerData.effective_min_upgrades !== undefined && !isVip) {
+            const val = parseInt(window.PlayerData.effective_min_upgrades);
+            if (!isNaN(val) && val >= 5) return val;
+        }
         const cfgVal = parseInt(window.FriendsConfig?.min_upgrades_for_task);
         return (!isNaN(cfgVal) && cfgVal > 0) ? cfgVal : 5;
     }
@@ -113,7 +181,21 @@
 
     function getCacheKey() {
         const userId = getUserId();
-        return userId ? `zn_friends_cache_v3_${userId}` : 'zn_friends_cache_v3_global';
+        return userId ? `zn_friends_cache_v4_${userId}` : 'zn_friends_cache_v4_global';
+    }
+
+    function clearOldCaches() {
+        try {
+            const uid = getUserId();
+            if (uid) {
+                localStorage.removeItem(`zn_friends_cache_${uid}`);
+                localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
+                localStorage.removeItem(`zn_friends_cache_v3_${uid}`);
+            }
+            localStorage.removeItem('zn_friends_cache_global');
+            localStorage.removeItem('zn_friends_cache_v2_global');
+            localStorage.removeItem('zn_friends_cache_v3_global');
+        } catch (e) {}
     }
 
     function saveCachedData(data) {
@@ -131,23 +213,21 @@
 
     function loadCachedData() {
         try {
-            // مسح نسخ الكاش القديمة لضمان عدم بقاء شرط الـ 3 ترقيات القديم
-            const uid = getUserId();
-            if (uid) {
-                localStorage.removeItem(`zn_friends_cache_${uid}`);
-                localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
-            }
-            localStorage.removeItem('zn_friends_cache_global');
-            localStorage.removeItem('zn_friends_cache_v2_global');
-
+            clearOldCaches();
             const cached = localStorage.getItem(getCacheKey());
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (parsed && typeof parsed === 'object') {
                     if (parsed.PlayerData) {
-                        window.PlayerData = { ...window.PlayerData, ...parsed.PlayerData };
-                    } else {
-                        window.PlayerData = { ...window.PlayerData, ...parsed };
+                        // عدم الوثوق بكاش VIP القديم حتى يرد السيرفر
+                        window.PlayerData = {
+                            ...window.PlayerData,
+                            ...parsed.PlayerData,
+                            is_vip: false,
+                            effective_commission: 10,
+                            effective_claim_fee: 1.5,
+                            effective_min_upgrades: 5
+                        };
                     }
                     if (parsed.FriendsConfig) {
                         window.FriendsConfig = { ...window.FriendsConfig, ...parsed.FriendsConfig };
@@ -289,12 +369,16 @@
     function updateDynamicTextsFromConfig() {
         const cfg = window.FriendsConfig || {};
         const pData = window.PlayerData || {};
-        const isVip = pData.is_vip || false;
+        const isVip = Boolean(pData.is_vip === true);
 
-        const commPercent = pData.effective_commission ?? (isVip ? (cfg.vip_commission_percent ?? 12) : (cfg.commission_percent ?? 10));
-        const feePercent = pData.effective_claim_fee ?? (isVip ? (cfg.vip_claim_fee_percent ?? 0) : (cfg.claim_fee_percent ?? 1.5));
-        
-        // جلب الشرط الديناميكي الذي يتغير بناءً على حالة الـ VIP
+        const commPercent = isVip
+            ? (pData.effective_commission ?? cfg.vip_commission_percent ?? 12)
+            : (cfg.commission_percent ?? 10);
+
+        const feePercent = isVip
+            ? (pData.effective_claim_fee ?? cfg.vip_claim_fee_percent ?? 0)
+            : (cfg.claim_fee_percent ?? 1.5);
+
         const minUpgrades = getMinUpgrades();
 
         const elComm = document.getElementById('info-comm-percent');
@@ -309,10 +393,10 @@
 
         const elFee = document.getElementById('info-claim-fee');
         if (elFee) {
-            elFee.innerText = isVip ? "0% (👑 VIP معفي)" : `${feePercent}%`;
+            elFee.innerText = (isVip && parseFloat(feePercent) === 0) ? "0% (👑 VIP معفي)" : `${feePercent}%`;
         }
 
-        // تحديث أي نصوص ثابتة في الصفحة وتغييرها للرقم الصحيح
+        // تحديث كافة النصوص حتى لو كانت تحتوي سابقاً على عبارة VIP معفي
         document.querySelectorAll('p, li, span, div, small').forEach(el => {
             if (el.children.length === 0 && el.textContent) {
                 if (/شراء\s+\d+\s+ترقيات/.test(el.textContent)) {
@@ -320,8 +404,9 @@
                 } else if (/^\s*\d+\s+ترقيات\s*$/.test(el.textContent) && el.id !== 'info-min-upgrades') {
                     el.textContent = `${minUpgrades} ترقيات`;
                 }
-                if (/يتم خصم\s+[\d.]+\s*%\s*رسوم/.test(el.textContent)) {
-                    el.textContent = el.textContent.replace(/يتم خصم\s+[\d.]+\s*%\s*رسوم/g, `يتم خصم ${feePercent}% رسوم`);
+                if (/يتم خصم\s+.*?\s*رسوم/.test(el.textContent)) {
+                    const feeDisplay = (isVip && parseFloat(feePercent) === 0) ? "0% (👑 VIP معفي)" : `${feePercent}%`;
+                    el.textContent = el.textContent.replace(/يتم خصم\s+.*?\s*رسوم/g, `يتم خصم ${feeDisplay} رسوم`);
                 }
             }
         });
@@ -334,8 +419,7 @@
         const minUpgrades = getMinUpgrades();
         const list = Array.isArray(friendsArr) ? friendsArr : [];
 
-        // تحديث عدد الأصدقاء والمؤهلين في الواجهة مباشرة بناءً على القائمة الحية والشرط الفعال
-        const eligibleLive = list.filter(f => (parseInt(f.upgrades_count) || 0) >= minUpgrades).length;
+        const eligibleLive = list.filter(f => !f.is_banned && (parseInt(f.upgrades_count) || 0) >= minUpgrades).length;
         if (window.PlayerData) {
             window.PlayerData.invited_friends_count = list.length;
             window.PlayerData.eligible_task_friends_count = eligibleLive;
@@ -349,10 +433,17 @@
         let html = '<ul style="padding:0; margin:0;">';
         list.forEach(f => {
             const cnt = parseInt(f.upgrades_count) || 0;
-            const isEligible = cnt >= minUpgrades;
-            let statusHtml = isEligible 
-                ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`
-                : `<span style="color: #f39c12; font-size:11px;">ينقصه ترقيات (${cnt}/${minUpgrades}) ⏳</span>`;
+            const isBanned = Boolean(f.is_banned);
+            const isEligible = !isBanned && cnt >= minUpgrades;
+
+            let statusHtml = '';
+            if (isBanned) {
+                statusHtml = `<span style="color: #ef4444; font-size:11px;">حساب محظور (غير مؤهل) 🚫</span>`;
+            } else if (isEligible) {
+                statusHtml = `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`;
+            } else {
+                statusHtml = `<span style="color: #f39c12; font-size:11px;">ينقصه ترقيات (${cnt}/${minUpgrades}) ⏳</span>`;
+            }
             
             const genVal = parseFloat(f.generated ?? f.earned_from_him ?? 0);
             const formattedGen = formatNumberHTML(genVal);
@@ -403,6 +494,10 @@
             pending_ref_earnings: 0,
             total_ref_earnings: 0,
             invited_friends_count: 0,
+            is_vip: false,
+            effective_commission: 10,
+            effective_claim_fee: 1.5,
+            effective_min_upgrades: 5,
             ...window.PlayerData
         };
         
@@ -433,7 +528,6 @@
 
         try {
             let data = await secureRequest('/api/friends/data', 'POST', {
-                user_id: userId,
                 start_param: getStartParam()
             });
             
@@ -444,14 +538,20 @@
                     window.FriendsConfig = { ...window.FriendsConfig, ...data.player.friends_config };
                 }
 
-                window.PlayerData = { ...window.PlayerData, ...data.player };
-                
-                // استقبال وتحديث بيانات وميزات הـ VIP والترقيات من السيرفر
-                if (data.is_vip !== undefined) window.PlayerData.is_vip = data.is_vip;
-                if (data.effective_commission !== undefined) window.PlayerData.effective_commission = data.effective_commission;
-                if (data.effective_claim_fee !== undefined) window.PlayerData.effective_claim_fee = data.effective_claim_fee;
-                if (data.effective_min_upgrades !== undefined) window.PlayerData.effective_min_upgrades = data.effective_min_upgrades;
-                else if (data.player && data.player.effective_min_upgrades !== undefined) window.PlayerData.effective_min_upgrades = data.player.effective_min_upgrades;
+                const serverIsVip = Boolean(data.is_vip === true && data.player.is_vip === true);
+
+                window.PlayerData = {
+                    ...window.PlayerData,
+                    ...data.player,
+                    is_vip: serverIsVip,
+                    effective_commission: serverIsVip ? (data.effective_commission ?? 12) : (window.FriendsConfig.commission_percent ?? 10),
+                    effective_claim_fee: serverIsVip ? (data.effective_claim_fee ?? 0) : (window.FriendsConfig.claim_fee_percent ?? 1.5),
+                    effective_min_upgrades: serverIsVip ? (data.effective_min_upgrades ?? 3) : (window.FriendsConfig.min_upgrades_for_task ?? 5)
+                };
+
+                if (window.userState) {
+                    window.userState.is_vip = Boolean(data.active_vip_package);
+                }
 
                 if (data.player.balance !== undefined && data.player.balance !== null) {
                     setStoredBalance(data.player.balance);
@@ -639,10 +739,10 @@
         isClaimingRefEarnings = true;
         const backup = cloneCurrentState();
 
-        const isVip = pData.is_vip || false;
-        const feePercent = pData.effective_claim_fee !== undefined 
-            ? parseFloat(pData.effective_claim_fee) 
-            : (isVip ? 0.0 : parseFloat(window.FriendsConfig?.claim_fee_percent ?? 1.5));
+        const isVip = Boolean(pData.is_vip === true);
+        const feePercent = isVip
+            ? parseFloat(pData.effective_claim_fee ?? 0.0)
+            : parseFloat(window.FriendsConfig?.claim_fee_percent ?? 1.5);
 
         const estimatedNet = pending * (1 - (feePercent / 100));
         const currentBal = getStoredBalance();
@@ -652,15 +752,14 @@
         saveCachedData(window.PlayerData);
         window.updateFriendsUI();
 
-        const userId = getUserId();
         try {
-            let data = await secureRequest('/api/friends/claim_ref_earnings', 'POST', {
-                user_id: userId
-            });
+            let data = await secureRequest('/api/friends/claim_ref_earnings', 'POST', {});
             
             if (data && data.success) {
+                const actualVip = Boolean(data.is_vip === true);
+                const actualFee = data.effective_claim_fee !== undefined ? data.effective_claim_fee : feePercent;
                 const formattedNet = formatNumber(data.net_amount || estimatedNet);
-                const feeText = isVip ? "(👑 بدون رسوم VIP)" : `(بعد خصم ${feePercent}% رسوم)`;
+                const feeText = (actualVip && parseFloat(actualFee) === 0) ? "(👑 بدون رسوم VIP)" : `(بعد خصم ${actualFee}% رسوم)`;
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك ${feeText}.`);
                 
                 if (data.new_balance !== undefined) {
@@ -704,10 +803,8 @@
         saveCachedData(window.PlayerData);
         window.updateFriendsUI();
 
-        const userId = getUserId();
         try {
             let data = await secureRequest('/api/friends/claim_ref_task', 'POST', {
-                user_id: userId,
                 taskId,
                 reward,
                 reqFriends
@@ -744,12 +841,8 @@
         const container = document.getElementById('friends-list-container');
         if (!container) return;
 
-        const userId = getUserId();
-
         try {
-            let data = await secureRequest('/api/friends/list', 'POST', {
-                user_id: userId
-            });
+            let data = await secureRequest('/api/friends/list', 'POST', {});
 
             if (data && data.success) {
                 renderFriendsListHTML(data.friends || []);
@@ -765,14 +858,18 @@
         }
     }
 
-    // مزامنة حية ومستمرة من Supabase أثناء وقوف المستخدم داخل التطبيق
+    // مزامنة حية ومستمرة من Supabase عندما يكون تبويب الأصدقاء مرئياً
     setInterval(() => {
-        if (document.visibilityState === "visible") {
+        if (isFriendsSectionVisible()) {
             loadFriendsData(true);
         }
     }, LIVE_POLL_INTERVAL_MS);
 
     window.addEventListener('pageshow', () => {
+        loadFriendsData(true);
+    });
+
+    window.addEventListener('userStateUpdated', () => {
         loadFriendsData(true);
     });
 
