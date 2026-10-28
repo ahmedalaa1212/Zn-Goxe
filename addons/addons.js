@@ -9,6 +9,13 @@ function getAddonsAuthHeaders() {
     };
 }
 
+function escapePromoHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[&<>"'/]/g, function (m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;', '/': '&#x2F;' }[m];
+    });
+}
+
 async function loadAddonsSection(btnElement) {
     if (btnElement) {
         document.querySelectorAll('.sidebar button').forEach(b => b.classList.remove('active'));
@@ -31,7 +38,7 @@ async function loadAddonsSection(btnElement) {
 }
 
 async function submitCreatePromoCode() {
-    const code = document.getElementById('promo_code_input').value.trim();
+    const code = document.getElementById('promo_code_input').value.trim().toUpperCase();
     const coins = document.getElementById('promo_coins_input').value;
     const duration_val = document.getElementById('promo_duration_val').value;
     const duration_type = document.getElementById('promo_duration_type').value;
@@ -39,6 +46,11 @@ async function submitCreatePromoCode() {
 
     if (!code || !coins || !duration_val) {
         alert("⚠️ يرجى ملء جميع الحقول الأساسية!");
+        return;
+    }
+
+    if (!/^[A-Z0-9_\-]{2,32}$/.test(code)) {
+        alert("⚠️ اسم الكود يجب أن يحتوي على حروف إنجليزية وأرقام فقط (بدون مسافات)!");
         return;
     }
 
@@ -78,22 +90,34 @@ async function fetchAndRenderPromoCodes() {
             return;
         }
 
-        tbody.innerHTML = data.codes.map(c => `
+        tbody.innerHTML = data.codes.map(c => {
+            const safeCode = escapePromoHTML(c.code);
+            let statusBadge = '🟢 نشط';
+            if (!c.is_active) {
+                statusBadge = '🔴 معطل';
+            } else if (c.is_expired) {
+                statusBadge = '⏰ منتهي';
+            } else if (c.max_uses > 0 && c.used_count >= c.max_uses) {
+                statusBadge = '🈵 مكتمل';
+            }
+
+            return `
             <tr>
-                <td style="font-weight:bold; color:#f59e0b;">${c.code}</td>
-                <td><span class="badge-balance">${c.reward_coins} 🟡</span></td>
-                <td>${c.used_count} / ${c.max_uses == 0 ? '∞' : c.max_uses}</td>
-                <td>${c.is_active ? '🟢 نشط' : '🔴 معطل'}</td>
+                <td style="font-weight:bold; color:#f59e0b;">${safeCode}</td>
+                <td><span class="badge-balance">${Number(c.reward_coins || 0)} 🟡</span></td>
+                <td>${Number(c.used_count || 0)} / ${c.max_uses == 0 ? '∞' : Number(c.max_uses)}</td>
+                <td>${statusBadge}</td>
                 <td>
                     <div class="action-buttons">
-                        <button class="btn-action ${c.is_active ? 'btn-deduct' : 'btn-add'}" onclick="togglePromoStatus('${c.code}', ${!c.is_active})">
+                        <button class="btn-action ${c.is_active ? 'btn-deduct' : 'btn-add'}" onclick="togglePromoStatus('${safeCode}', ${!c.is_active})">
                             ${c.is_active ? 'تعطيل' : 'تفعيل'}
                         </button>
-                        <button class="btn-action btn-ban" onclick="deletePromoCode('${c.code}')">حذف</button>
+                        <button class="btn-action btn-ban" onclick="deletePromoCode('${safeCode}')">حذف</button>
                     </div>
                 </td>
             </tr>
-        `).join('');
+            `;
+        }).join('');
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="5" style="color:#ef4444;">❌ فشل جلب البيانات</td></tr>`;
     }
@@ -115,7 +139,7 @@ async function togglePromoStatus(code, targetStatus) {
 }
 
 async function deletePromoCode(code) {
-    if (!confirm(`هل أنت تأكد من حذف الكود ${code}؟`)) return;
+    if (!confirm(`هل أنت متأكد من حذف الكود ${code}؟`)) return;
     try {
         const res = await fetch('/api/admin/promo/delete', {
             method: 'POST',
