@@ -59,6 +59,7 @@ _SAFE_COL_REGEX = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 # ==================== Supabase PostgreSQL Pool ====================
 db_pool = None
+db = None  # متغير توافقي لمنع انهيار أي ملف قديم يفحص database.db
 _schema_initialized = False
 
 
@@ -80,7 +81,7 @@ def get_database_url():
 
 def init_db_pool():
     """تأسيس بركة اتصالات ذكية مقاومة لانقطاع اتصالات Supabase وإنشاء وترقية الجداول تلقائياً"""
-    global db_pool, _schema_initialized
+    global db_pool, db, _schema_initialized
     if db_pool is None or db_pool.closed:
         db_url = get_database_url()
         max_conn = int(os.environ.get("DB_MAX_CONN", "35"))
@@ -94,6 +95,7 @@ def init_db_pool():
             keepalives_interval=10,
             keepalives_count=5
         )
+        db = db_pool
         print(f"⚡ [Supabase Pool] تم تأسيس بركة الاتصالات بنجاح (Max: {max_conn})!")
 
         if not _schema_initialized:
@@ -307,6 +309,24 @@ def init_db_pool():
                             failed_count INT DEFAULT 0,
                             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                         );
+
+                        -- ==================== جدول تذاكر الدعم الفني والدردشة المباشرة ====================
+                        CREATE TABLE IF NOT EXISTS support_tickets (
+                            ticket_id VARCHAR(128) PRIMARY KEY,
+                            uid VARCHAR(128) NOT NULL,
+                            user_id VARCHAR(128) NOT NULL,
+                            user_info JSONB DEFAULT '{}'::jsonb,
+                            status VARCHAR(32) DEFAULT 'open',
+                            has_unread_admin BOOLEAN DEFAULT TRUE,
+                            last_sender VARCHAR(32) DEFAULT 'system',
+                            messages JSONB DEFAULT '[]'::jsonb,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE INDEX IF NOT EXISTS idx_support_tickets_uid_status ON support_tickets(uid, status);
+                        CREATE INDEX IF NOT EXISTS idx_support_tickets_userid_status ON support_tickets(user_id, status);
+                        CREATE INDEX IF NOT EXISTS idx_support_tickets_updated_at ON support_tickets(updated_at DESC);
 
                         -- ==================== جداول نظام المهام والحملات الإعلانية ====================
                         CREATE TABLE IF NOT EXISTS campaigns (
