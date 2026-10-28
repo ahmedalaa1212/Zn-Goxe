@@ -59,7 +59,7 @@ _SAFE_COL_REGEX = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 # ==================== Supabase PostgreSQL Pool ====================
 db_pool = None
-db = None  # متغير توافقي لمنع انهيار أي ملف قديم يفحص database.db
+db = None  # متغير توافقي لمنع انهيار أي كود قديم يفحص database.db
 _schema_initialized = False
 
 
@@ -318,14 +318,15 @@ def init_db_pool():
                             user_info JSONB DEFAULT '{}'::jsonb,
                             status VARCHAR(32) DEFAULT 'open',
                             has_unread_admin BOOLEAN DEFAULT TRUE,
-                            last_sender VARCHAR(32) DEFAULT 'system',
+                            last_sender VARCHAR(32) DEFAULT 'user',
                             messages JSONB DEFAULT '[]'::jsonb,
                             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                             updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                         );
 
-                        CREATE INDEX IF NOT EXISTS idx_support_tickets_uid_status ON support_tickets(uid, status);
-                        CREATE INDEX IF NOT EXISTS idx_support_tickets_userid_status ON support_tickets(user_id, status);
+                        CREATE INDEX IF NOT EXISTS idx_support_tickets_uid ON support_tickets(uid);
+                        CREATE INDEX IF NOT EXISTS idx_support_tickets_user_id ON support_tickets(user_id);
+                        CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
                         CREATE INDEX IF NOT EXISTS idx_support_tickets_updated_at ON support_tickets(updated_at DESC);
 
                         -- ==================== جداول نظام المهام والحملات الإعلانية ====================
@@ -431,8 +432,18 @@ def init_db_pool():
                         CREATE INDEX IF NOT EXISTS idx_users_fingerprint_hash ON users(fingerprint_hash);
                     """)
 
-                    # ترقية جداول الأجهزة والحظر والمعاملات
+                    # ترقية جداول الأجهزة والحظر والمعاملات والدردشة
                     cur.execute("""
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS uid VARCHAR(128);
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS user_id VARCHAR(128);
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS user_info JSONB DEFAULT '{}'::jsonb;
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'open';
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS has_unread_admin BOOLEAN DEFAULT TRUE;
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS last_sender VARCHAR(32) DEFAULT 'user';
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS messages JSONB DEFAULT '[]'::jsonb;
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+                        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
                         ALTER TABLE devices ADD COLUMN IF NOT EXISTS fingerprint_hash VARCHAR(256);
                         ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_banned BOOLEAN DEFAULT FALSE;
                         ALTER TABLE devices ADD COLUMN IF NOT EXISTS ban_reason TEXT;
@@ -524,7 +535,7 @@ def init_db_pool():
                         pass
 
                 _schema_initialized = True
-                print("⚡ [Supabase Setup] تم التحقق من الجداول والمخطط وترقيتها بنجاح!")
+                print("⚡ [Supabase Setup] تم التحقق من الجداول والمخطط (بما فيها support_tickets) وترقيتها بنجاح!")
             except Exception as e:
                 print(f"⚠️ خطأ أثناء إنشاء/تحديث الجداول: {e}")
             finally:
