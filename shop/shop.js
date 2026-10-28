@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
+// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages + Live Supabase Sync)
 // =================================================================
 
 (function initShop() {
@@ -8,10 +8,11 @@
 
     let tonConnectUI = null;
     let isBuying = false;
+    let isFetchingConfig = false;
     let shopDynamicSettings = null;
     let cachedPackagesData = null;
     let lastConfigFetchTime = 0;
-    const CONFIG_CACHE_TTL = 0; 
+    const CONFIG_CACHE_TTL = 0; // 0 لضمان القراءة اللحظية من Supabase دائماً
     let vipTimerInterval = null;
     let pendingVerifyTimer = null;
 
@@ -19,13 +20,92 @@
     let _lastMiningHTML = '';
     let _lastStorageHTML = '';
 
+    // استخراج أو توليد بصمة ومعرف الجهاز لتمريرها لنظام الأمان (Anti-Multi-Account)
+    function getDeviceCredentials() {
+        let devId = window.deviceId
+            || window.ZN_DEVICE_ID
+            || localStorage.getItem('device_id')
+            || localStorage.getItem('zn_device_id')
+            || '';
+
+        if (!devId) {
+            devId = 'dev_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
+            try {
+                localStorage.setItem('device_id', devId);
+                localStorage.setItem('zn_device_id', devId);
+            } catch (e) {}
+        }
+
+        let fpHash = window.deviceFingerprint
+            || window.ZN_FINGERPRINT
+            || localStorage.getItem('device_fingerprint')
+            || localStorage.getItem('fingerprint_hash')
+            || '';
+
+        if (!fpHash) {
+            try {
+                const rawFp = [
+                    navigator.userAgent || '',
+                    navigator.language || '',
+                    (screen?.width || 0) + 'x' + (screen?.height || 0),
+                    (screen?.colorDepth || 0),
+                    Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+                    navigator.hardwareConcurrency || ''
+                ].join('|');
+                let hash = 0;
+                for (let i = 0; i < rawFp.length; i++) {
+                    hash = ((hash << 5) - hash) + rawFp.charCodeAt(i);
+                    hash |= 0;
+                }
+                fpHash = 'fp_' + Math.abs(hash).toString(16);
+                localStorage.setItem('device_fingerprint', fpHash);
+                localStorage.setItem('fingerprint_hash', fpHash);
+            } catch (e) {}
+        }
+
+        return { deviceId: devId, fingerprint: fpHash };
+    }
+
+    function buildSecureHeaders(initData) {
+        const creds = getDeviceCredentials();
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `twa ${initData}`,
+            'X-Telegram-Init-Data': initData,
+            'X-Device-Id': creds.deviceId,
+            'X-Device-Fingerprint': creds.fingerprint,
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+        };
+    }
+
+    function handleSecurityBanIfNeeded(data) {
+        if (data && (data.banned || data.is_banned)) {
+            const msg = data.error || data.message || "تم حظر هذا الحساب لمخالفة القوانين أو تعدد الحسابات.";
+            alert("🚫 " + msg);
+            return true;
+        }
+        return false;
+    }
+
+    function isShopSectionVisible() {
+        if (document.visibilityState !== 'visible') return false;
+        const pkgContainer = document.getElementById('usdt-packages-container');
+        const miningSec = document.getElementById('shop-mining-section');
+        const storageSec = document.getElementById('shop-storage-section');
+        const target = pkgContainer || miningSec || storageSec;
+        if (!target) return true;
+        return target.offsetParent !== null;
+    }
+
     function syncFriendsAndGlobalState(res) {
         if (!res || typeof res !== 'object') return;
         if (!window.userState) window.userState = {};
         if (!window.PlayerData) window.PlayerData = {};
 
         const fields = [
-            'balance', 'usd_balance', 'hourly_rate', 'upgrades',
+            'balance', 'ad_balance', 'usd_balance', 'znx_balance',
+            'hourly_rate', 'upgrades', 'upgrades_count',
             'storage_level', 'extra_storage', 'max_cap', 'last_claim_time', 'vip_status'
         ];
         fields.forEach(f => {
@@ -46,18 +126,25 @@
             window.PlayerData.upgrades_count = totalUpgrades;
         }
 
-        if (res.vip_status) {
-            window.userState.is_vip = true;
-            window.PlayerData.is_vip = true;
-            const uid = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-            if (uid) {
-                localStorage.removeItem(`zn_friends_cache_v3_${uid}`);
-                localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
-                localStorage.removeItem(`zn_friends_cache_${uid}`);
+        if (res.vip_status !== undefined) {
+            const vipObj = (res.vip_status && typeof res.vip_status === 'object') ? res.vip_status : {};
+            const hasValidVip = Boolean(vipObj.package_id && vipObj.expires_at && formatRemainingTime(vipObj.expires_at));
+            window.userState.is_vip = hasValidVip;
+            window.PlayerData.is_vip = hasValidVip;
+            window.userState.vip_active = hasValidVip;
+            window.PlayerData.vip_active = hasValidVip;
+
+            if (hasValidVip) {
+                const uid = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+                if (uid) {
+                    localStorage.removeItem(`zn_friends_cache_v3_${uid}`);
+                    localStorage.removeItem(`zn_friends_cache_v2_${uid}`);
+                    localStorage.removeItem(`zn_friends_cache_${uid}`);
+                }
+                localStorage.removeItem('zn_friends_cache_v3_global');
+                localStorage.removeItem('zn_friends_cache_v2_global');
+                localStorage.removeItem('zn_friends_cache_global');
             }
-            localStorage.removeItem('zn_friends_cache_v3_global');
-            localStorage.removeItem('zn_friends_cache_v2_global');
-            localStorage.removeItem('zn_friends_cache_global');
         }
     }
 
@@ -196,7 +283,6 @@
         }, 1000);
     }
 
-    // توحيد كائن المحفظة عبر window.znTonConnectUI لمنع تضارب الجلسات
     function initTonConnect() {
         if (window.znTonConnectUI) {
             tonConnectUI = window.znTonConnectUI;
@@ -283,6 +369,7 @@
     }
 
     async function loadShopConfig(forceFetch = false) {
+        if (isFetchingConfig) return;
         const now = Date.now();
 
         if (!forceFetch && shopDynamicSettings && (now - lastConfigFetchTime < CONFIG_CACHE_TTL)) {
@@ -293,24 +380,28 @@
             return;
         }
 
+        isFetchingConfig = true;
         try {
             const initData = window.Telegram?.WebApp?.initData || "";
+            const creds = getDeviceCredentials();
             const fetchOptions = {
                 method: 'POST',
                 cache: 'no-store',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData,
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                },
-                body: JSON.stringify({ initData: initData })
+                headers: buildSecureHeaders(initData),
+                body: JSON.stringify({
+                    initData: initData,
+                    device_id: creds.deviceId,
+                    fingerprint_hash: creds.fingerprint
+                })
             };
 
             const res = await withTimeout(fetch(`/api/shop/get_config?_t=${now}`, fetchOptions), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
-            
             const data = await res.json();
+
+            if (handleSecurityBanIfNeeded(data)) {
+                return;
+            }
+
             if (data && data.success) {
                 if (data.user_state && Object.keys(data.user_state).length > 0) {
                     syncFriendsAndGlobalState(data.user_state);
@@ -318,18 +409,15 @@
 
                 shopDynamicSettings = normalizeIncomingConfig(data);
                 cachedPackagesData = shopDynamicSettings.packages;
-                lastConfigFetchTime = now;
-
-                try {
-                    sessionStorage.setItem('zn_shop_config', JSON.stringify(shopDynamicSettings));
-                    sessionStorage.setItem('zn_shop_config_time', now.toString());
-                } catch (e) {}
+                lastConfigFetchTime = Date.now();
 
                 applyConfigToUI(shopDynamicSettings);
             }
         } catch (e) {
             console.error("خطأ في تحميل إعدادات المتجر:", e);
             window.updateShopUI();
+        } finally {
+            isFetchingConfig = false;
         }
     }
 
@@ -460,21 +548,25 @@
             }
 
             try {
+                const creds = getDeviceCredentials();
                 const res = await fetch(`/api/shop/verify_and_apply_package?_t=${Date.now()}`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `twa ${initData}`,
-                        'X-Telegram-Init-Data': initData
-                    },
+                    headers: buildSecureHeaders(initData),
                     body: JSON.stringify({
                         package_id: packageId,
                         boc: bocStr,
                         payload_memo: payloadMemo,
-                        initData: initData
+                        initData: initData,
+                        device_id: creds.deviceId,
+                        fingerprint_hash: creds.fingerprint
                     })
                 });
                 const data = await res.json();
+                if (handleSecurityBanIfNeeded(data)) {
+                    clearInterval(pendingVerifyTimer);
+                    pendingVerifyTimer = null;
+                    return;
+                }
                 if (data && data.success) {
                     clearInterval(pendingVerifyTimer);
                     pendingVerifyTimer = null;
@@ -530,65 +622,48 @@
             }
 
             isBuying = true;
+            const creds = getDeviceCredentials();
 
             const prepRes = await withTimeout(fetch(`/api/shop/prepare_ton_pay?_t=${Date.now()}`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData
-                },
+                headers: buildSecureHeaders(initData),
                 body: JSON.stringify({ 
                     package_id: packageId,
-                    initData: initData 
+                    initData: initData,
+                    device_id: creds.deviceId,
+                    fingerprint_hash: creds.fingerprint
                 })
             }), 20000, "تأخر السيرفر في تجهيز بيانات الدفع.");
 
             const prepData = await prepRes.json();
-            if (!prepData.success) {
+            if (handleSecurityBanIfNeeded(prepData)) {
+                isBuying = false;
+                return;
+            }
+            if (!prepData.success || !prepData.payload || !prepData.payload_memo) {
                 triggerHaptic('notification', 'error');
-                alert("خطأ: " + (prepData.error || prepData.message));
+                alert("خطأ: " + (prepData.error || prepData.message || "تعذر تجهيز كود التحقق للمعاملة."));
                 isBuying = false;
                 return;
             }
 
             const cleanNanoTon = String(Math.floor(Number(prepData.nano_ton)));
 
+            // إرسال المعاملة حصرياً مع الـ payload المشفر (Memo) لضمان التوثيق الآمن ومنع ضياع أو سرقة الدفعة
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 600,
                 messages: [{
                     address: prepData.recipient_address,
                     amount: cleanNanoTon,
-                    payload: prepData.payload || undefined
+                    payload: prepData.payload
                 }]
             };
 
-            let result = null;
-            try {
-                result = await withTimeout(
-                    tcInstance.sendTransaction(transaction),
-                    120000,
-                    "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
-                );
-            } catch (txErr) {
-                const errStr = String(txErr?.message || txErr || "");
-                if (prepData.payload && !errStr.includes("UserRejects") && !errStr.includes("declined") && !errStr.includes("انتهت") && !errStr.includes("طويلاً")) {
-                    const fallbackTx = {
-                        validUntil: Math.floor(Date.now() / 1000) + 600,
-                        messages: [{
-                            address: prepData.recipient_address,
-                            amount: cleanNanoTon
-                        }]
-                    };
-                    result = await withTimeout(
-                        tcInstance.sendTransaction(fallbackTx),
-                        120000,
-                        "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
-                    );
-                } else {
-                    throw txErr;
-                }
-            }
+            const result = await withTimeout(
+                tcInstance.sendTransaction(transaction),
+                120000,
+                "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
+            );
 
             if (!result || !result.boc || typeof result.boc !== 'string' || result.boc.trim().length < 32) {
                 isBuying = false;
@@ -599,20 +674,23 @@
 
             const verifyRes = await withTimeout(fetch(`/api/shop/verify_and_apply_package?_t=${Date.now()}`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData
-                },
+                headers: buildSecureHeaders(initData),
                 body: JSON.stringify({
                     package_id: packageId,
                     boc: result.boc,
-                    payload_memo: prepData.payload_memo || "",
-                    initData: initData
+                    payload_memo: prepData.payload_memo,
+                    initData: initData,
+                    device_id: creds.deviceId,
+                    fingerprint_hash: creds.fingerprint
                 })
             }), 30000, "جاري تأكيد العملية من الشبكة...");
 
             const verifyData = await verifyRes.json();
+            if (handleSecurityBanIfNeeded(verifyData)) {
+                isBuying = false;
+                return;
+            }
+
             if (verifyData.success && (verifyData.result || verifyData.data || verifyData.balance !== undefined)) {
                 triggerHaptic('notification', 'success');
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
@@ -625,7 +703,7 @@
             } else if (verifyData.pending) {
                 triggerHaptic('notification', 'warning');
                 alert(verifyData.message || "⏳ جاري تأكيد المعاملة من شبكة TON، سيتم تفعيل الباقة تلقائياً خلال ثوانٍ.");
-                pollPendingTonVerification(packageId, result.boc, prepData.payload_memo || "", initData);
+                pollPendingTonVerification(packageId, result.boc, prepData.payload_memo, initData);
             } else {
                 triggerHaptic('notification', 'error');
                 alert("⚠️ " + (verifyData.error || verifyData.message || "لم نتمكن من التحقق من الدفع."));
@@ -953,25 +1031,28 @@
         isBuying = true;
 
         let apiType = (type === 'speed') ? 'mining' : 'storage';
+        const creds = getDeviceCredentials();
 
         try {
             let response = await withTimeout(fetch(`/api/shop/buy?_t=${Date.now()}`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `twa ${initData}`,
-                    'X-Telegram-Init-Data': initData
-                },
+                headers: buildSecureHeaders(initData),
                 body: JSON.stringify({ 
                     type: apiType, 
                     level_num: level,
                     level: level,
                     upgrade_level: level,
-                    initData: initData 
+                    initData: initData,
+                    device_id: creds.deviceId,
+                    fingerprint_hash: creds.fingerprint
                 })
             }), 15000, "تأخرت الاستجابة من سيرفر الشراء.");
 
             let resData = await response.json();
+
+            if (handleSecurityBanIfNeeded(resData)) {
+                return;
+            }
 
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
@@ -994,11 +1075,24 @@
         }
     }
 
+    // مزامنة لحظية ذكية مع Supabase عندما يكون تبويب المتجر مفتوحاً دون إغراق السيرفر
     setInterval(() => {
+        if (isShopSectionVisible() && !isBuying && !isFetchingConfig) {
+            loadShopConfig(true);
+        }
+    }, 3500);
+
+    document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && !isBuying) {
             loadShopConfig(true);
         }
-    }, 2500);
+    });
+
+    window.addEventListener('focus', () => {
+        if (!isBuying) {
+            loadShopConfig(true);
+        }
+    });
 
     function boot() {
         initTonConnect();
