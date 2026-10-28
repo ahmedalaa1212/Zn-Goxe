@@ -1,8 +1,9 @@
 /**
  * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual, True Cap & VIP Sync)
  * Cleaned, Optimized & Modularized Version
- * Boost Waterfall: Monetix (Primary) -> Monetag (Fallback)
- * Daily Claim: Monetag (Primary) -> Monetix (Fallback)
+ * Strict Single-Ad Waterfall System:
+ * - Boost Waterfall: Monetix (Primary) -> Monetag (Fallback ONLY if Monetix did not show)
+ * - Daily Claim: Monetag (Primary) -> Monetix (Fallback ONLY if Monetag did not show)
  */
 
 // ==========================================
@@ -118,6 +119,9 @@ window.closeAutoClaimModal = function() {
     let upgradingLevel = null;
     let isUpgradingStorage = false;
 
+    // 🔒 قفل حماية الإعلانات لمنع تشغيل إعلانين في نفس اللحظة نهائياً
+    let isAdSessionActive = false;
+
     let lastFetchTime = 0;
     const FETCH_THROTTLE_MS = 0; 
     let lastCheckedDate = "";
@@ -147,7 +151,6 @@ window.closeAutoClaimModal = function() {
     function parseServerDateMs(dateStr) {
         if (!dateStr) return getAdjustedNowMs();
         if (typeof dateStr === 'number') {
-            // إذا كان بالثواني نحوله إلى ملي ثانية
             return dateStr < 10000000000 ? dateStr * 1000 : dateStr;
         }
         let s = String(dateStr).trim().replace(' ', 'T');
@@ -168,7 +171,7 @@ window.closeAutoClaimModal = function() {
         if (!pData) return true;
         const vip = parseVipStatus(pData);
         const rawExp = vip.expires_at || vip.vip_expires_at || vip.bot_expires_at || pData.bot_expires_at || pData.vip_expires_at || pData.expires_at;
-        if (!rawExp) return false; // إذا لم يكن هناك تاريخ انتهاء محدد
+        if (!rawExp) return false;
         const expMs = parseServerDateMs(rawExp);
         return expMs <= getAdjustedNowMs();
     }
@@ -195,7 +198,7 @@ window.closeAutoClaimModal = function() {
         return keys.length > 0 ? Math.max(...keys) : 8;
     }
 
-    // 🛡️ الدالة المحمية والموحدة لحساب السعة الحقيقية للمخزن (تمنع القفز إلى رقم 6 نهائياً)
+    // 🛡️ الدالة المحمية والموحدة لحساب السعة الحقيقية للمخزن
     function calculateEffectiveMaxCap(pData) {
         const state = pData || getState();
         if (!state) return 0.5;
@@ -223,7 +226,6 @@ window.closeAutoClaimModal = function() {
         return Math.round(finalCap * 10000) / 10000;
     }
 
-    // تصدير الدالة عالمياً لإصلاح أي استدعاء من ملفات أخرى (مثل المتجر أو game.js)
     window.calculateTrueMaxCap = calculateEffectiveMaxCap;
 
     function updateState(patch) {
@@ -496,32 +498,139 @@ window.closeAutoClaimModal = function() {
         return (Math.round(num * 100) / 100).toString();
     }
 
+    // ==========================================
+    // 🎬 نظام إدارة الإعلانات الصارم (Single-Ad Waterfall Engine)
+    // ==========================================
     function toggleAdLoadingOverlay(show) {
         const overlay = document.getElementById('ad-loading-overlay');
         if (overlay) overlay.style.display = show ? 'flex' : 'none';
     }
 
+    const KNOWN_APP_BODY_IDS = new Set([
+        'ad-loading-overlay',
+        'telegram-only-screen',
+        'banned-screen',
+        'global-toast-container',
+        'loading-screen',
+        'app',
+        'main-nav'
+    ]);
+
+    function isAdNodeElement(node) {
+        if (!node || node.nodeType !== 1) return false;
+        const tag = (node.tagName || '').toUpperCase();
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' || tag === 'META') return false;
+        if (node.id && KNOWN_APP_BODY_IDS.has(node.id)) return false;
+        return true;
+    }
+
+    function findActiveMonetixOverlay(preExistingNodes) {
+        const children = Array.from(document.body.children || []);
+        for (const el of children) {
+            if (!isAdNodeElement(el)) continue;
+            const txt = (el.innerText || el.textContent || '').toLowerCase();
+            const idCls = ((el.id || '') + ' ' + (el.className || '')).toLowerCase();
+            if (
+                txt.includes('closing in') ||
+                txt.includes('monetix') ||
+                idCls.includes('monetix') ||
+                idCls.includes('mx-') ||
+                (preExistingNodes && !preExistingNodes.has(el))
+            ) {
+                return el;
+            }
+        }
+        return null;
+    }
+
+    function isExplicitSuccessStatus(status) {
+        if (status === true) return true;
+        if (typeof status === 'string') {
+            const str = status.trim().toLowerCase();
+            return ['completed', 'closed', 'rewarded', 'true', 'success', 'done', 'finished'].includes(str);
+        }
+        if (typeof status === 'object' && status !== null) {
+            if (status.rewarded === true || status.completed === true || status.closed === true || status.success === true) return true;
+            const st = (status.status || status.state || status.event || status.type || '').toString().trim().toLowerCase();
+            return ['completed', 'closed', 'rewarded', 'success', 'done', 'finished'].includes(st);
+        }
+        return false;
+    }
+
+    function isExplicitFailureStatus(status) {
+        if (status === false) return true;
+        if (typeof status === 'string') {
+            const str = status.trim().toLowerCase();
+            return ['failed', 'error', 'skipped', 'dismissed', 'no_fill', 'nofill', 'no-fill', 'cancelled', 'canceled', 'empty'].includes(str);
+        }
+        if (typeof status === 'object' && status !== null) {
+            if (status.error || status.failed || status.no_fill || status.noFill || status.success === false) return true;
+            const st = (status.status || status.state || status.event || status.type || '').toString().trim().toLowerCase();
+            return ['failed', 'error', 'skipped', 'dismissed', 'no_fill', 'nofill', 'no-fill', 'cancelled', 'canceled', 'empty'].includes(st);
+        }
+        return false;
+    }
+
+    /**
+     * تشغيل إعلان Monetix مع تتبع دقيق لظهوره على الشاشة
+     * يُرجع: { success: boolean, shown: boolean }
+     */
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
 
         return new Promise((resolve) => {
             let resolved = false;
-            let startHideTimer = null;
+            let adShown = false;
+            let adShownTimestamp = 0;
+            let detectedAdElement = null;
+            let loadTimeoutTimer = null;
+            let completionTimeoutTimer = null;
+            let domCheckInterval = null;
+            let observer = null;
 
-            const finish = (result) => {
-                if (!resolved) {
-                    resolved = true;
-                    NativeClearTimeout(timeoutTimer);
-                    NativeClearTimeout(startHideTimer);
-                    toggleAdLoadingOverlay(false);
-                    resolve(result);
+            const preExistingBodyNodes = new Set(Array.from(document.body.children || []));
+
+            const cleanup = () => {
+                NativeClearTimeout(loadTimeoutTimer);
+                NativeClearTimeout(completionTimeoutTimer);
+                NativeClearInterval(domCheckInterval);
+                if (observer) {
+                    try { observer.disconnect(); } catch (e) {}
+                    observer = null;
                 }
             };
 
-            const timeoutTimer = NativeSetTimeout(() => {
-                console.warn("Monetix Ad timeout.");
-                finish(false);
-            }, 12000);
+            const finish = (success, shown) => {
+                if (resolved) return;
+                resolved = true;
+                cleanup();
+                toggleAdLoadingOverlay(false);
+
+                // إذا انتهت المحاولة بالفشل قبل ظهور الإعلان (No-Fill)، نمنع أي نافذة متأخرة من الظهور فوق الإعلان البديل
+                if (!shown) {
+                    let guardTicks = 0;
+                    const lateGuard = NativeSetInterval(() => {
+                        guardTicks++;
+                        const lateEl = findActiveMonetixOverlay(preExistingBodyNodes);
+                        if (lateEl && lateEl.parentNode) {
+                            try { lateEl.parentNode.removeChild(lateEl); } catch (e) {}
+                        }
+                        if (guardTicks >= 12) NativeClearInterval(lateGuard);
+                    }, 250);
+                }
+
+                resolve({ success: Boolean(success), shown: Boolean(shown) });
+            };
+
+            const markAdAsShown = (el) => {
+                if (!adShown) {
+                    adShown = true;
+                    adShownTimestamp = NativeDateNow();
+                    if (el) detectedAdElement = el;
+                    NativeClearTimeout(loadTimeoutTimer);
+                    toggleAdLoadingOverlay(false);
+                }
+            };
 
             const blockId = GAME_CONFIG.monetixBlockId || "MX-3AE08FE9";
             const cleanBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '_');
@@ -534,62 +643,138 @@ window.closeAutoClaimModal = function() {
                     : window.Monetix.show?.bind(window.Monetix);
             }
 
-            if (!monetixFn) {
+            if (typeof monetixFn !== 'function') {
                 console.warn("Monetix SDK غير متوفر حالياً.");
-                return finish(false);
+                return finish(false, false);
             }
 
+            // مراقبة إضافة وإزالة عناصر الإعلان في DOM
             try {
-                const checkSuccessStatus = (status) => {
-                    if (status === true) return true;
-                    if (typeof status === 'string') {
-                        const str = status.toLowerCase();
-                        return ['completed', 'closed', 'rewarded', 'true', 'success'].includes(str);
+                observer = new MutationObserver(() => {
+                    if (resolved) return;
+                    const overlayEl = findActiveMonetixOverlay(preExistingBodyNodes);
+                    if (overlayEl) {
+                        markAdAsShown(overlayEl);
+                    } else if (adShown && detectedAdElement && !document.body.contains(detectedAdElement)) {
+                        // تم إغلاق عنصر الإعلان من الشاشة بعد انتهاء العداد
+                        const watchedDurationMs = NativeDateNow() - adShownTimestamp;
+                        NativeSetTimeout(() => {
+                            if (!resolved) {
+                                finish(watchedDurationMs >= 7000, true);
+                            }
+                        }, 350);
                     }
-                    if (typeof status === 'object' && status !== null) {
-                        if (status.rewarded || status.completed || status.closed || status.success) return true;
-                        const st = (status.status || status.state || status.event || status.type || '').toString().toLowerCase();
-                        return ['completed', 'closed', 'rewarded', 'success'].includes(st);
-                    }
-                    return false;
-                };
+                });
+                observer.observe(document.body, { childList: true, subtree: false });
+            } catch (e) {}
 
+            // فحص دوري للـ DOM للتأكد من رصد ظهور الإعلان وإغلاقه بدقة
+            domCheckInterval = NativeSetInterval(() => {
+                if (resolved) return;
+                const overlayEl = findActiveMonetixOverlay(preExistingBodyNodes);
+                if (overlayEl) {
+                    markAdAsShown(overlayEl);
+                } else if (adShown && detectedAdElement && !document.body.contains(detectedAdElement)) {
+                    const watchedDurationMs = NativeDateNow() - adShownTimestamp;
+                    finish(watchedDurationMs >= 7000, true);
+                }
+            }, 250);
+
+            // مهلة تحميل الإعلان المبدئية (6 ثوانٍ): إذا لم يظهر الإعلان خلالها يتحول للبديل فوراً
+            loadTimeoutTimer = NativeSetTimeout(() => {
+                const overlayEl = findActiveMonetixOverlay(preExistingBodyNodes);
+                if (overlayEl) {
+                    markAdAsShown(overlayEl);
+                } else if (!adShown) {
+                    console.warn("Monetix Ad load timeout (No-Fill).");
+                    finish(false, false);
+                }
+            }, 6000);
+
+            // مهلة أمان قصوى لإكمال الإعلان بعد فتحه (45 ثانية)
+            completionTimeoutTimer = NativeSetTimeout(() => {
+                console.warn("Monetix Ad max completion timeout.");
+                finish(false, adShown);
+            }, 45000);
+
+            try {
                 const handleMonetixCallback = (status) => {
+                    if (resolved) return;
                     toggleAdLoadingOverlay(false);
-                    if (checkSuccessStatus(status)) {
-                        finish(true);
-                    } else if (status === false || (typeof status === 'string' && ['failed', 'error', 'skipped', 'dismissed', 'no_fill', 'nofill'].includes(status.toLowerCase()))) {
-                        finish(false);
-                    } else if (status && typeof status === 'object' && (status.error || status.failed)) {
-                        finish(false);
+
+                    // إذا تم استدعاء الـ Callback بحالة بدء العرض فقط، نثبت الظهور وننتظر الانتهاء
+                    if (typeof status === 'string' && ['shown', 'started', 'loaded', 'opened', 'impression'].includes(status.trim().toLowerCase())) {
+                        markAdAsShown(findActiveMonetixOverlay(preExistingBodyNodes));
+                        return;
+                    }
+
+                    if (isExplicitFailureStatus(status)) {
+                        finish(false, adShown);
+                        return;
+                    }
+
+                    // في Monetix: استدعاء الـ Callback عند انتهاء العداد يكون إما بـ true/completed أو بدون معاملات (undefined)
+                    if (isExplicitSuccessStatus(status) || status === undefined) {
+                        const overlayEl = findActiveMonetixOverlay(preExistingBodyNodes);
+                        if (overlayEl && (NativeDateNow() - (adShownTimestamp || NativeDateNow())) < 3000) {
+                            // الإعلان لا يزال في بداية العد التنازلي على الشاشة
+                            markAdAsShown(overlayEl);
+                            return;
+                        }
+                        finish(true, true);
                     }
                 };
 
                 const res = monetixFn(handleMonetixCallback);
-                startHideTimer = NativeSetTimeout(() => toggleAdLoadingOverlay(false), 800);
 
                 if (res && typeof res.then === 'function') {
                     res.then((r) => {
-                        toggleAdLoadingOverlay(false);
-                        if (checkSuccessStatus(r)) {
-                            finish(true);
-                        } else {
-                            finish(false);
+                        if (resolved) return;
+
+                        // إذا رجع خطأ صريح أو false من الـ Promise
+                        if (isExplicitFailureStatus(r)) {
+                            finish(false, adShown);
+                            return;
                         }
+
+                        // فحص ما إذا كان إعلان Monetix قد تم تركيبه على الشاشة (يعد تنازلياً الآن)
+                        NativeSetTimeout(() => {
+                            if (resolved) return;
+                            const overlayEl = findActiveMonetixOverlay(preExistingBodyNodes);
+                            if (overlayEl) {
+                                // الإعلان مفتوح حالياً على الشاشة! نمنع إنهاء الدالة بـ false وننتظر انتهاء العداد
+                                markAdAsShown(overlayEl);
+                                return;
+                            }
+
+                            // إذا لم يكن هناك عنصر مفتوح في الصفحة والـ Promise رجع بنجاح صريح
+                            if (isExplicitSuccessStatus(r)) {
+                                finish(true, true);
+                            }
+                        }, 300);
                     }).catch((err) => {
                         console.warn("Monetix Promise Error / No-Fill:", err);
-                        finish(false);
+                        const overlayEl = findActiveMonetixOverlay(preExistingBodyNodes);
+                        if (overlayEl) {
+                            markAdAsShown(overlayEl);
+                        } else {
+                            finish(false, adShown);
+                        }
                     });
                 } else if (res === false) {
-                    finish(false);
+                    finish(false, false);
                 }
             } catch (e) {
                 console.warn("خطأ تشغيل إعلان Monetix:", e);
-                finish(false);
+                finish(false, adShown);
             }
         });
     }
 
+    /**
+     * تشغيل إعلان Monetag مع تتبع دقيق لظهوره على الشاشة
+     * يُرجع: { success: boolean, shown: boolean }
+     */
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
         const zoneId = GAME_CONFIG.monetagZoneId || "11322720";
@@ -597,41 +782,80 @@ window.closeAutoClaimModal = function() {
 
         return new Promise((resolve) => {
             let resolved = false;
+            let adShown = false;
+            let loadTimeoutTimer = null;
+            let completionTimeoutTimer = null;
+            let domCheckInterval = null;
 
-            const finish = (result) => {
-                if (!resolved) {
-                    resolved = true;
-                    NativeClearTimeout(timeoutTimer);
-                    toggleAdLoadingOverlay(false);
-                    resolve(result);
-                }
+            const preExistingBodyNodes = new Set(Array.from(document.body.children || []));
+
+            const cleanup = () => {
+                NativeClearTimeout(loadTimeoutTimer);
+                NativeClearTimeout(completionTimeoutTimer);
+                NativeClearInterval(domCheckInterval);
             };
 
-            const timeoutTimer = NativeSetTimeout(() => {
-                console.warn("Monetag Ad timeout.");
-                finish(false);
-            }, 45000);
+            const finish = (success, shown) => {
+                if (resolved) return;
+                resolved = true;
+                cleanup();
+                toggleAdLoadingOverlay(false);
+                resolve({ success: Boolean(success), shown: Boolean(shown) });
+            };
 
-            if (typeof window[functionName] === 'function') {
-                try {
-                    const adPromise = window[functionName]();
-                    if (adPromise && typeof adPromise.then === 'function') {
-                        adPromise.then((res) => {
-                            finish(res !== false);
-                        }).catch((e) => {
-                            console.warn("خطأ أو عدم توفر إعلان Monetag:", e);
-                            finish(false);
-                        });
-                    } else {
-                        finish(true);
-                    }
-                } catch (e) {
-                    console.warn("استدعاء Monetag فشل:", e);
-                    finish(false);
-                }
-            } else {
+            if (typeof window[functionName] !== 'function') {
                 console.warn(`دالة Monetag الإعلانية غير متوفرة (${functionName}).`);
-                finish(false);
+                return finish(false, false);
+            }
+
+            // مراقبة ظهور نافذة إعلان Monetag في الصفحة لإخفاء شاشة التحميل وتأكيد العرض
+            domCheckInterval = NativeSetInterval(() => {
+                if (resolved) return;
+                const children = Array.from(document.body.children || []);
+                for (const el of children) {
+                    if (!isAdNodeElement(el)) continue;
+                    if (!preExistingBodyNodes.has(el)) {
+                        adShown = true;
+                        NativeClearTimeout(loadTimeoutTimer);
+                        toggleAdLoadingOverlay(false);
+                        break;
+                    }
+                }
+            }, 250);
+
+            // مهلة تحميل إعلان Monetag (8 ثوانٍ): إذا لم يفتح الإعلان خلالها يعتبر No-Fill
+            loadTimeoutTimer = NativeSetTimeout(() => {
+                if (!adShown) {
+                    console.warn("Monetag Ad load timeout (No-Fill).");
+                    finish(false, false);
+                }
+            }, 8000);
+
+            // مهلة أمان قصوى لإكمال الإعلان بعد فتحه (50 ثانية)
+            completionTimeoutTimer = NativeSetTimeout(() => {
+                console.warn("Monetag Ad max completion timeout.");
+                finish(false, adShown);
+            }, 50000);
+
+            try {
+                const adPromise = window[functionName]();
+                if (adPromise && typeof adPromise.then === 'function') {
+                    adPromise.then((res) => {
+                        if (res === false) {
+                            finish(false, adShown);
+                        } else {
+                            finish(true, true);
+                        }
+                    }).catch((e) => {
+                        console.warn("خطأ أو عدم توفر إعلان Monetag:", e);
+                        finish(false, adShown);
+                    });
+                } else {
+                    finish(true, true);
+                }
+            } catch (e) {
+                console.warn("استدعاء Monetag فشل:", e);
+                finish(false, adShown);
             }
         });
     }
@@ -969,7 +1193,6 @@ window.closeAutoClaimModal = function() {
         updateBoostButtonUI(pData);
         renderDailyRewards();
 
-        // استخدام الدالة المحمية للسعة الحقيقية (مع دعم الضعف ×2 للباقات الفعالة)
         const maxC = calculateEffectiveMaxCap(pData);
         const unclaim = Math.min(maxC, Math.max(0, parseFloat(pData.unclaimed || 0)));
 
@@ -1096,7 +1319,6 @@ window.closeAutoClaimModal = function() {
         }
         lastCheckedDate = todayStr;
 
-        // حساب السعة الحقيقية في كل ثانية مع مراقبة صلاحية باقة الـ VIP
         let maxC = calculateEffectiveMaxCap(pData);
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
         let boostRate = getActiveBoostRate(pData);
@@ -1129,7 +1351,6 @@ window.closeAutoClaimModal = function() {
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
         if (botBadge) botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         
-        // التجميع التلقائي الفوري عند وصول المخزن إلى 80% من السعة الفعلية
         if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain) {
             if (NativeDateNow() - lastAutoClaimAttempt > 10000) {
                 lastAutoClaimAttempt = NativeDateNow();
@@ -1191,7 +1412,6 @@ window.closeAutoClaimModal = function() {
 
     function syncOnVisibility() {
         if (document.visibilityState === "visible") {
-            // جلب إجباري من السيرفر فور فتح البوت لتنفيذ التجميع التلقائي للأوفلاين
             window.fetchPlayerDataFromServer(true);
         }
     }
@@ -1364,23 +1584,28 @@ window.closeAutoClaimModal = function() {
         }
     };
 
+    // ==========================================
+    // 🎁 المكافأة اليومية: Monetag (أساسي) -> Monetix (بديل فقط إذا لم يظهر الأول)
+    // ==========================================
     window.handleDailyClaim = async function(dayNum) {
-        if (isDebouncedClick() || isClaimingDaily) return;
+        if (isDebouncedClick() || isClaimingDaily || isAdSessionActive) return;
 
         isClaimingDaily = true;
+        isAdSessionActive = true;
         renderDailyRewards();
 
         try {
-            let adSuccess = await showMonetagAd();
+            let adResult = await showMonetagAd();
 
-            if (!adSuccess) {
-                console.log("Monetag لم يظهر، جاري التحويل إلى Monetix...");
-                adSuccess = await showMonetixAd();
+            // لا يتم تشغيل البديل (Monetix) إلا إذا لم يظهر إعلان Monetag على الشاشة نهائياً
+            if (!adResult.success && !adResult.shown) {
+                console.log("Monetag لم يظهر نهائياً، جاري التحويل إلى الإعلان البديل Monetix...");
+                adResult = await showMonetixAd();
             }
 
             toggleAdLoadingOverlay(false);
 
-            if (!adSuccess) {
+            if (!adResult.success) {
                 showToast("❌ يجب مشاهدة الإعلان كاملاً لاستلام المكافأة اليومية!");
                 return;
             }
@@ -1389,7 +1614,8 @@ window.closeAutoClaimModal = function() {
             try {
                 let resData = await window.fetchAPI(`/api/farm/daily_claim?t=${NativeDateNow()}`, 'POST', {
                     ad_watched: true,
-                    monetag_watched: true
+                    monetag_watched: true,
+                    monetix_watched: true
                 });
                 if (resData && resData.success) {
                     if (resData.server_time) syncServerTime(resData.server_time);
@@ -1412,27 +1638,33 @@ window.closeAutoClaimModal = function() {
         } finally {
             toggleAdLoadingOverlay(false);
             isClaimingDaily = false;
+            isAdSessionActive = false;
             window.updateFarmUI();
         }
     };
 
+    // ==========================================
+    // 🚀 تعزيز السرعة: Monetix (أساسي) -> Monetag (بديل فقط إذا لم يظهر الأول)
+    // ==========================================
     window.handleDailyBoost = async function() {
-        if (isDebouncedClick() || isBoosting) return;
+        if (isDebouncedClick() || isBoosting || isAdSessionActive) return;
 
         isBoosting = true;
+        isAdSessionActive = true;
         updateBoostButtonUI(getState());
         
         try {
-            let adSuccess = await showMonetixAd();
+            let adResult = await showMonetixAd();
 
-            if (!adSuccess) {
-                console.log("Monetix غير متاح حالياً، جاري عرض إعلان Monetag البديل...");
-                adSuccess = await showMonetagAd();
+            // لا يتم تشغيل البديل (Monetag) إلا إذا لم يظهر إعلان Monetix على الشاشة نهائياً
+            if (!adResult.success && !adResult.shown) {
+                console.log("Monetix لم يظهر نهائياً، جاري عرض إعلان Monetag البديل...");
+                adResult = await showMonetagAd();
             }
 
             toggleAdLoadingOverlay(false);
 
-            if (!adSuccess) {
+            if (!adResult.success) {
                 showToast("❌ يجب مشاهدة الإعلان بكامل مدته لتفعيل تسريع التعدين!");
                 return;
             }
@@ -1471,6 +1703,7 @@ window.closeAutoClaimModal = function() {
         } finally {
             toggleAdLoadingOverlay(false);
             isBoosting = false;
+            isAdSessionActive = false;
             window.updateFarmUI();
         }
     };
