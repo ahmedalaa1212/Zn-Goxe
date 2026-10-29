@@ -11,30 +11,24 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-_addons_tables_ready = False
+_tables_ready = False
 
-# الحدود القصوى ومعدلات التعدين والمخازن المتوافقة مع جدول users في Supabase
-SYSTEM_LIMITS = {
-    "max_upgrade_per_lvl": 50,   # الحد الأقصى لكل مستوى من المستويات الـ 9
-    "max_storage_level": 20      # الحد الأقصى لمستوى المخزن
+# الحدود القصوى ومعدلات المستويات والمخازن
+MAX_UPGRADE_PER_LVL = 50
+MAX_STORAGE_LEVEL = 20
+
+# مقدار الزيادة في سرعة التعدين لكل مستوى (lvl1 -> lvl9)
+UPGRADE_RATES_MAP = {
+    'lvl1': 0.10,
+    'lvl2': 0.25,
+    'lvl3': 0.50,
+    'lvl4': 0.95,
+    'lvl5': 1.80,
+    'lvl6': 3.50,
+    'lvl7': 7.00,
+    'lvl8': 14.00,
+    'lvl9': 28.00
 }
-
-# مقدار الزيادة في سرعة التعدين (mining_rate) لكل مستوى من المستويات التسعة
-UPGRADE_RATE_BONUS = {
-    "lvl1": 0.2,
-    "lvl2": 0.5,
-    "lvl3": 1.2,
-    "lvl4": 2.5,
-    "lvl5": 5.0,
-    "lvl6": 10.0,
-    "lvl7": 20.0,
-    "lvl8": 40.0,
-    "lvl9": 80.0
-}
-
-BASE_MINING_RATE = 0.1
-BASE_STORAGE_CAP = 0.3
-STORAGE_CAP_PER_LEVEL = 5.0  # كل مستوى مخزن إضافي فوق المستوى 1 يضيف +5 للسعة القصوى
 
 
 @contextmanager
@@ -58,8 +52,8 @@ def _get_db_connection():
 
 def ensure_promo_table():
     """التأكد من وجود جدول promo_codes وجدول سجلات التحكم admin_action_logs في Supabase"""
-    global _addons_tables_ready
-    if _addons_tables_ready:
+    global _tables_ready
+    if _tables_ready:
         return
     try:
         with _get_db_connection() as conn:
@@ -92,24 +86,23 @@ def ensure_promo_table():
                     CREATE TABLE IF NOT EXISTS admin_action_logs (
                         id SERIAL PRIMARY KEY,
                         admin_id VARCHAR(64),
-                        target_type VARCHAR(20),
+                        action_title VARCHAR(150) NOT NULL,
+                        category VARCHAR(50) NOT NULL,
+                        action VARCHAR(50) NOT NULL,
+                        target_type VARCHAR(20) NOT NULL,
                         target_id VARCHAR(64),
-                        category VARCHAR(32),
-                        action VARCHAR(32),
-                        action_title VARCHAR(120),
                         description TEXT,
                         affected_count INT DEFAULT 0,
                         snapshot_data JSONB DEFAULT '[]'::jsonb,
                         is_undone BOOLEAN DEFAULT FALSE,
-                        is_cleared BOOLEAN DEFAULT FALSE,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                        undone_at TIMESTAMPTZ NULL
+                        undone_at TIMESTAMPTZ NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
             conn.commit()
-        _addons_tables_ready = True
+        _tables_ready = True
     except Exception as e:
-        logger.error(f"Error ensuring addons tables: {e}")
+        logger.error(f"Error ensuring tables in addons_db: {e}")
 
 
 def _sanitize_code(code_name) -> str:
@@ -122,11 +115,11 @@ def _sanitize_code(code_name) -> str:
     return cleaned
 
 
-def _clean_uid(uid) -> str:
-    """تنظيف والتحقق من معرف تيليجرام الرقمي"""
-    if uid is None:
+def _clean_telegram_id(val) -> str:
+    """تنظيف والتحقق من معرف تيليجرام"""
+    if val is None:
         return ""
-    s = str(uid).strip()
+    s = str(val).strip()
     if s.startswith("ref_"):
         s = s.replace("ref_", "", 1).strip()
     if s.endswith(".0"):
@@ -136,7 +129,7 @@ def _clean_uid(uid) -> str:
     return s
 
 
-def _parse_json_dict(val) -> dict:
+def _parse_json_obj(val) -> dict:
     if isinstance(val, dict):
         return dict(val)
     if isinstance(val, str) and val.strip():
@@ -147,6 +140,23 @@ def _parse_json_dict(val) -> dict:
         except Exception:
             pass
     return {}
+
+
+def _calc_storage_max_cap(storage_lvl: int, current_max_cap: float = 0.3, prev_lvl: int = 1) -> float:
+    """حساب سعة المخزن (max_cap) تلقائياً بناءً على مستوى المخزن"""
+    lvl = max(1, int(storage_lvl or 1))
+    if lvl == 1:
+        return 0.3
+    # جدول السعات المتدرج المتوافق مع نظام المزرعة
+    cap_table = {
+        1: 0.3, 2: 0.5, 3: 0.8, 4: 1.1, 5: 1.4,
+        6: 1.8, 7: 2.2, 8: 2.7, 9: 3.3, 10: 4.0,
+        11: 4.8, 12: 5.7, 13: 6.7, 14: 7.8, 15: 9.0,
+        16: 10.5, 17: 12.0, 18: 14.0, 19: 16.5, 20: 20.0
+    }
+    if lvl in cap_table:
+        return cap_table[lvl]
+    return round(0.3 + (lvl - 1) * 0.35, 4)
 
 
 # ==================== Promo Code Core Database Operations ====================
@@ -291,7 +301,7 @@ def toggle_promo_code_status(code_name, is_active):
 def redeem_promo_code(telegram_id, code_name):
     """تفعيل الكود بأمان تام في حال تم استدعاؤه من جهة الأدمن API"""
     ensure_promo_table()
-    user_id_str = _clean_uid(telegram_id)
+    user_id_str = _clean_telegram_id(telegram_id)
     code_id = _sanitize_code(code_name)
 
     if not user_id_str or not code_id:
@@ -394,146 +404,159 @@ def redeem_promo_code(telegram_id, code_name):
 
 # ==================== Data Control & User Inspection Operations ====================
 
-def get_user_full_data_for_admin(telegram_id: str) -> dict:
-    """جلب كافة تفاصيل حساب اللاعب لعرضها للأدمن قبل التعديل"""
+def get_user_full_data_for_admin(telegram_id):
+    """جلب كافة بيانات اللاعب وممتلكاته ومستوياته لعرضها للأدمن قبل التعديل"""
     ensure_promo_table()
-    clean_id = _clean_uid(telegram_id)
+    clean_id = _clean_telegram_id(telegram_id)
     if not clean_id:
-        return {"success": False, "message": "⚠️ يرجى إدخال رقم ID صحيح!"}
+        return False, "❌ يرجى إدخال رقم ID صحيح!", None, None
 
     try:
         with _get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT 
-                        COALESCE(tg_id, user_id, telegram_id) AS tg_id,
-                        first_name,
-                        last_name,
-                        name,
-                        username,
-                        COALESCE(balance, 0.0) AS balance,
-                        COALESCE(usd_balance, 0.0) AS usd_balance,
-                        COALESCE(znx_balance, 0.0) AS znx_balance,
-                        COALESCE(total_earned, 0.0) AS total_earned,
-                        COALESCE(referrals_count, 0) AS referrals_count,
-                        COALESCE(is_banned, FALSE) AS is_banned,
-                        COALESCE(farm_level, 1) AS farm_level,
-                        COALESCE(storage_level, 1) AS storage_level,
-                        COALESCE(extra_storage, 0.0) AS extra_storage,
-                        COALESCE(max_cap, 0.3) AS max_cap,
-                        COALESCE(mining_rate, 0.1) AS mining_rate,
-                        GREATEST(
-                            COALESCE(mined_points, 0.0),
-                            COALESCE(total_mined, 0.0),
-                            COALESCE(mining_points, 0.0),
-                            COALESCE(mined_total, 0.0),
-                            COALESCE(farm_mined, 0.0)
-                        ) AS mined_points,
-                        upgrades,
-                        COALESCE(upgrades_count, 0) AS upgrades_count,
-                        COALESCE(is_vip, FALSE) AS is_vip,
-                        COALESCE(vip_active, FALSE) AS vip_active,
-                        vip_package,
-                        plan,
-                        vip_level,
-                        vip_expires_at,
-                        vip_expiry,
-                        vip_status
+                    SELECT *
                     FROM users
                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                     LIMIT 1
                 """, (clean_id, clean_id, clean_id))
-
                 row = cur.fetchone()
                 if not row:
-                    return {"success": False, "message": f"❌ لم يتم العثور على مستخدم يحمل الـ ID: {clean_id}"}
+                    return False, f"❌ لم يتم العثور على لاعب بالمعرف ({clean_id})!", None, None
 
-                u = dict(row)
-                raw_upgrades = _parse_json_dict(u.get('upgrades'))
-                normalized_upgrades = {}
+                d = dict(row)
+                raw_upg = _parse_json_obj(d.get('upgrades'))
+                upgrades_clean = {}
+                total_upg = 0
                 for i in range(1, 10):
                     k = f"lvl{i}"
-                    try:
-                        normalized_upgrades[k] = max(0, int(raw_upgrades.get(k, 0)))
-                    except (ValueError, TypeError):
-                        normalized_upgrades[k] = 0
-                u['upgrades'] = normalized_upgrades
+                    v = max(0, int(raw_upg.get(k, 0) or 0))
+                    upgrades_clean[k] = v
+                    total_upg += v
 
-                vip_status_dict = _parse_json_dict(u.get('vip_status'))
-                is_vip_flag = bool(u.get('is_vip') or u.get('vip_active') or vip_status_dict.get('active'))
-                u['is_vip'] = is_vip_flag
-                u['vip_active'] = is_vip_flag
-                u['vip_package'] = u.get('vip_package') or u.get('plan') or vip_status_dict.get('package') or ''
-                u['vip_expires_at'] = (
-                    u.get('vip_expires_at')
-                    or u.get('vip_expiry')
-                    or vip_status_dict.get('expires_at')
-                    or ''
+                mined_score = max(
+                    float(d.get('mined_points') or 0.0),
+                    float(d.get('total_mined') or 0.0),
+                    float(d.get('mining_points') or 0.0),
+                    float(d.get('mined_total') or 0.0),
+                    float(d.get('farm_mined') or 0.0)
                 )
 
-                return {
-                    "success": True,
-                    "user": u,
-                    "limits": SYSTEM_LIMITS
+                refs = max(
+                    int(d.get('referrals_count') or 0),
+                    int(d.get('total_referrals') or 0)
+                )
+
+                vip_status_obj = _parse_json_obj(d.get('vip_status'))
+                vip_exp = (
+                    d.get('vip_expires_at')
+                    or d.get('vip_expiry')
+                    or d.get('expires_at')
+                    or vip_status_obj.get('expires_at')
+                    or ''
+                )
+                if vip_exp and len(str(vip_exp)) >= 16:
+                    vip_exp = str(vip_exp)[:16].replace('T', ' ')
+
+                vip_pkg = (
+                    d.get('vip_package')
+                    or d.get('plan')
+                    or d.get('vip_level')
+                    or vip_status_obj.get('package')
+                    or ''
+                )
+                is_vip_bool = bool(d.get('is_vip') or d.get('vip_active') or vip_status_obj.get('active'))
+
+                user_payload = {
+                    "tg_id": str(d.get('tg_id') or d.get('user_id') or d.get('telegram_id') or clean_id),
+                    "first_name": d.get('first_name') or d.get('name') or 'لاعب',
+                    "username": d.get('username') or '',
+                    "is_banned": bool(d.get('is_banned', False)),
+                    "balance": round(float(d.get('balance') or 0.0), 4),
+                    "znx_balance": round(float(d.get('znx_balance') or 0.0), 4),
+                    "usd_balance": round(float(d.get('usd_balance') or 0.0), 4),
+                    "mined_points": round(mined_score, 4),
+                    "mining_rate": round(float(d.get('mining_rate') or 0.1), 4),
+                    "storage_level": max(1, int(d.get('storage_level') or 1)),
+                    "max_cap": round(float(d.get('max_cap') or 0.3), 4),
+                    "referrals_count": refs,
+                    "upgrades": upgrades_clean,
+                    "upgrades_count": total_upg,
+                    "is_vip": is_vip_bool,
+                    "vip_active": is_vip_bool,
+                    "vip_package": str(vip_pkg) if vip_pkg else '',
+                    "vip_expires_at": str(vip_exp) if vip_exp else ''
                 }
+
+                limits = {
+                    "max_upgrade_per_lvl": MAX_UPGRADE_PER_LVL,
+                    "max_storage_level": MAX_STORAGE_LEVEL
+                }
+
+                return True, "تم جلب بيانات اللاعب بنجاح", user_payload, limits
     except Exception as e:
-        logger.error(f"Error inspecting user {clean_id}: {e}")
-        return {"success": False, "message": "❌ حدث خطأ في قاعدة البيانات أثناء فحص اللاعب."}
+        logger.error(f"Error in get_user_full_data_for_admin: {e}")
+        return False, "❌ حدث خطأ أثناء فحص بيانات اللاعب.", None, None
 
 
 def _extract_user_snapshot(row: dict) -> dict:
-    """أخذ نسخة احتياطية دقيقة لكل الحقول القابلة للتعديل قبل تنفيذ العملية"""
+    """أخذ نسخة احتياطية دقيقة من كافة أعمدة المستخدم قبل التعديل لاستخدامها عند الإرجاع (Undo)"""
     return {
         "tg_id": str(row.get('tg_id') or row.get('user_id') or row.get('telegram_id') or ''),
         "balance": float(row.get('balance') or 0.0),
-        "usd_balance": float(row.get('usd_balance') or 0.0),
-        "znx_balance": float(row.get('znx_balance') or 0.0),
+        "zn_balance": float(row.get('zn_balance') or 0.0),
         "total_earned": float(row.get('total_earned') or 0.0),
-        "referrals_count": int(row.get('referrals_count') or 0),
+        "total_earned_zn": float(row.get('total_earned_zn') or 0.0),
+        "znx_balance": float(row.get('znx_balance') or 0.0),
+        "usd_balance": float(row.get('usd_balance') or 0.0),
         "mined_points": float(row.get('mined_points') or 0.0),
         "total_mined": float(row.get('total_mined') or 0.0),
         "mining_points": float(row.get('mining_points') or 0.0),
         "mined_total": float(row.get('mined_total') or 0.0),
         "farm_mined": float(row.get('farm_mined') or 0.0),
-        "mining_rate": float(row.get('mining_rate') or BASE_MINING_RATE),
-        "farm_level": int(row.get('farm_level') or 1),
-        "storage_level": int(row.get('storage_level') or 1),
-        "extra_storage": float(row.get('extra_storage') or 0.0),
-        "max_cap": float(row.get('max_cap') or BASE_STORAGE_CAP),
-        "upgrades": _parse_json_dict(row.get('upgrades')),
+        "referrals_count": int(row.get('referrals_count') or 0),
+        "total_referrals": int(row.get('total_referrals') or 0),
+        "upgrades": _parse_json_obj(row.get('upgrades')),
         "upgrades_count": int(row.get('upgrades_count') or 0),
-        "is_vip": bool(row.get('is_vip') or False),
-        "vip_active": bool(row.get('vip_active') or False),
+        "farm_level": int(row.get('farm_level') or 1),
+        "mining_rate": float(row.get('mining_rate') or 0.1),
+        "storage_level": int(row.get('storage_level') or 1),
+        "max_cap": float(row.get('max_cap') or 0.3),
+        "is_vip": bool(row.get('is_vip', False)),
+        "vip_active": bool(row.get('vip_active', False)),
         "vip_package": row.get('vip_package'),
-        "plan": row.get('plan'),
         "vip_level": row.get('vip_level'),
-        "vip_expires_at": row.get('vip_expires_at'),
+        "plan": row.get('plan'),
+        "vip_status": _parse_json_obj(row.get('vip_status')),
         "vip_expiry": row.get('vip_expiry'),
-        "vip_expiry_date": row.get('vip_expiry_date'),
-        "vip_status": _parse_json_dict(row.get('vip_status'))
+        "vip_expires_at": row.get('vip_expires_at'),
+        "expires_at": row.get('expires_at')
     }
 
 
-def execute_admin_data_action(admin_id: str, payload: dict) -> dict:
+def execute_admin_data_action(admin_id: str, payload: dict):
     """
-    تنفيذ التعديلات الإدارية (إضافة/خصم رصيد، ترقيات سرعة، مخازن، باقات VIP)
-    لمستخدم محدد أو لجميع المستخدمين مع حفظ Snapshot كامل للتراجع (Undo).
+    تنفيذ أوامر التحكم في بيانات المستخدمين (إضافة/خصم أرصدة، ترقيات التعدين، المخازن، VIP)
+    مع الالتزام بالحدود القصوى وحفظ نسخة احتياطية كاملة في السجل لدعم الإرجاع الذكي.
     """
     ensure_promo_table()
 
     target_type = str(payload.get('target_type') or 'single').strip().lower()
-    if target_type not in ('single', 'all'):
-        return {"success": False, "message": "❌ نوع الهدف غير صالح!"}
-
-    target_id = _clean_uid(payload.get('telegram_id')) if target_type == 'single' else 'ALL'
-    if target_type == 'single' and not target_id:
-        return {"success": False, "message": "⚠️ يرجى إدخال رقم ID صحيح للمستخدم!"}
-
+    raw_tid = payload.get('telegram_id')
     category = str(payload.get('category') or '').strip().lower()
     action = str(payload.get('action') or '').strip().lower()
 
+    if target_type not in ('single', 'all'):
+        return False, "❌ نوع الهدف غير صالح!"
+
+    clean_tid = ""
+    if target_type == 'single':
+        clean_tid = _clean_telegram_id(raw_tid)
+        if not clean_tid:
+            return False, "❌ يرجى إدخال ID صحيح للاعب المستهدف!"
+
     if category not in ('balance', 'upgrade', 'storage', 'vip'):
-        return {"success": False, "message": "❌ قسم التعديل غير معروف!"}
+        return False, "❌ قسم التعديل غير معروف!"
 
     try:
         with _get_db_connection() as conn:
@@ -541,102 +564,104 @@ def execute_admin_data_action(admin_id: str, payload: dict) -> dict:
             conn.autocommit = False
             try:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # 1. جلب وقفل الصفوف المستهدفة (FOR UPDATE) لمنع أي تداخل
+                    # 1. جلب الصفوف المستهدفة مع قفلها (FOR UPDATE) لمنع التضارب
                     if target_type == 'single':
                         cur.execute("""
                             SELECT * FROM users
                             WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                             LIMIT 1
                             FOR UPDATE
-                        """, (target_id, target_id, target_id))
+                        """, (clean_tid, clean_tid, clean_tid))
                     else:
                         cur.execute("SELECT * FROM users FOR UPDATE")
 
-                    users_rows = cur.fetchall()
-                    if not users_rows:
+                    rows = cur.fetchall()
+                    if not rows:
                         conn.rollback()
-                        return {"success": False, "message": "❌ لم يتم العثور على مستخدمين لتطبيق العملية!"}
+                        return False, "❌ لم يتم العثور على مستخدمين لتطبيق العملية!"
 
                     snapshots = []
-                    updated_count = 0
+                    affected_count = 0
                     action_title = ""
                     description = ""
 
                     # ==================== أولاً: قسم الأرصدة والنقاط ====================
                     if category == 'balance':
-                        field = str(payload.get('field') or '').strip()
-                        allowed_fields = {
-                            'balance': 'عملات ZN',
-                            'znx_balance': 'عملات ZNX',
-                            'usd_balance': 'رصيد الدولار USD',
-                            'mined_points': 'نقاط التعدين',
-                            'referrals_count': 'عدد الإحالات'
-                        }
-                        if field not in allowed_fields:
-                            conn.rollback()
-                            return {"success": False, "message": "❌ الحقل المطلوب تعديله غير مسموح به!"}
-
-                        if action not in ('add', 'deduct'):
-                            conn.rollback()
-                            return {"success": False, "message": "❌ نوع العملية غير صالح!"}
-
+                        field = str(payload.get('field') or 'balance').strip()
                         try:
-                            amount = float(payload.get('amount') or 0)
+                            amount = round(float(payload.get('amount') or 0), 4)
                         except (ValueError, TypeError):
-                            amount = 0.0
+                            conn.rollback()
+                            return False, "❌ يرجى إدخال قيمة رقمية صحيحة!"
 
                         if amount <= 0 or amount > 10000000000:
                             conn.rollback()
-                            return {"success": False, "message": "⚠️ يرجى إدخال كمية منطقية أكبر من صفر!"}
+                            return False, "❌ القيمة المدخلة غير منطقية!"
 
-                        if field == 'referrals_count':
-                            amount = int(amount)
+                        field_labels = {
+                            'balance': 'رصيد ZN',
+                            'znx_balance': 'عملات ZNX',
+                            'usd_balance': 'رصيد USD',
+                            'mined_points': 'نقاط التعدين',
+                            'referrals_count': 'عدد الإحالات'
+                        }
+                        if field not in field_labels:
+                            conn.rollback()
+                            return False, "❌ نوع الرصيد المحدد غير صالح!"
 
-                        sign = 1 if action == 'add' else -1
-                        op_word = "إضافة" if action == 'add' else "خصم"
-                        field_label = allowed_fields[field]
-                        action_title = f"{op_word} {field_label}"
-                        description = f"{op_word} {amount:g} في ({field_label})"
+                        is_add = (action == 'add')
+                        op_label = "إضافة" if is_add else "خصم"
+                        action_title = f"{op_label} {field_labels[field]}"
+                        description = f"{op_label} {amount:g} في ({field_labels[field]})"
 
-                        for u_row in users_rows:
-                            snap = _extract_user_snapshot(u_row)
-                            snapshots.append(snap)
-                            uid = snap['tg_id']
+                        for r in rows:
+                            uid = str(r.get('tg_id') or r.get('user_id') or r.get('telegram_id') or '')
+                            if not uid:
+                                continue
+                            snapshots.append(_extract_user_snapshot(r))
 
                             if field == 'balance':
-                                new_bal = max(0.0, round(snap['balance'] + (sign * amount), 6))
-                                new_earned = snap['total_earned'] + amount if action == 'add' else snap['total_earned']
+                                cur_val = float(r.get('balance') or 0.0)
+                                new_val = round(cur_val + amount, 4) if is_add else round(max(0.0, cur_val - amount), 4)
+                                cur_earned = float(r.get('total_earned') or 0.0)
+                                new_earned = round(cur_earned + amount, 4) if is_add else cur_earned
                                 cur.execute("""
                                     UPDATE users
-                                    SET balance = %s, total_earned = %s, updated_at = CURRENT_TIMESTAMP
+                                    SET balance = %s,
+                                        total_earned = %s,
+                                        updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                                """, (new_bal, new_earned, uid, uid, uid))
+                                """, (new_val, new_earned, uid, uid, uid))
 
                             elif field == 'znx_balance':
-                                new_znx = max(0.0, round(snap['znx_balance'] + (sign * amount), 6))
+                                cur_val = float(r.get('znx_balance') or 0.0)
+                                new_val = round(cur_val + amount, 4) if is_add else round(max(0.0, cur_val - amount), 4)
                                 cur.execute("""
                                     UPDATE users
-                                    SET znx_balance = %s, updated_at = CURRENT_TIMESTAMP
+                                    SET znx_balance = %s,
+                                        updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                                """, (new_znx, uid, uid, uid))
+                                """, (new_val, uid, uid, uid))
 
                             elif field == 'usd_balance':
-                                new_usd = max(0.0, round(snap['usd_balance'] + (sign * amount), 6))
+                                cur_val = float(r.get('usd_balance') or 0.0)
+                                new_val = round(cur_val + amount, 4) if is_add else round(max(0.0, cur_val - amount), 4)
                                 cur.execute("""
                                     UPDATE users
-                                    SET usd_balance = %s, updated_at = CURRENT_TIMESTAMP
+                                    SET usd_balance = %s,
+                                        updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                                """, (new_usd, uid, uid, uid))
+                                """, (new_val, uid, uid, uid))
 
                             elif field == 'mined_points':
-                                current_mp = max(
-                                    snap['mined_points'],
-                                    snap['total_mined'],
-                                    snap['mining_points'],
-                                    snap['mined_total'],
-                                    snap['farm_mined']
+                                cur_val = max(
+                                    float(r.get('mined_points') or 0.0),
+                                    float(r.get('total_mined') or 0.0),
+                                    float(r.get('mining_points') or 0.0),
+                                    float(r.get('mined_total') or 0.0),
+                                    float(r.get('farm_mined') or 0.0)
                                 )
-                                new_mp = max(0.0, round(current_mp + (sign * amount), 6))
+                                new_val = round(cur_val + amount, 4) if is_add else round(max(0.0, cur_val - amount), 4)
                                 cur.execute("""
                                     UPDATE users
                                     SET mined_points = %s,
@@ -646,287 +671,267 @@ def execute_admin_data_action(admin_id: str, payload: dict) -> dict:
                                         farm_mined = %s,
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                                """, (new_mp, new_mp, new_mp, new_mp, new_mp, uid, uid, uid))
+                                """, (new_val, new_val, new_val, new_val, new_val, uid, uid, uid))
 
                             elif field == 'referrals_count':
-                                new_refs = max(0, int(snap['referrals_count'] + (sign * int(amount))))
+                                delta_int = max(1, int(amount))
+                                cur_val = max(int(r.get('referrals_count') or 0), int(r.get('total_referrals') or 0))
+                                new_val = (cur_val + delta_int) if is_add else max(0, cur_val - delta_int)
                                 cur.execute("""
                                     UPDATE users
-                                    SET referrals_count = %s, updated_at = CURRENT_TIMESTAMP
+                                    SET referrals_count = %s,
+                                        total_referrals = %s,
+                                        updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                                """, (new_refs, uid, uid, uid))
+                                """, (new_val, new_val, uid, uid, uid))
 
-                            updated_count += 1
+                            affected_count += 1
 
-                    # ==================== ثانياً: ترقيات سرعة التعدين (lvl1 - lvl9) ====================
+                    # ==================== ثانياً: قسم ترقيات سرعة التعدين ====================
                     elif category == 'upgrade':
-                        level_key = str(payload.get('level_key') or '').strip().lower()
-                        if level_key not in UPGRADE_RATE_BONUS:
+                        level_key = str(payload.get('level_key') or 'lvl1').strip().lower()
+                        if level_key not in UPGRADE_RATES_MAP:
                             conn.rollback()
-                            return {"success": False, "message": "❌ مستوى التعدين المحدد غير صالح (lvl1 - lvl9)!"}
-
-                        if action not in ('add', 'deduct'):
-                            conn.rollback()
-                            return {"success": False, "message": "❌ نوع العملية غير صالح!"}
+                            return False, "❌ مستوى التعدين المختار غير صالح!"
 
                         try:
                             count_delta = int(payload.get('amount') or 1)
                         except (ValueError, TypeError):
-                            count_delta = 0
-
-                        if count_delta <= 0 or count_delta > SYSTEM_LIMITS['max_upgrade_per_lvl']:
+                            count_delta = 1
+                        if count_delta <= 0 or count_delta > MAX_UPGRADE_PER_LVL:
                             conn.rollback()
-                            return {"success": False, "message": "⚠️ عدد الترقيات المدخل غير صالح!"}
+                            return False, f"❌ عدد الترقيات يجب أن يكون بين 1 و {MAX_UPGRADE_PER_LVL}!"
 
-                        max_lvl = SYSTEM_LIMITS['max_upgrade_per_lvl']
-                        rate_per_unit = UPGRADE_RATE_BONUS[level_key]
+                        is_add = (action == 'add')
+                        lvl_num = level_key.replace('lvl', '')
+                        action_title = f"{'ترقية' if is_add else 'سحب'} مستوى التعدين ({lvl_num})"
+                        description = f"{'إضافة' if is_add else 'إنقاص'} {count_delta} في المستوى {lvl_num}"
 
-                        for u_row in users_rows:
-                            snap = _extract_user_snapshot(u_row)
-                            upg_dict = dict(snap['upgrades'])
-                            current_lvl_val = max(0, int(upg_dict.get(level_key, 0) or 0))
+                        for r in rows:
+                            uid = str(r.get('tg_id') or r.get('user_id') or r.get('telegram_id') or '')
+                            if not uid:
+                                continue
 
-                            if action == 'add':
-                                if current_lvl_val >= max_lvl:
+                            upg_dict = _parse_json_obj(r.get('upgrades'))
+                            cur_lvl_val = max(0, int(upg_dict.get(level_key, 0) or 0))
+
+                            if is_add:
+                                if cur_lvl_val >= MAX_UPGRADE_PER_LVL:
                                     if target_type == 'single':
                                         conn.rollback()
-                                        return {
-                                            "success": False,
-                                            "message": f"⚠️ اللاعب وصل بالفعل للحد الأقصى ({max_lvl}) في {level_key}!"
-                                        }
+                                        return False, f"⚠️ اللاعب وصل بالفعل للحد الأقصى ({MAX_UPGRADE_PER_LVL}) في المستوى {lvl_num}!"
                                     continue
-                                new_lvl_val = min(max_lvl, current_lvl_val + count_delta)
+                                new_lvl_val = min(MAX_UPGRADE_PER_LVL, cur_lvl_val + count_delta)
                             else:
-                                if current_lvl_val <= 0:
+                                if cur_lvl_val <= 0:
                                     if target_type == 'single':
                                         conn.rollback()
-                                        return {
-                                            "success": False,
-                                            "message": f"⚠️ اللاعب لا يملك أي ترقيات في {level_key} لسحبها!"
-                                        }
+                                        return False, f"⚠️ اللاعب لا يمتلك أي ترقيات (0) في المستوى {lvl_num} لسحبها!"
                                     continue
-                                new_lvl_val = max(0, current_lvl_val - count_delta)
+                                new_lvl_val = max(0, cur_lvl_val - count_delta)
 
-                            actual_diff = new_lvl_val - current_lvl_val
+                            actual_diff = new_lvl_val - cur_lvl_val
                             if actual_diff == 0:
                                 continue
 
-                            snapshots.append(snap)
-                            uid = snap['tg_id']
+                            snapshots.append(_extract_user_snapshot(r))
                             upg_dict[level_key] = new_lvl_val
 
-                            # حساب إجمالي عدد الترقيات وسرعة التعدين الجديدة
-                            total_upg_count = sum(max(0, int(upg_dict.get(f"lvl{i}", 0) or 0)) for i in range(1, 10))
-                            new_mining_rate = max(
-                                BASE_MINING_RATE,
-                                round(snap['mining_rate'] + (actual_diff * rate_per_unit), 4)
-                            )
-                            new_farm_level = max(1, total_upg_count + 1)
+                            # حساب إجمالي الترقيات وسرعة التعدين الجديدة بدقة
+                            total_upg_count = 0
+                            for i in range(1, 10):
+                                k = f"lvl{i}"
+                                v = max(0, int(upg_dict.get(k, 0) or 0))
+                                upg_dict[k] = v
+                                total_upg_count += v
+
+                            cur_rate = float(r.get('mining_rate') or 0.1)
+                            rate_delta = actual_diff * UPGRADE_RATES_MAP[level_key]
+                            new_rate = round(max(0.1, cur_rate + rate_delta), 4)
 
                             cur.execute("""
                                 UPDATE users
                                 SET upgrades = %s,
                                     upgrades_count = %s,
                                     mining_rate = %s,
-                                    farm_level = %s,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                            """, (Json(upg_dict), total_upg_count, new_mining_rate, new_farm_level, uid, uid, uid))
-                            updated_count += 1
+                            """, (Json(upg_dict), total_upg_count, new_rate, uid, uid, uid))
+                            affected_count += 1
 
-                        op_word = "ترقية (+)" if action == 'add' else "سحب (-)"
-                        action_title = f"{op_word} سرعة التعدين ({level_key})"
-                        description = f"{op_word} بمقدار {count_delta} في المستوى {level_key}"
-
-                    # ==================== ثالثاً: التحكم في المخازن (Storage) ====================
+                    # ==================== ثالثاً: قسم المخازن (Storage) ====================
                     elif category == 'storage':
-                        if action not in ('add', 'deduct'):
-                            conn.rollback()
-                            return {"success": False, "message": "❌ نوع العملية غير صالح!"}
-
                         try:
-                            st_delta = int(payload.get('amount') or 1)
+                            count_delta = int(payload.get('amount') or 1)
                         except (ValueError, TypeError):
-                            st_delta = 0
-
-                        max_st = SYSTEM_LIMITS['max_storage_level']
-                        if st_delta <= 0 or st_delta > max_st:
+                            count_delta = 1
+                        if count_delta <= 0 or count_delta > MAX_STORAGE_LEVEL:
                             conn.rollback()
-                            return {"success": False, "message": "⚠️ عدد مستويات المخزن غير صالح!"}
+                            return False, f"❌ عدد مستويات المخزن يجب أن يكون بين 1 و {MAX_STORAGE_LEVEL}!"
 
-                        for u_row in users_rows:
-                            snap = _extract_user_snapshot(u_row)
-                            curr_st = max(1, int(snap['storage_level'] or 1))
+                        is_add = (action == 'add')
+                        action_title = f"{'ترقية' if is_add else 'إنقاص'} مستوى المخزن"
+                        description = f"{'إضافة' if is_add else 'سحب'} {count_delta} مستوى مخزن"
 
-                            if action == 'add':
-                                if curr_st >= max_st:
-                                    if target_type == 'single':
-                                        conn.rollback()
-                                        return {
-                                            "success": False,
-                                            "message": f"⚠️ مخزن اللاعب وصل للحد الأقصى ({max_st}) بالفعل!"
-                                        }
-                                    continue
-                                new_st = min(max_st, curr_st + st_delta)
-                            else:
-                                if curr_st <= 1:
-                                    if target_type == 'single':
-                                        conn.rollback()
-                                        return {
-                                            "success": False,
-                                            "message": "⚠️ مخزن اللاعب في المستوى الأساسي (1) ولا يمكن إنقاصه أكثر!"
-                                        }
-                                    continue
-                                new_st = max(1, curr_st - st_delta)
-
-                            if new_st == curr_st:
+                        for r in rows:
+                            uid = str(r.get('tg_id') or r.get('user_id') or r.get('telegram_id') or '')
+                            if not uid:
                                 continue
 
-                            snapshots.append(snap)
-                            uid = snap['tg_id']
+                            cur_st = max(1, int(r.get('storage_level') or 1))
+                            if is_add:
+                                if cur_st >= MAX_STORAGE_LEVEL:
+                                    if target_type == 'single':
+                                        conn.rollback()
+                                        return False, f"⚠️ مخزن اللاعب وصل بالفعل للحد الأقصى ({MAX_STORAGE_LEVEL})!"
+                                    continue
+                                new_st = min(MAX_STORAGE_LEVEL, cur_st + count_delta)
+                            else:
+                                if cur_st <= 1:
+                                    if target_type == 'single':
+                                        conn.rollback()
+                                        return False, "⚠️ مخزن اللاعب في المستوى الأساسي (1) ولا يمكن إنقاصه أكثر!"
+                                    continue
+                                new_st = max(1, cur_st - count_delta)
 
-                            new_extra_storage = round((new_st - 1) * STORAGE_CAP_PER_LEVEL, 4)
-                            new_max_cap = round(BASE_STORAGE_CAP + new_extra_storage, 4)
+                            if new_st == cur_st:
+                                continue
+
+                            snapshots.append(_extract_user_snapshot(r))
+                            new_cap = _calc_storage_max_cap(new_st, float(r.get('max_cap') or 0.3), cur_st)
 
                             cur.execute("""
                                 UPDATE users
                                 SET storage_level = %s,
-                                    extra_storage = %s,
                                     max_cap = %s,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                            """, (new_st, new_extra_storage, new_max_cap, uid, uid, uid))
-                            updated_count += 1
+                            """, (new_st, new_cap, uid, uid, uid))
+                            affected_count += 1
 
-                        op_word = "ترقية (+)" if action == 'add' else "إنقاص (-)"
-                        action_title = f"{op_word} مستوى المخزن"
-                        description = f"{op_word} المخزن بمقدار {st_delta} مستويات"
-
-                    # ==================== رابعاً: شحن وإدارة باقات VIP ====================
+                    # ==================== رابعاً: قسم باقات المتجر والـ VIP ====================
                     elif category == 'vip':
-                        if action not in ('activate', 'deactivate'):
-                            conn.rollback()
-                            return {"success": False, "message": "❌ إجراء الباقة غير معروف!"}
-
+                        is_activate = (action == 'activate')
                         pkg_name = str(payload.get('vip_package') or 'VIP_1').strip()
-                        dur_type = str(payload.get('duration_type') or 'days').strip()
                         try:
-                            dur_val = float(payload.get('duration_val') or 30)
+                            dur_val = max(1.0, float(payload.get('duration_val') or 30))
                         except (ValueError, TypeError):
                             dur_val = 30.0
+                        dur_type = str(payload.get('duration_type') or 'days').strip().lower()
 
                         now_utc = datetime.datetime.now(datetime.timezone.utc)
                         if dur_type == 'hours':
-                            exp_dt = now_utc + datetime.timedelta(hours=max(1.0, dur_val))
+                            exp_dt = now_utc + datetime.timedelta(hours=dur_val)
+                            dur_str = f"{dur_val:g} ساعة"
                         else:
-                            exp_dt = now_utc + datetime.timedelta(days=max(1.0, dur_val))
+                            exp_dt = now_utc + datetime.timedelta(days=dur_val)
+                            dur_str = f"{dur_val:g} يوم"
 
-                        exp_str = exp_dt.strftime('%Y-%m-%d %H:%M UTC')
+                        exp_iso = exp_dt.isoformat()
 
-                        for u_row in users_rows:
-                            snap = _extract_user_snapshot(u_row)
-                            snapshots.append(snap)
-                            uid = snap['tg_id']
+                        if is_activate:
+                            action_title = f"تفعيل باقة {pkg_name}"
+                            description = f"شحن {pkg_name} لمدة {dur_str}"
+                        else:
+                            action_title = "إلغاء باقة VIP"
+                            description = "إيقاف وإلغاء اشتراك VIP"
 
-                            if action == 'activate':
+                        for r in rows:
+                            uid = str(r.get('tg_id') or r.get('user_id') or r.get('telegram_id') or '')
+                            if not uid:
+                                continue
+
+                            snapshots.append(_extract_user_snapshot(r))
+
+                            if is_activate:
                                 vip_json = {
                                     "active": True,
                                     "package": pkg_name,
-                                    "activated_at": now_utc.isoformat(),
-                                    "expires_at": exp_str
+                                    "expires_at": exp_iso
                                 }
                                 cur.execute("""
                                     UPDATE users
                                     SET is_vip = TRUE,
                                         vip_active = TRUE,
                                         vip_package = %s,
-                                        plan = %s,
                                         vip_level = %s,
-                                        vip_expires_at = %s,
-                                        vip_expiry = %s,
-                                        vip_expiry_date = %s,
+                                        plan = %s,
                                         vip_status = %s,
+                                        vip_expiry = %s,
+                                        vip_expires_at = %s,
+                                        expires_at = %s,
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                                """, (pkg_name, pkg_name, pkg_name, exp_str, exp_str, exp_str, Json(vip_json), uid, uid, uid))
+                                """, (
+                                    pkg_name, pkg_name, pkg_name, Json(vip_json),
+                                    exp_iso, exp_iso, exp_iso, uid, uid, uid
+                                ))
                             else:
-                                vip_json = {"active": False, "package": None, "expires_at": None}
                                 cur.execute("""
                                     UPDATE users
                                     SET is_vip = FALSE,
                                         vip_active = FALSE,
                                         vip_package = NULL,
-                                        plan = NULL,
                                         vip_level = NULL,
-                                        vip_expires_at = NULL,
+                                        plan = NULL,
+                                        vip_status = '{}'::jsonb,
                                         vip_expiry = NULL,
-                                        vip_expiry_date = NULL,
-                                        vip_status = %s,
+                                        vip_expires_at = NULL,
+                                        expires_at = NULL,
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
-                                """, (Json(vip_json), uid, uid, uid))
+                                """, (uid, uid, uid))
+                            affected_count += 1
 
-                            updated_count += 1
-
-                        if action == 'activate':
-                            action_title = f"شحن باقة {pkg_name}"
-                            description = f"تفعيل {pkg_name} حتى {exp_str}"
-                        else:
-                            action_title = "إلغاء باقة VIP"
-                            description = "إيقاف وإلغاء اشتراك VIP"
-
-                    if updated_count == 0 or not snapshots:
+                    if affected_count == 0:
                         conn.rollback()
-                        return {"success": False, "message": "⚠️ لم يتم تعديل أي حساب (قد تكون الحسابات في الحد الأقصى/الأدنى بالفعل)."}
+                        return False, "⚠️ لم يتم تعديل أي حساب (قد تكون جميع الحسابات وصلت للحد الأقصى بالفعل)."
 
-                    # 2. حفظ العملية والـ Snapshot في جدول السجلات لإمكانية الإرجاع (Undo)
+                    # 2. تسجيل العملية مع النسخة الاحتياطية (Snapshot) في جدول admin_action_logs
                     cur.execute("""
                         INSERT INTO admin_action_logs (
-                            admin_id, target_type, target_id, category, action,
-                            action_title, description, affected_count, snapshot_data,
-                            is_undone, is_cleared, created_at
+                            admin_id, action_title, category, action,
+                            target_type, target_id, description,
+                            affected_count, snapshot_data, is_undone, created_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, FALSE, CURRENT_TIMESTAMP)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, CURRENT_TIMESTAMP)
                         RETURNING id
                     """, (
-                        str(admin_id), target_type, target_id, category, action,
-                        action_title, description, updated_count, Json(snapshots)
+                        str(admin_id or ''),
+                        action_title,
+                        category,
+                        action,
+                        target_type,
+                        clean_tid if target_type == 'single' else 'ALL',
+                        description,
+                        affected_count,
+                        Json(snapshots)
                     ))
                     log_row = cur.fetchone()
                     log_id = log_row['id'] if log_row else 0
 
                     conn.commit()
-                    target_msg = f"للمستخدم ({target_id})" if target_type == 'single' else f"لجميع المستخدمين ({updated_count} حساب)"
-                    return {
-                        "success": True,
-                        "message": f"✅ تمت العملية بنجاح (#{log_id}): {description} {target_msg}."
-                    }
+                    target_msg = f"اللاعب ({clean_tid})" if target_type == 'single' else f"جميع المستخدمين ({affected_count} حساب)"
+                    return True, f"✅ تمت العملية #{log_id} بنجاح على {target_msg}!\n({description})"
 
-            except Exception as tx_err:
+            except Exception as tx_e:
                 conn.rollback()
-                logger.error(f"Transaction error in execute_admin_data_action: {tx_err}")
-                return {"success": False, "message": "❌ حدث خطأ أثناء تنفيذ العملية في قاعدة البيانات."}
+                logger.error(f"Transaction error in execute_admin_data_action: {tx_e}")
+                return False, f"❌ حدث خطأ أثناء تنفيذ العملية: {tx_e}"
             finally:
                 conn.autocommit = prev_autocommit
 
     except Exception as e:
-        logger.error(f"DB connection error in execute_admin_data_action: {e}")
-        return {"success": False, "message": "❌ تعذر الاتصال بقاعدة البيانات."}
+        logger.error(f"Database error in execute_admin_data_action: {e}")
+        return False, "❌ خطأ في الاتصال بقاعدة البيانات."
 
 
-# ==================== Undo & Logs Management Operations ====================
-
-def undo_last_admin_actions(admin_id: str, count: int = 1, specific_log_id=None) -> dict:
+def undo_last_admin_actions(count: int = 1, specific_log_id=None):
     """
-    إرجاع آخر N عمليات (أو عملية محددة بالـ ID) بترتيب عكسي آمن
-    وإعادة أرصدة ومستويات وباقات المستخدمين إلى حالتها السابقة بالضبط.
+    إرجاع آخر (count) عمليات أو عملية محددة (specific_log_id) إلى حالتها الأصلية تماماً
+    باستخدام النسخة الاحتياطية المخزنة (Snapshot) بترتيب عكسي آمن.
     """
     ensure_promo_table()
-    try:
-        safe_count = max(1, min(int(count or 1), 50))
-    except (ValueError, TypeError):
-        safe_count = 1
-
     try:
         with _get_db_connection() as conn:
             prev_autocommit = conn.autocommit
@@ -940,6 +945,7 @@ def undo_last_admin_actions(admin_id: str, count: int = 1, specific_log_id=None)
                             FOR UPDATE
                         """, (int(specific_log_id),))
                     else:
+                        safe_count = max(1, min(int(count or 1), 50))
                         cur.execute("""
                             SELECT * FROM admin_action_logs
                             WHERE COALESCE(is_undone, FALSE) = FALSE
@@ -951,21 +957,23 @@ def undo_last_admin_actions(admin_id: str, count: int = 1, specific_log_id=None)
                     logs_to_undo = cur.fetchall()
                     if not logs_to_undo:
                         conn.rollback()
-                        return {"success": False, "message": "⚠️ لا توجد عمليات قابلة للإرجاع حالياً!"}
+                        return False, "⚠️ لا توجد عمليات نشطة قابلة للإرجاع حالياً!"
 
-                    undone_ops_count = 0
+                    restored_ops_count = 0
                     restored_users_total = 0
 
-                    # التراجع بالترتيب العكسي من الأحدث إلى الأقدم لضمان دقة الأرصدة
-                    for log_entry in logs_to_undo:
-                        snapshots = log_entry.get('snapshot_data') or []
-                        if isinstance(snapshots, str):
+                    for log_item in logs_to_undo:
+                        log_id = log_item['id']
+                        snap_list = log_item.get('snapshot_data') or []
+                        if isinstance(snap_list, str):
                             try:
-                                snapshots = json.loads(snapshots)
+                                snap_list = json.loads(snap_list)
                             except Exception:
-                                snapshots = []
+                                snap_list = []
 
-                        for snap in snapshots:
+                        for snap in snap_list:
+                            if not isinstance(snap, dict):
+                                continue
                             uid = str(snap.get('tg_id') or '').strip()
                             if not uid:
                                 continue
@@ -973,140 +981,138 @@ def undo_last_admin_actions(admin_id: str, count: int = 1, specific_log_id=None)
                             cur.execute("""
                                 UPDATE users
                                 SET balance = %s,
-                                    usd_balance = %s,
-                                    znx_balance = %s,
+                                    zn_balance = %s,
                                     total_earned = %s,
-                                    referrals_count = %s,
+                                    total_earned_zn = %s,
+                                    znx_balance = %s,
+                                    usd_balance = %s,
                                     mined_points = %s,
                                     total_mined = %s,
                                     mining_points = %s,
                                     mined_total = %s,
                                     farm_mined = %s,
-                                    mining_rate = %s,
-                                    farm_level = %s,
-                                    storage_level = %s,
-                                    extra_storage = %s,
-                                    max_cap = %s,
+                                    referrals_count = %s,
+                                    total_referrals = %s,
                                     upgrades = %s,
                                     upgrades_count = %s,
+                                    farm_level = %s,
+                                    mining_rate = %s,
+                                    storage_level = %s,
+                                    max_cap = %s,
                                     is_vip = %s,
                                     vip_active = %s,
                                     vip_package = %s,
-                                    plan = %s,
                                     vip_level = %s,
-                                    vip_expires_at = %s,
-                                    vip_expiry = %s,
-                                    vip_expiry_date = %s,
+                                    plan = %s,
                                     vip_status = %s,
+                                    vip_expiry = %s,
+                                    vip_expires_at = %s,
+                                    expires_at = %s,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                             """, (
-                                float(snap.get('balance', 0.0)),
-                                float(snap.get('usd_balance', 0.0)),
-                                float(snap.get('znx_balance', 0.0)),
-                                float(snap.get('total_earned', 0.0)),
-                                int(snap.get('referrals_count', 0)),
-                                float(snap.get('mined_points', 0.0)),
-                                float(snap.get('total_mined', 0.0)),
-                                float(snap.get('mining_points', 0.0)),
-                                float(snap.get('mined_total', 0.0)),
-                                float(snap.get('farm_mined', 0.0)),
-                                float(snap.get('mining_rate', BASE_MINING_RATE)),
-                                int(snap.get('farm_level', 1)),
-                                int(snap.get('storage_level', 1)),
-                                float(snap.get('extra_storage', 0.0)),
-                                float(snap.get('max_cap', BASE_STORAGE_CAP)),
-                                Json(_parse_json_dict(snap.get('upgrades'))),
-                                int(snap.get('upgrades_count', 0)),
+                                float(snap.get('balance') or 0.0),
+                                float(snap.get('zn_balance') or 0.0),
+                                float(snap.get('total_earned') or 0.0),
+                                float(snap.get('total_earned_zn') or 0.0),
+                                float(snap.get('znx_balance') or 0.0),
+                                float(snap.get('usd_balance') or 0.0),
+                                float(snap.get('mined_points') or 0.0),
+                                float(snap.get('total_mined') or 0.0),
+                                float(snap.get('mining_points') or 0.0),
+                                float(snap.get('mined_total') or 0.0),
+                                float(snap.get('farm_mined') or 0.0),
+                                int(snap.get('referrals_count') or 0),
+                                int(snap.get('total_referrals') or 0),
+                                Json(_parse_json_obj(snap.get('upgrades'))),
+                                int(snap.get('upgrades_count') or 0),
+                                int(snap.get('farm_level') or 1),
+                                float(snap.get('mining_rate') or 0.1),
+                                int(snap.get('storage_level') or 1),
+                                float(snap.get('max_cap') or 0.3),
                                 bool(snap.get('is_vip', False)),
                                 bool(snap.get('vip_active', False)),
                                 snap.get('vip_package'),
-                                snap.get('plan'),
                                 snap.get('vip_level'),
-                                snap.get('vip_expires_at'),
+                                snap.get('plan'),
+                                Json(_parse_json_obj(snap.get('vip_status'))),
                                 snap.get('vip_expiry'),
-                                snap.get('vip_expiry_date'),
-                                Json(_parse_json_dict(snap.get('vip_status'))),
+                                snap.get('vip_expires_at'),
+                                snap.get('expires_at'),
                                 uid, uid, uid
                             ))
                             restored_users_total += 1
 
                         cur.execute("""
                             UPDATE admin_action_logs
-                            SET is_undone = TRUE, undone_at = CURRENT_TIMESTAMP
+                            SET is_undone = TRUE,
+                                undone_at = CURRENT_TIMESTAMP
                             WHERE id = %s
-                        """, (log_entry['id'],))
-                        undone_ops_count += 1
+                        """, (log_id,))
+                        restored_ops_count += 1
 
                     conn.commit()
-                    return {
-                        "success": True,
-                        "message": f"⏪ تم إرجاع ({undone_ops_count}) عملية بنجاح، واستعادة البيانات الأصلية لـ ({restored_users_total}) حساب كأن شيئاً لم يكن!"
-                    }
+                    return True, f"⏪ تم بنجاح إرجاع ({restored_ops_count}) عملية وإعادة بيانات ({restored_users_total}) حساب كما كانت تماماً!"
+
             except Exception as tx_e:
                 conn.rollback()
                 logger.error(f"Transaction error in undo_last_admin_actions: {tx_e}")
-                return {"success": False, "message": "❌ حدث خطأ أثناء استرجاع البيانات."}
+                return False, f"❌ حدث خطأ أثناء استرجاع البيانات: {tx_e}"
             finally:
                 conn.autocommit = prev_autocommit
+
     except Exception as e:
-        logger.error(f"DB error in undo_last_admin_actions: {e}")
-        return {"success": False, "message": "❌ خطأ في الاتصال بقاعدة البيانات."}
+        logger.error(f"Database error in undo_last_admin_actions: {e}")
+        return False, "❌ خطأ في الاتصال بقاعدة البيانات."
 
 
-def get_admin_action_logs(limit: int = 50) -> list:
-    """جلب سجل العمليات الإدارية غير الممسوحة لعرضها في الجدول"""
+def get_admin_action_logs(limit: int = 40):
+    """جلب سجل العمليات الإدارية لعرضه في الجدول السفلي"""
     ensure_promo_table()
     try:
-        safe_limit = max(1, min(int(limit or 50), 100))
+        safe_limit = max(1, min(int(limit or 40), 100))
         with _get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     SELECT 
                         id,
-                        admin_id,
-                        target_type,
-                        target_id,
+                        action_title,
                         category,
                         action,
-                        action_title,
+                        target_type,
+                        target_id,
                         description,
                         affected_count,
                         COALESCE(is_undone, FALSE) AS is_undone,
                         created_at
                     FROM admin_action_logs
-                    WHERE COALESCE(is_cleared, FALSE) = FALSE
                     ORDER BY id DESC
                     LIMIT %s
                 """, (safe_limit,))
                 rows = cur.fetchall()
-                result = []
+                logs = []
                 for r in rows:
                     item = dict(r)
                     if item.get('created_at'):
-                        item['created_at'] = item['created_at'].strftime('%Y-%m-%d %H:%M UTC')
+                        item['created_at'] = item['created_at'].strftime('%Y-%m-%d %H:%M:%S')
                     else:
                         item['created_at'] = ''
-                    result.append(item)
-                return result
+                    logs.append(item)
+                return logs
     except Exception as e:
         logger.error(f"Error fetching admin action logs: {e}")
         return []
 
 
 def clear_admin_action_logs():
-    """مسح سجل العرض فقط دون تغيير أي رصيد أو بيانات في حسابات المستخدمين"""
+    """مسح سجل العمليات المعروض فقط دون المساس بأرصدة أو بيانات المستخدمين"""
     ensure_promo_table()
     try:
         with _get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE admin_action_logs
-                    SET is_cleared = TRUE
-                    WHERE COALESCE(is_cleared, FALSE) = FALSE
-                """)
+                cur.execute("DELETE FROM admin_action_logs")
             conn.commit()
-        return True, "🗑️ تم مسح سجل العمليات المعروض بنجاح (دون المساس بأرصدة اللاعبين)!"
+        return True, "🗑️ تم مسح سجل العمليات بالكامل بنجاح (دون تغيير أرصدة اللاعبين)!"
     except Exception as e:
         logger.error(f"Error clearing admin action logs: {e}")
         return False, "❌ حدث خطأ أثناء مسح السجل."
