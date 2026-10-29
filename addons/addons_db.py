@@ -17,7 +17,7 @@ _tables_ready = False
 MAX_UPGRADE_PER_LVL = 50
 MAX_STORAGE_LEVEL = 20
 
-# مقدار الزيادة في سرعة التعدين لكل مستوى (lvl1 -> lvl9)
+# مقدار الزيادة في سرعة التعدين (hourly_rate) لكل مستوى (lvl1 -> lvl9)
 UPGRADE_RATES_MAP = {
     'lvl1': 0.10,
     'lvl2': 0.25,
@@ -28,6 +28,14 @@ UPGRADE_RATES_MAP = {
     'lvl7': 7.00,
     'lvl8': 14.00,
     'lvl9': 28.00
+}
+
+# أرقام مستويات باقات الـ VIP المتوافقة مع عمود vip_status (int8)
+VIP_PACKAGE_LEVEL_MAP = {
+    'VIP_1': 1,
+    'VIP_2': 2,
+    'VIP_3': 3,
+    'VIP_MAX': 4
 }
 
 
@@ -147,7 +155,6 @@ def _calc_storage_max_cap(storage_lvl: int, current_max_cap: float = 0.3, prev_l
     lvl = max(1, int(storage_lvl or 1))
     if lvl == 1:
         return 0.3
-    # جدول السعات المتدرج المتوافق مع نظام المزرعة
     cap_table = {
         1: 0.3, 2: 0.5, 3: 0.8, 4: 1.1, 5: 1.4,
         6: 1.8, 7: 2.2, 8: 2.7, 9: 3.3, 10: 4.0,
@@ -447,25 +454,26 @@ def get_user_full_data_for_admin(telegram_id):
                     int(d.get('total_referrals') or 0)
                 )
 
-                vip_status_obj = _parse_json_obj(d.get('vip_status'))
                 vip_exp = (
                     d.get('vip_expires_at')
-                    or d.get('vip_expiry')
+                    or d.get('vip_expire')
                     or d.get('expires_at')
-                    or vip_status_obj.get('expires_at')
                     or ''
                 )
                 if vip_exp and len(str(vip_exp)) >= 16:
                     vip_exp = str(vip_exp)[:16].replace('T', ' ')
 
+                vip_status_num = int(d.get('vip_status') or 0) if str(d.get('vip_status') or '').lstrip('-').isdigit() else 0
                 vip_pkg = (
                     d.get('vip_package')
                     or d.get('plan')
                     or d.get('vip_level')
-                    or vip_status_obj.get('package')
-                    or ''
+                    or (f"VIP_{vip_status_num}" if vip_status_num > 0 else '')
                 )
-                is_vip_bool = bool(d.get('is_vip') or d.get('vip_active') or vip_status_obj.get('active'))
+                is_vip_bool = bool(d.get('is_vip') or d.get('vip_active') or (vip_status_num > 0))
+
+                # قراءة السرعة من عمود hourly_rate الأساسي في Supabase
+                current_rate = float(d.get('hourly_rate') or d.get('mining_rate') or 0.1)
 
                 user_payload = {
                     "tg_id": str(d.get('tg_id') or d.get('user_id') or d.get('telegram_id') or clean_id),
@@ -476,7 +484,8 @@ def get_user_full_data_for_admin(telegram_id):
                     "znx_balance": round(float(d.get('znx_balance') or 0.0), 4),
                     "usd_balance": round(float(d.get('usd_balance') or 0.0), 4),
                     "mined_points": round(mined_score, 4),
-                    "mining_rate": round(float(d.get('mining_rate') or 0.1), 4),
+                    "mining_rate": round(current_rate, 4),
+                    "hourly_rate": round(current_rate, 4),
                     "storage_level": max(1, int(d.get('storage_level') or 1)),
                     "max_cap": round(float(d.get('max_cap') or 0.3), 4),
                     "referrals_count": refs,
@@ -500,13 +509,18 @@ def get_user_full_data_for_admin(telegram_id):
 
 
 def _extract_user_snapshot(row: dict) -> dict:
-    """أخذ نسخة احتياطية دقيقة من كافة أعمدة المستخدم قبل التعديل لاستخدامها عند الإرجاع (Undo)"""
+    """أخذ نسخة احتياطية دقيقة من كافة أعمدة المستخدم الموجودة فعلياً قبل التعديل"""
+    vip_st_raw = row.get('vip_status')
+    try:
+        vip_st_val = int(vip_st_raw or 0)
+    except (ValueError, TypeError):
+        vip_st_val = 0
+
     return {
         "tg_id": str(row.get('tg_id') or row.get('user_id') or row.get('telegram_id') or ''),
         "balance": float(row.get('balance') or 0.0),
         "zn_balance": float(row.get('zn_balance') or 0.0),
         "total_earned": float(row.get('total_earned') or 0.0),
-        "total_earned_zn": float(row.get('total_earned_zn') or 0.0),
         "znx_balance": float(row.get('znx_balance') or 0.0),
         "usd_balance": float(row.get('usd_balance') or 0.0),
         "mined_points": float(row.get('mined_points') or 0.0),
@@ -519,7 +533,7 @@ def _extract_user_snapshot(row: dict) -> dict:
         "upgrades": _parse_json_obj(row.get('upgrades')),
         "upgrades_count": int(row.get('upgrades_count') or 0),
         "farm_level": int(row.get('farm_level') or 1),
-        "mining_rate": float(row.get('mining_rate') or 0.1),
+        "hourly_rate": float(row.get('hourly_rate') or 0.1),
         "storage_level": int(row.get('storage_level') or 1),
         "max_cap": float(row.get('max_cap') or 0.3),
         "is_vip": bool(row.get('is_vip', False)),
@@ -527,8 +541,8 @@ def _extract_user_snapshot(row: dict) -> dict:
         "vip_package": row.get('vip_package'),
         "vip_level": row.get('vip_level'),
         "plan": row.get('plan'),
-        "vip_status": _parse_json_obj(row.get('vip_status')),
-        "vip_expiry": row.get('vip_expiry'),
+        "vip_status": vip_st_val,
+        "vip_expire": row.get('vip_expire'),
         "vip_expires_at": row.get('vip_expires_at'),
         "expires_at": row.get('expires_at')
     }
@@ -564,7 +578,6 @@ def execute_admin_data_action(admin_id: str, payload: dict):
             conn.autocommit = False
             try:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # 1. جلب الصفوف المستهدفة مع قفلها (FOR UPDATE) لمنع التضارب
                     if target_type == 'single':
                         cur.execute("""
                             SELECT * FROM users
@@ -737,7 +750,7 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                             snapshots.append(_extract_user_snapshot(r))
                             upg_dict[level_key] = new_lvl_val
 
-                            # حساب إجمالي الترقيات وسرعة التعدين الجديدة بدقة
+                            # حساب إجمالي الترقيات وسرعة التعدين الجديدة (hourly_rate) بدقة
                             total_upg_count = 0
                             for i in range(1, 10):
                                 k = f"lvl{i}"
@@ -745,7 +758,7 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                                 upg_dict[k] = v
                                 total_upg_count += v
 
-                            cur_rate = float(r.get('mining_rate') or 0.1)
+                            cur_rate = float(r.get('hourly_rate') or 0.1)
                             rate_delta = actual_diff * UPGRADE_RATES_MAP[level_key]
                             new_rate = round(max(0.1, cur_rate + rate_delta), 4)
 
@@ -753,7 +766,7 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                                 UPDATE users
                                 SET upgrades = %s,
                                     upgrades_count = %s,
-                                    mining_rate = %s,
+                                    hourly_rate = %s,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                             """, (Json(upg_dict), total_upg_count, new_rate, uid, uid, uid))
@@ -813,6 +826,8 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                     elif category == 'vip':
                         is_activate = (action == 'activate')
                         pkg_name = str(payload.get('vip_package') or 'VIP_1').strip()
+                        vip_num = VIP_PACKAGE_LEVEL_MAP.get(pkg_name, 1)
+
                         try:
                             dur_val = max(1.0, float(payload.get('duration_val') or 30))
                         except (ValueError, TypeError):
@@ -844,11 +859,6 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                             snapshots.append(_extract_user_snapshot(r))
 
                             if is_activate:
-                                vip_json = {
-                                    "active": True,
-                                    "package": pkg_name,
-                                    "expires_at": exp_iso
-                                }
                                 cur.execute("""
                                     UPDATE users
                                     SET is_vip = TRUE,
@@ -857,13 +867,13 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                                         vip_level = %s,
                                         plan = %s,
                                         vip_status = %s,
-                                        vip_expiry = %s,
+                                        vip_expire = %s,
                                         vip_expires_at = %s,
                                         expires_at = %s,
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE tg_id = %s OR user_id = %s OR telegram_id = %s
                                 """, (
-                                    pkg_name, pkg_name, pkg_name, Json(vip_json),
+                                    pkg_name, str(vip_num), pkg_name, int(vip_num),
                                     exp_iso, exp_iso, exp_iso, uid, uid, uid
                                 ))
                             else:
@@ -874,8 +884,8 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                                         vip_package = NULL,
                                         vip_level = NULL,
                                         plan = NULL,
-                                        vip_status = '{}'::jsonb,
-                                        vip_expiry = NULL,
+                                        vip_status = 0,
+                                        vip_expire = NULL,
                                         vip_expires_at = NULL,
                                         expires_at = NULL,
                                         updated_at = CURRENT_TIMESTAMP
@@ -887,7 +897,7 @@ def execute_admin_data_action(admin_id: str, payload: dict):
                         conn.rollback()
                         return False, "⚠️ لم يتم تعديل أي حساب (قد تكون جميع الحسابات وصلت للحد الأقصى بالفعل)."
 
-                    # 2. تسجيل العملية مع النسخة الاحتياطية (Snapshot) في جدول admin_action_logs
+                    # تسجيل العملية مع النسخة الاحتياطية (Snapshot) في جدول admin_action_logs
                     cur.execute("""
                         INSERT INTO admin_action_logs (
                             admin_id, action_title, category, action,
@@ -978,12 +988,17 @@ def undo_last_admin_actions(count: int = 1, specific_log_id=None):
                             if not uid:
                                 continue
 
+                            vip_st_raw = snap.get('vip_status')
+                            try:
+                                vip_st_int = int(vip_st_raw or 0)
+                            except (ValueError, TypeError):
+                                vip_st_int = 0
+
                             cur.execute("""
                                 UPDATE users
                                 SET balance = %s,
                                     zn_balance = %s,
                                     total_earned = %s,
-                                    total_earned_zn = %s,
                                     znx_balance = %s,
                                     usd_balance = %s,
                                     mined_points = %s,
@@ -996,7 +1011,7 @@ def undo_last_admin_actions(count: int = 1, specific_log_id=None):
                                     upgrades = %s,
                                     upgrades_count = %s,
                                     farm_level = %s,
-                                    mining_rate = %s,
+                                    hourly_rate = %s,
                                     storage_level = %s,
                                     max_cap = %s,
                                     is_vip = %s,
@@ -1005,7 +1020,7 @@ def undo_last_admin_actions(count: int = 1, specific_log_id=None):
                                     vip_level = %s,
                                     plan = %s,
                                     vip_status = %s,
-                                    vip_expiry = %s,
+                                    vip_expire = %s,
                                     vip_expires_at = %s,
                                     expires_at = %s,
                                     updated_at = CURRENT_TIMESTAMP
@@ -1014,7 +1029,6 @@ def undo_last_admin_actions(count: int = 1, specific_log_id=None):
                                 float(snap.get('balance') or 0.0),
                                 float(snap.get('zn_balance') or 0.0),
                                 float(snap.get('total_earned') or 0.0),
-                                float(snap.get('total_earned_zn') or 0.0),
                                 float(snap.get('znx_balance') or 0.0),
                                 float(snap.get('usd_balance') or 0.0),
                                 float(snap.get('mined_points') or 0.0),
@@ -1027,7 +1041,7 @@ def undo_last_admin_actions(count: int = 1, specific_log_id=None):
                                 Json(_parse_json_obj(snap.get('upgrades'))),
                                 int(snap.get('upgrades_count') or 0),
                                 int(snap.get('farm_level') or 1),
-                                float(snap.get('mining_rate') or 0.1),
+                                float(snap.get('hourly_rate') or snap.get('mining_rate') or 0.1),
                                 int(snap.get('storage_level') or 1),
                                 float(snap.get('max_cap') or 0.3),
                                 bool(snap.get('is_vip', False)),
@@ -1035,8 +1049,8 @@ def undo_last_admin_actions(count: int = 1, specific_log_id=None):
                                 snap.get('vip_package'),
                                 snap.get('vip_level'),
                                 snap.get('plan'),
-                                Json(_parse_json_obj(snap.get('vip_status'))),
-                                snap.get('vip_expiry'),
+                                vip_st_int,
+                                snap.get('vip_expire') or snap.get('vip_expiry'),
                                 snap.get('vip_expires_at'),
                                 snap.get('expires_at'),
                                 uid, uid, uid
