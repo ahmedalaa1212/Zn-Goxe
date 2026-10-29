@@ -1,44 +1,307 @@
-<div class="content-card animate-fade-in">
-    <h3 style="color: #f59e0b; margin-bottom: 12px;">🎁 إنشاء كود مكافأة جديد (Promo Code)</h3>
-    
-    <div class="search-box-container">
-        <input type="text" id="promo_code_input" class="search-input" placeholder="اسم الكود (مثال: BONUS2026)">
-        <input type="number" id="promo_coins_input" class="search-input" placeholder="عدد العملات المكافأة لكل شخص">
-        
-        <div style="display: flex; gap: 8px;">
-            <input type="number" id="promo_duration_val" class="search-input" placeholder="المدة (مثال: 5)" style="flex: 2;">
-            <select id="promo_duration_type" class="search-input" style="flex: 1; background-color: #1f2330;">
-                <option value="minutes">دقائق</option>
-                <option value="hours" selected>ساعات</option>
-                <option value="days">أيام</option>
-            </select>
-        </div>
-
-        <input type="number" id="promo_max_uses" class="search-input" placeholder="أقصى عدد مستخدمين (0 تعني غير محدود)">
-        
-        <button class="btn-refresh" onclick="submitCreatePromoCode()">✨ إنشاء الكود الآن</button>
+<!-- ==================== شريط التبديل العلوي بين القسمين ==================== -->
+<div class="content-card animate-fade-in" style="padding: 10px; margin-bottom: 14px;">
+    <div style="display: flex; gap: 10px;">
+        <button id="tab_btn_promo" onclick="switchAddonsMainTab('promo')" 
+            style="flex: 1; padding: 12px 10px; border-radius: 10px; border: 1px solid #f59e0b; background: linear-gradient(135deg, #f59e0b, #d97706); color: #000; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.2s;">
+            🎁 أكواد المكافآت
+        </button>
+        <button id="tab_btn_datacontrol" onclick="switchAddonsMainTab('datacontrol')" 
+            style="flex: 1; padding: 12px 10px; border-radius: 10px; border: 1px solid #334155; background: #1e293b; color: #cbd5e1; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.2s;">
+            🎛️ التحكم في البيانات
+        </button>
     </div>
 </div>
 
-<div class="content-card animate-fade-in">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h3 style="color: #f59e0b;">📋 الأكواد النشطة والسابقة</h3>
-        <button class="btn-action btn-add" onclick="fetchAndRenderPromoCodes()">تحديث 🔄</button>
+<!-- ========================================================================= -->
+<!-- القسم الأول: أكواد المكافآت (Promo Codes) -->
+<!-- ========================================================================= -->
+<div id="addons_tab_promo" style="display: block;">
+    <div class="content-card animate-fade-in">
+        <h3 style="color: #f59e0b; margin-bottom: 12px;">🎁 إنشاء كود مكافأة جديد (Promo Code)</h3>
+        
+        <div class="search-box-container">
+            <input type="text" id="promo_code_input" class="search-input" placeholder="اسم الكود (مثال: BONUS2026)">
+            <input type="number" id="promo_coins_input" class="search-input" placeholder="عدد العملات المكافأة لكل شخص">
+            
+            <div style="display: flex; gap: 8px;">
+                <input type="number" id="promo_duration_val" class="search-input" placeholder="المدة (مثال: 5)" style="flex: 2;">
+                <select id="promo_duration_type" class="search-input" style="flex: 1; background-color: #1f2330;">
+                    <option value="minutes">دقائق</option>
+                    <option value="hours" selected>ساعات</option>
+                    <option value="days">أيام</option>
+                </select>
+            </div>
+
+            <input type="number" id="promo_max_uses" class="search-input" placeholder="أقصى عدد مستخدمين (0 تعني غير محدود)">
+            
+            <button class="btn-refresh" onclick="submitCreatePromoCode()">✨ إنشاء الكود الآن</button>
+        </div>
     </div>
-    <div class="table-responsive">
-        <table class="users-table">
-            <thead>
-                <tr>
-                    <th>الكود</th>
-                    <th>العملات</th>
-                    <th>الاستخدامات</th>
-                    <th>الحالة</th>
-                    <th>إجراءات</th>
-                </tr>
-            </thead>
-            <tbody id="promo_codes_table_body">
-                <tr><td colspan="5">جاري التحميل...</td></tr>
-            </tbody>
-        </table>
+
+    <div class="content-card animate-fade-in">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="color: #f59e0b;">📋 الأكواد النشطة والسابقة</h3>
+            <button class="btn-action btn-add" onclick="fetchAndRenderPromoCodes()">تحديث 🔄</button>
+        </div>
+        <div class="table-responsive">
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>الكود</th>
+                        <th>العملات</th>
+                        <th>الاستخدامات</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody id="promo_codes_table_body">
+                    <tr><td colspan="5">جاري التحميل...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- القسم الثاني: التحكم الشامل في بيانات المستخدمين (Data Control) -->
+<!-- ========================================================================= -->
+<div id="addons_tab_datacontrol" style="display: none;">
+
+    <!-- 1. تحديد الهدف وفحص بيانات اللاعب -->
+    <div class="content-card animate-fade-in">
+        <h3 style="color: #f59e0b; margin-bottom: 12px;">🎯 1. تحديد المستهدف وفحص الحساب</h3>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button id="target_mode_single_btn" onclick="switchDataTargetMode('single')"
+                style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #10b981; background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: bold; cursor: pointer;">
+                👤 مستخدم محدد (بالـ ID)
+            </button>
+            <button id="target_mode_all_btn" onclick="switchDataTargetMode('all')"
+                style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #1f2330; color: #94a3b8; font-weight: bold; cursor: pointer;">
+                🌍 جميع المستخدمين (الكل)
+            </button>
+        </div>
+
+        <!-- صندوق البحث بالـ ID -->
+        <div id="single_user_search_box" style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="dc_target_telegram_id" class="search-input" placeholder="أدخل ID اللاعب هنا (مثال: 5102387551)" style="flex: 1; margin-bottom: 0;">
+            <button class="btn-action btn-add" onclick="inspectUserById()" style="padding: 11px 16px; white-space: nowrap; font-weight: bold;">
+                🔍 فحص اللاعب
+            </button>
+        </div>
+
+        <!-- تنبيه وضع الإرسال الجماعي -->
+        <div id="all_users_warning_box" style="display: none; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; color: #fcd34d; padding: 10px; border-radius: 8px; font-size: 13px; text-align: center;">
+            ⚠️ <b>وضع الإرسال الجماعي مفعل:</b> أي عملية إضافة أو خصم أو ترقية ستقوم بتنفيذها الآن ستُطبق على <b>جميع المستخدمين في البوت</b> دفعة واحدة (مع حفظ نسخة احتياطية للإرجاع).
+        </div>
+
+        <!-- بطاقة عرض ممتلكات اللاعب بعد الفحص -->
+        <div id="inspected_user_card" style="display: none; margin-top: 14px; background: #161922; border: 1px solid #334155; border-radius: 12px; padding: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #262b38; padding-bottom: 8px; margin-bottom: 10px;">
+                <div>
+                    <span id="iu_name" style="font-weight: bold; color: #fff; font-size: 15px;">-</span>
+                    <span id="iu_username" style="color: #94a3b8; font-size: 12px; margin-right: 6px;"></span>
+                </div>
+                <span id="iu_status_badge" style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #065f46; color: #6ee7b7;">نشط</span>
+            </div>
+
+            <!-- شبكة الأرصدة والممتلكات الأساسية -->
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 12px; margin-bottom: 10px;">
+                <div style="background: #1f2330; padding: 8px; border-radius: 8px;">
+                    <div style="color: #94a3b8;">🪙 رصيد العملات (ZN):</div>
+                    <div id="iu_balance" style="color: #f59e0b; font-weight: bold; font-size: 14px; margin-top: 2px;">0</div>
+                </div>
+                <div style="background: #1f2330; padding: 8px; border-radius: 8px;">
+                    <div style="color: #94a3b8;">💎 عملات ZNX:</div>
+                    <div id="iu_znx" style="color: #38bdf8; font-weight: bold; font-size: 14px; margin-top: 2px;">0</div>
+                </div>
+                <div style="background: #1f2330; padding: 8px; border-radius: 8px;">
+                    <div style="color: #94a3b8;">💵 رصيد الدولار (USD):</div>
+                    <div id="iu_usd" style="color: #4ade80; font-weight: bold; font-size: 14px; margin-top: 2px;">0</div>
+                </div>
+                <div style="background: #1f2330; padding: 8px; border-radius: 8px;">
+                    <div style="color: #94a3b8;">⛏️ نقاط التعدين (المتصدرين):</div>
+                    <div id="iu_mined" style="color: #c084fc; font-weight: bold; font-size: 14px; margin-top: 2px;">0</div>
+                </div>
+                <div style="background: #1f2330; padding: 8px; border-radius: 8px;">
+                    <div style="color: #94a3b8;">📦 مستوى المخزن / السعة:</div>
+                    <div id="iu_storage" style="color: #fbbf24; font-weight: bold; font-size: 13px; margin-top: 2px;">1 (سعة: 0.3)</div>
+                </div>
+                <div style="background: #1f2330; padding: 8px; border-radius: 8px;">
+                    <div style="color: #94a3b8;">⚡ سرعة التعدين / الإحالات:</div>
+                    <div id="iu_rate_refs" style="color: #e2e8f0; font-weight: bold; font-size: 13px; margin-top: 2px;">0.1 / 0 إحالة</div>
+                </div>
+            </div>
+
+            <!-- حالة الباقة VIP -->
+            <div style="background: #1f2330; padding: 8px 10px; border-radius: 8px; margin-bottom: 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #94a3b8;">👑 حالة الباقة (VIP):</span>
+                <span id="iu_vip_info" style="font-weight: bold; color: #cbd5e1;">غير مشترك</span>
+            </div>
+
+            <!-- تفصيل مستويات التعدين التسعة (lvl1 - lvl9) -->
+            <div style="font-size: 12px; color: #94a3b8; margin-bottom: 6px;">🛠️ مستويات سرعة التعدين المملوكة حالياً (1 إلى 9):</div>
+            <div id="iu_upgrades_grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 11px;">
+                <!-- يتم ملؤها تلقائياً بالجافاسكريبت -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. التحكم في الأرصدة والنقاط والإحالات -->
+    <div class="content-card animate-fade-in">
+        <h3 style="color: #f59e0b; margin-bottom: 10px;">💰 2. إضافة أو خصم الأرصدة والنقاط</h3>
+        <div class="search-box-container">
+            <select id="dc_balance_field" class="search-input" style="background-color: #1f2330;">
+                <option value="balance">🪙 الرصيد الأساسي (عملات ZN)</option>
+                <option value="znx_balance">💎 رصيد عملات ZNX</option>
+                <option value="usd_balance">💵 رصيد الدولار (USD)</option>
+                <option value="mined_points">⛏️ نقاط التعدين (ترتيب المتصدرين)</option>
+                <option value="referrals_count">👥 عدد الإحالات (Referrals)</option>
+            </select>
+
+            <input type="number" step="any" id="dc_balance_amount" class="search-input" placeholder="أدخل الكمية (تُجمع مع الرصيد الحالي عند الإضافة)">
+
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-action btn-add" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('balance', 'add')">
+                    ➕ إضافة (+) للرصيد
+                </button>
+                <button class="btn-action btn-deduct" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('balance', 'deduct')">
+                    ➖ خصم (-) من الرصيد
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. التحكم في ترقيات سرعة التعدين (lvl1 - lvl9) -->
+    <div class="content-card animate-fade-in">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="color: #f59e0b; margin: 0;">⚡ 3. ترقيات سرعة التعدين (المزرعة)</h3>
+            <span id="dc_upgrade_limit_hint" style="font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 8px; border-radius: 6px;">
+                اختر المستوى للتحكم به
+            </span>
+        </div>
+
+        <div class="search-box-container">
+            <select id="dc_upgrade_level_select" class="search-input" style="background-color: #1f2330;" onchange="updateUpgradeLevelHint()">
+                <option value="lvl1">المستوى الأول (lvl1)</option>
+                <option value="lvl2">المستوى الثاني (lvl2)</option>
+                <option value="lvl3">المستوى الثالث (lvl3)</option>
+                <option value="lvl4">المستوى الرابع (lvl4)</option>
+                <option value="lvl5">المستوى الخامس (lvl5)</option>
+                <option value="lvl6">المستوى السادس (lvl6)</option>
+                <option value="lvl7">المستوى السابع (lvl7)</option>
+                <option value="lvl8">المستوى الثامن (lvl8)</option>
+                <option value="lvl9">المستوى التاسع (lvl9)</option>
+            </select>
+
+            <input type="number" id="dc_upgrade_count" class="search-input" value="1" min="1" placeholder="عدد الترقيات المطلوب إضافتها أو سحبها (الافتراضي: 1)">
+
+            <div style="display: flex; gap: 8px;">
+                <button id="btn_upgrade_add" class="btn-action btn-add" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('upgrade', 'add')">
+                    ⬆️ ترقية المستوى (+)
+                </button>
+                <button id="btn_upgrade_deduct" class="btn-action btn-deduct" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('upgrade', 'deduct')">
+                    ⬇️ سحب من المستوى (-)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. التحكم في المخازن وسعة التخزين -->
+    <div class="content-card animate-fade-in">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="color: #f59e0b; margin: 0;">📦 4. التحكم في المخازن (Storage)</h3>
+            <span id="dc_storage_limit_hint" style="font-size: 11px; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 4px 8px; border-radius: 6px;">
+                تحديث السعة تلقائياً
+            </span>
+        </div>
+
+        <div class="search-box-container">
+            <input type="number" id="dc_storage_count" class="search-input" value="1" min="1" placeholder="عدد مستويات المخزن للإضافة أو الإنقاص (الافتراضي: 1)">
+
+            <div style="display: flex; gap: 8px;">
+                <button id="btn_storage_add" class="btn-action btn-add" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('storage', 'add')">
+                    ⬆️ إضافة مستوى مخزن (+)
+                </button>
+                <button id="btn_storage_deduct" class="btn-action btn-deduct" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('storage', 'deduct')">
+                    ⬇️ إنقاص مستوى مخزن (-)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. شحن باقات المتجر والـ VIP -->
+    <div class="content-card animate-fade-in">
+        <h3 style="color: #f59e0b; margin-bottom: 10px;">👑 5. شحن وتفعيل باقات المتجر (VIP)</h3>
+        <div class="search-box-container">
+            <select id="dc_vip_package" class="search-input" style="background-color: #1f2330;">
+                <option value="VIP_1">باقة VIP الأساسية (المستوى 1)</option>
+                <option value="VIP_2">باقة VIP الفضية (المستوى 2)</option>
+                <option value="VIP_3">باقة VIP الذهبية (المستوى 3)</option>
+                <option value="VIP_MAX">باقة VIP الملكية الخاصة (VIP MAX)</option>
+            </select>
+
+            <div style="display: flex; gap: 8px;">
+                <input type="number" id="dc_vip_duration_val" class="search-input" value="30" min="1" placeholder="المدة (مثال: 30)" style="flex: 2;">
+                <select id="dc_vip_duration_type" class="search-input" style="flex: 1; background-color: #1f2330;">
+                    <option value="hours">ساعات</option>
+                    <option value="days" selected>أيام</option>
+                </select>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-action btn-add" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('vip', 'activate')">
+                    ✨ شحن وتفعيل الباقة
+                </button>
+                <button class="btn-action btn-ban" style="flex: 1; padding: 11px; font-weight: bold;" onclick="executeAdminDataAction('vip', 'deactivate')">
+                    🚫 إلغاء وإيقاف الباقة
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. قسم الإرجاع الذكي (Undo System) -->
+    <div class="content-card animate-fade-in" style="border: 1px solid rgba(239, 68, 68, 0.4);">
+        <h3 style="color: #f87171; margin-bottom: 8px;">⏪ 6. التراجع والإرجاع الذكي (Undo)</h3>
+        <p style="color: #94a3b8; font-size: 12px; margin-bottom: 10px;">
+            حدد عدد آخر العمليات التي قمت بها بالخطأ ليتم إرجاع حسابات المستخدمين المتأثرين إلى حالتها الأصلية تماماً كأن شيئاً لم يكن:
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="number" id="dc_undo_count_input" class="search-input" value="1" min="1" max="50" placeholder="عدد العمليات (مثال: 1 أو 3 أو 10)" style="flex: 1; margin-bottom: 0;">
+            <button class="btn-action btn-ban" onclick="undoLastAdminActions()" style="padding: 11px 16px; white-space: nowrap; font-weight: bold;">
+                ⏪ إرجاع العمليات المحددة
+            </button>
+        </div>
+    </div>
+
+    <!-- 7. سجل العمليات الإدارية (Action Logs) -->
+    <div class="content-card animate-fade-in">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <h3 style="color: #f59e0b; margin: 0;">📜 7. سجل العمليات والتعديلات</h3>
+            <div style="display: flex; gap: 6px;">
+                <button class="btn-action btn-add" onclick="fetchAndRenderAdminLogs()">تحديث 🔄</button>
+                <button class="btn-action btn-deduct" onclick="clearAdminLogsOnly()" title="يحذف السجل من الشاشة فقط ولا يغير أرصدة اللاعبين">
+                    🗑️ مسح السجل فقط
+                </button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>العملية</th>
+                        <th>المستهدف</th>
+                        <th>التفاصيل</th>
+                        <th>الحالة / استرجاع</th>
+                    </tr>
+                </thead>
+                <tbody id="admin_data_logs_tbody">
+                    <tr><td colspan="5" style="color:#94a3b8;">لا توجد سجلات حالياً.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
